@@ -100,11 +100,11 @@
 .atc-tip td.atis.ci { color: #aab8c4; }
 
 /* --- karta lotniska pod plakietką (lotnisko przy górnej krawędzi mapy): strzałka tylko u góry */
-.leaflet-tooltip-bottom.ad-tip::before { border-top-color: transparent; }
-.leaflet-tooltip.ad-tip.adc-shift::before { display: none; }
+.leaflet-tooltip-bottom.aero-tip::before { border-top-color: transparent; }
+.leaflet-tooltip.aero-tip.aeroc-shift::before { display: none; }
 
 /* --- karta lotniska: kto wystawił ATIS */
-.ad-tip .adc-who { margin: 0 0 2px; font: 12px var(--mono); color: #1d2329; }
+.aero-tip .aeroc-who { margin: 0 0 2px; font: 12px var(--mono); color: #1d2329; }
 
 /* --- samoloty: odlot z EP** (niebieski jak paski odlotów), przylot na EP** (żółty jak paski przylotów), tranzyt (biały) */
 .acicon.dep svg, .acsym.dep { fill: #6db8ff; }

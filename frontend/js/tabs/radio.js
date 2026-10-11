@@ -236,7 +236,7 @@ function listView(build, { wide = false, goto, nb } = {}) {
       if (b) {
         const g = pane.querySelector(`.radio-group[data-group="${CSS.escape(b.dataset.jump)}"]`);
         // przewijamy tak, żeby nagłówek lotniska wypadł tuż pod przyklejonym paskiem przycisków
-        if (g) pane.scrollBy({ top: g.getBoundingClientRect().top - pane.getBoundingClientRect().top - b.closest(".ad-jump").offsetHeight - 6, behavior: "smooth" });
+        if (g) pane.scrollBy({ top: g.getBoundingClientRect().top - pane.getBoundingClientRect().top - b.closest(".aero-jump").offsetHeight - 6, behavior: "smooth" });
         return;
       }
       const go = e.target.closest("[data-goto]");
@@ -255,7 +255,7 @@ function listView(build, { wide = false, goto, nb } = {}) {
 // pomarańczowy = rezerwacja. kinds: [{short, g: [[nazwa grupy, stanowiska]], tip(nazwa, stanowiska)}]
 const grpState = (ps) => (ps.some((p) => st.online[p.callsign]) ? "on" : ps.some((p) => st.bookings[p.callsign]?.length) ? "booked" : "");
 // bez żadnej grupy (pusta lista) bez paska
-const jumpBar = (kinds) => (kinds.some((k) => k.g.length) ? `<div class="ad-jump">${kinds.filter((k) => k.g.length).map((k) => `<span class="aj-kind">${k.short}</span>${k.g.map(([key, ps]) =>
+const jumpBar = (kinds) => (kinds.some((k) => k.g.length) ? `<div class="aero-jump">${kinds.filter((k) => k.g.length).map((k) => `<span class="aj-kind">${k.short}</span>${k.g.map(([key, ps]) =>
   `<button data-jump="${esc(key)}" class="${grpState(ps)}" title="${esc(k.tip(key, ps))}">${esc(key)}</button>`).join("")}`).join("")}</div>` : "");
 // sąsiedzi i INNE: najpierw grupy ze stanowiskami ACC/CTR (jak kolejność listy), potem lotniska
 const nbJump = (groups) => {

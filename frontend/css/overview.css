@@ -4,12 +4,12 @@
 
 /* OVERVIEW w podmenu AERODROME: nad przyciskami lotnisk, odcięty odstępem i ciemniejszy, żeby było widać,
    że to nie kod lotniska */
-.submenu button.ad-ov-btn { font-size: 12px; letter-spacing: .6px;
+.submenu button.aero-ov-btn { font-size: 12px; letter-spacing: .6px;
   background: linear-gradient(#2f8a22, #1d5c14); border-color: #17470f; }
-.submenu button.ad-ov-btn:hover { background: linear-gradient(#3da22c, #27761c); }
-.submenu button.ad-ov-btn.active { background: linear-gradient(#8cff5a, #5fd23a); color: #0b2a06; }
+.submenu button.aero-ov-btn:hover { background: linear-gradient(#3da22c, #27761c); }
+.submenu button.aero-ov-btn.active { background: linear-gradient(#8cff5a, #5fd23a); color: #0b2a06; }
 
-.ad-pane.ov-mode > .toolbar .ad-view { display: none; }   /* PRZEGLĄD/AWOS/RUCH dotyczą jednego lotniska */
+.aero-pane.ov-mode > .toolbar .aero-view { display: none; }   /* PRZEGLĄD/AWOS/RUCH dotyczą jednego lotniska */
 .ov { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .ov > .toolbar.ov-bar { margin: 0 0 6px; }
 .ov-bar label.sc { gap: 6px; }
@@ -55,14 +55,14 @@
 .ov-tl-min { font: 13px/1.5 var(--mono); color: var(--text); margin-bottom: 4px; }
 
 /* --- METAR / TAF / LVP */
-.ov-ad { padding: 3px 4px; border-bottom: 1px solid #161b16; cursor: pointer; }
-.ov-ad:hover { background: var(--row-hover); }
-.ov-ad.open { background: #0f140f; }
-.ov-ad-head { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
-.ov-ad-head .cat { font: 700 11px var(--mono); }
-.ov-ad-head .ov-traffic { font: 12px var(--mono); color: var(--cyan); }
-.ov-ad-head .ov-obs { font: 11px var(--mono); color: var(--muted); }
-.ov-ad-head .ov-more { margin-left: auto; font: 10px var(--sans); color: var(--muted); }
+.ov-aero { padding: 3px 4px; border-bottom: 1px solid #161b16; cursor: pointer; }
+.ov-aero:hover { background: var(--row-hover); }
+.ov-aero.open { background: #0f140f; }
+.ov-aero-head { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.ov-aero-head .cat { font: 700 11px var(--mono); }
+.ov-aero-head .ov-traffic { font: 12px var(--mono); color: var(--cyan); }
+.ov-aero-head .ov-obs { font: 11px var(--mono); color: var(--muted); }
+.ov-aero-head .ov-more { margin-left: auto; font: 10px var(--sans); color: var(--muted); }
 .ov .wx.ov-metar, .ov .wx.ov-taf { font: 13px/1.45 var(--mono); overflow-wrap: anywhere; }
 .ov .wx.ov-taf { color: #c9d4c9; }
 .ov .wx.ov-taf .cont { display: inline-block; padding-left: 4ch; }
@@ -105,7 +105,7 @@
 
 /* niskie albo wąskie okno (1366x768 i mniej): panele w naturalnej wysokości, ekran przewija się jak w PRZEGLĄDZIE */
 @media (max-width: 1240px), (max-height: 640px) {
-  .ad-pane.ov-mode { overflow: auto; }
+  .aero-pane.ov-mode { overflow: auto; }
   .ov-grid { grid-template-columns: 272px minmax(0, 1.4fr); }
   .ov-col > .card.grow, .ov-col > .card.part { flex: none; max-height: none; }
   .ov-col .scroll { max-height: 300px; }

@@ -237,7 +237,7 @@ function ruchLine(t, icao) {
 }
 
 function windText(p) {
-  if (!p || p.wind_speed === null) return "–";
+  if (!p || p.wind_speed === null || p.wind_speed === undefined) return "–";   // bez METAR parsed = {}
   const dir = p.wind_variable ? "VRB" : String(p.wind_dir).padStart(3, "0");
   return `${dir}°/${p.wind_speed}${p.wind_gust ? "G" + p.wind_gust : ""} kt`;
 }
@@ -260,16 +260,16 @@ export default {
   mount(root, ctx) {
     const MAIN = ["EPWA", "EPMO", "EPKK", "EPKT", "EPGD", "EPPO", "EPWR", "EPLL", "EPRZ", "EPLB", "EPSC", "EPBY", "EPSY", "EPZG", "EPRA"].sort();
     // OVERVIEW = cały FIR EPWW na jednym ekranie (overview.js); niżej, po odstępie, pojedyncze lotniska
-    const sub = h(`<nav class="submenu"><button data-ad="OVERVIEW" class="ad-ov-btn">OVERVIEW</button><div class="sep"></div>
-      ${MAIN.map((i) => `<button data-ad="${i}">${i}</button>`).join("")}</nav>`);
+    const sub = h(`<nav class="submenu"><button data-icao="OVERVIEW" class="aero-ov-btn">OVERVIEW</button><div class="sep"></div>
+      ${MAIN.map((i) => `<button data-icao="${i}">${i}</button>`).join("")}</nav>`);
     root.append(sub);
-    sub.addEventListener("click", (e) => { const b = e.target.closest("button[data-ad]"); if (b) go(b.dataset.ad); });
-    const pane = h(`<div class="pane ad-pane">
+    sub.addEventListener("click", (e) => { const b = e.target.closest("button[data-icao]"); if (b) go(b.dataset.icao); });
+    const pane = h(`<div class="pane aero-pane">
       <div class="toolbar">
-        <input class="field ad" list="ad-list" size="10" placeholder="ICAO">
-        <datalist id="ad-list"></datalist>
+        <input class="field aero-icao" list="aero-list" size="10" placeholder="ICAO">
+        <datalist id="aero-list"></datalist>
         <button class="btn primary go">Pokaż</button>
-        <span class="ad-view"><button data-view="overview">PRZEGLĄD</button><button data-view="awos">AWOS</button><button data-view="ruch">RUCH</button></span>
+        <span class="aero-view"><button data-view="overview">PRZEGLĄD</button><button data-view="awos">AWOS</button><button data-view="ruch">RUCH</button></span>
         <span class="title" style="font-weight:600"></span><span style="flex:1"></span>
         <span class="hint upd"></span>
       </div>
@@ -288,7 +288,7 @@ export default {
 
     // lista podpowiedzi ICAO; bez niej pole działa dalej (wpisany kod), błąd tylko w konsoli
     api("/api/aerodromes").then((ads) => {
-      $("#ad-list").innerHTML = ads.map((a) => `<option value="${a.icao}">${esc(a.name)}</option>`).join("");
+      $("#aero-list").innerHTML = ads.map((a) => `<option value="${a.icao}">${esc(a.name)}</option>`).join("");
     }).catch((e) => console.warn("Lista lotnisk:", e.message));
 
     const renderRuch = async (el) => {
@@ -352,27 +352,27 @@ export default {
     // (checklista jest tylko w zakładce CHECKLIST, loty w widoku RUCH). Szkielet budujemy raz na lotnisko, dane odświeżamy co minutę.
     const build = () => {
       $(".content").innerHTML = `
-        <div class="ad-errors"></div>
+        <div class="aero-errors"></div>
         <div class="metar-head"></div>
-        <div class="ad-grid">
-          <div class="ad-col">
-            <div class="card ad-wind"></div>
-            <div class="card grow"><h3 class="atis-h">ATIS</h3><div class="scroll ad-atis"></div></div>
+        <div class="aero-grid">
+          <div class="aero-col">
+            <div class="card aero-wind"></div>
+            <div class="card grow"><h3 class="atis-h">ATIS</h3><div class="scroll aero-atis"></div></div>
           </div>
-          <div class="ad-col">
+          <div class="aero-col">
             <div class="values compact"></div>
-            <div class="card ad-rwy-card"><h3>Pasy</h3><div class="ad-rwys"></div></div>
-            <div class="card grow ad-taf-card"><h3>TAF</h3><div class="scroll ad-taf wx"></div></div>
-            <div class="card ad-ruch" title="Pokaż paski postępu lotu (widok RUCH)"><h3>Ruch VATSIM<span class="ruch-go">paski ›</span></h3><div class="ad-ruch-line"><span class="hint">Ładowanie…</span></div></div>
+            <div class="card aero-rwy-card"><h3>Pasy</h3><div class="aero-rwys"></div></div>
+            <div class="card grow aero-taf-card"><h3>TAF</h3><div class="scroll aero-taf wx"></div></div>
+            <div class="card aero-ruch" title="Pokaż paski postępu lotu (widok RUCH)"><h3>Ruch VATSIM<span class="ruch-go">paski ›</span></h3><div class="aero-ruch-line"><span class="hint">Ładowanie…</span></div></div>
           </div>
-          <div class="ad-col">
+          <div class="aero-col">
             <div class="card part"><h3>Częstotliwości · online · rezerwacje</h3><div class="scroll freqs"></div></div>
-            <div class="card ad-apw" title="Wiatr przy ziemi i na 3000 ft AMSL w punkcie podejścia każdego pasa (Open-Meteo); METEO › WIND pokazuje to samo na mapie Windy">
+            <div class="card aero-apw" title="Wiatr przy ziemi i na 3000 ft AMSL w punkcie podejścia każdego pasa (Open-Meteo); METEO › WIND pokazuje to samo na mapie Windy">
               <h3>Wiatr 0 / 3000 ft · podejście<span class="apw-src"></span></h3><div class="apw"></div></div>
-            <div class="card grow ad-notam"><h3>NOTAM</h3><div class="scroll notams"></div></div>
+            <div class="card grow aero-notam"><h3>NOTAM</h3><div class="scroll notams"></div></div>
           </div>
         </div>`;
-      $(".ad-ruch").addEventListener("click", () => setView("ruch"));
+      $(".aero-ruch").addEventListener("click", () => setView("ruch"));
       drawApw();
       renderNotams($(".notams"));
     };
@@ -408,14 +408,14 @@ export default {
         [info, st] = await Promise.all([api(`/api/aerodromes/${icao}`), api(`/api/aerodromes/${icao}/status`)]);
       } catch (e) {
         if (view !== "overview" || ovMode) return;
-        $(".ad-errors").innerHTML = `<p class="error">${esc(e.message)}</p>`;
+        $(".aero-errors").innerHTML = `<p class="error">${esc(e.message)}</p>`;
         // tytuł i godzina aktualizacji po poprzednim lotnisku nie mogą zostać przy nowo wybranym
         if (!$(".title").textContent.startsWith(icao)) {
           $(".title").textContent = icao;
           $(".upd").textContent = "";
         }
         // RUCH nie zależy od statusu lotniska: własne zapytanie, przy braku serwera błąd zamiast "Ładowanie…"
-        renderRuch($(".ad-ruch-line"));
+        renderRuch($(".aero-ruch-line"));
         return;
       }
       if (view !== "overview" || ovMode) return; // w międzyczasie przełączono na AWOS, RUCH albo OVERVIEW
@@ -426,13 +426,13 @@ export default {
       const rvr = (p.rvr || []).map((x) => `R${x.runway} ${x.value}`).join("<br>") || "–";
       const age = obsAge(p.time);
       const gust = p.wind_gust ? ` <span class="gust">G${p.wind_gust}</span>` : "";
-      $(".ad-errors").innerHTML = st.errors.length ? `<p class="error">${st.errors.map(esc).join("<br>")}</p>` : "";
+      $(".aero-errors").innerHTML = st.errors.length ? `<p class="error">${st.errors.map(esc).join("<br>")}</p>` : "";
       $(".metar-head").innerHTML = `
           <div class="wx">${colorize(st.metar)}</div>
           <div class="obs ${age !== null && age > 70 ? "stale" : ""}">${p.time ? `obs. ${esc(p.time.slice(2, 4))}:${esc(p.time.slice(4, 6))}Z` : ""}${age !== null ? ` · ${age} min temu` : ""}</div>
           ${sunBox(st.sun)}
           ${lvpBox(st.lvp)}`;
-      $(".ad-wind").innerHTML = `${windrose(st)}
+      $(".aero-wind").innerHTML = `${windrose(st)}
             <div class="big">${windText(p).replace(/G\d+/, "")}${gust}</div>
             <div class="hint">${p.wind_speed !== null && p.wind_speed !== undefined ? `${Math.round(p.wind_speed * 0.514)} m/s` : ""}${p.wind_var_from !== null && p.wind_var_from !== undefined ? ` · zmienny ${p.wind_var_from}°–${p.wind_var_to}°` : ""}</div>
             ${runwayBox(st)}`;
@@ -446,16 +446,16 @@ export default {
               ${value("Temp / Dew", `${p.temperature ?? "–"} / ${p.dewpoint ?? "–"}`, p.temperature !== null && p.dewpoint !== null && p.temperature !== undefined && p.temperature - p.dewpoint <= 2 ? '<span class="hint" style="color:var(--warn)">mały spread</span>' : "")}
               ${value("Zjawiska", `<span class="sm">${esc((p.weather || []).join(" ") || "–")}</span>`)}
               ${value("Kategoria", `<span class="cat-${esc(p.flight_category)}">${esc(p.flight_category || "–")}</span>`, p.trend ? `<span class="hint mono">${esc(p.trend)}</span>` : "")}`;
-      $(".ad-rwys").innerHTML = runwayTable(st);
+      $(".aero-rwys").innerHTML = runwayTable(st);
       lastSt = st;
       drawApw();
       if (Date.now() - awAt > 300000) loadApw();
-      $(".ad-taf").innerHTML = st.taf ? wxLines("taf", st.taf) : colorize(null);
+      $(".aero-taf").innerHTML = st.taf ? wxLines("taf", st.taf) : colorize(null);
       $(".atis-h").textContent = `ATIS ${st.atis ? st.atis.letter || "" : ""}`;
-      $(".ad-atis").innerHTML = st.atis ? `<div class="mono atis-text">${atisHtml(st.atis.lines)}</div>`
+      $(".aero-atis").innerHTML = st.atis ? `<div class="mono atis-text">${atisHtml(st.atis.lines)}</div>`
         : `<span class="hint">${st.network_error ? esc(st.network_error) : "ATIS nie jest teraz nadawany w sieci VATSIM."}</span>`;
       renderFreqs($(".freqs"), info);
-      renderRuch($(".ad-ruch-line"));
+      renderRuch($(".aero-ruch-line"));
       if (++ticks % 10 === 0) renderNotams($(".notams"));
     };
 
@@ -463,7 +463,7 @@ export default {
     const showOverview = () => {
       ovMode = true;
       lsSet("aerodrome.ov", "1");
-      sub.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.ad === "OVERVIEW"));
+      sub.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.icao === "OVERVIEW"));
       history.replaceState(null, "", "#aerodrome/OVERVIEW");
       clearInterval(timer);
       timer = null;
@@ -485,7 +485,7 @@ export default {
     };
 
     const go = (code) => {
-      const want = (code || $(".ad").value || icao).trim().toUpperCase();
+      const want = (code || $(".aero-icao").value || icao).trim().toUpperCase();
       if (want === "OVERVIEW") return showOverview();
       ovMode = false;
       lsSet("aerodrome.ov", "0");
@@ -493,9 +493,9 @@ export default {
       ov = null;
       pane.classList.remove("ov-mode");
       icao = want;
-      $(".ad").value = icao;
+      $(".aero-icao").value = icao;
       lsSet("aerodrome.icao", icao);
-      sub.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.ad === icao));
+      sub.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.icao === icao));
       history.replaceState(null, "", "#aerodrome/" + icao);
       ticks = 0;
       if (awFor !== icao) { aw = null; awErr = ""; awAt = 0; awFor = icao; lastSt = null; }
@@ -504,7 +504,7 @@ export default {
       awos = null;
       strips?.destroy();
       strips = null;
-      pane.querySelectorAll(".ad-view button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+      pane.querySelectorAll(".aero-view button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
       if (view === "awos") {
         $(".title").textContent = $(".upd").textContent = "";
         awos = mountAwos($(".content"), icao);
@@ -539,12 +539,12 @@ export default {
       lsSet("aerodrome.view", view);
       go(icao);
     };
-    $(".ad-view").addEventListener("click", (e) => {
+    $(".aero-view").addEventListener("click", (e) => {
       const b = e.target.closest("button[data-view]");
       if (b) setView(b.dataset.view);
     });
-    $(".ad").addEventListener("keydown", (e) => e.key === "Enter" && go());
-    $(".ad").addEventListener("change", () => go());
+    $(".aero-icao").addEventListener("keydown", (e) => e.key === "Enter" && go());
+    $(".aero-icao").addEventListener("change", () => go());
     // AWOS już pokazuje to lotnisko: zostaje (wybrany pas, otwarta nakładka, wykrywanie nowej litery ATIS).
     // RUCH tego lotniska: zostaje (zaznaczony pasek, przewinięcie zatok), tylko wznawia odświeżanie co 30 s.
     return { activate: (arg) => {

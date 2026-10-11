@@ -349,7 +349,7 @@ function notamValidity(n, now = Date.now()) {
 export function mountAwos(el, icao) {
   el.innerHTML = `<div class="awos">
     <div class="aw-top">
-      <div class="aw-box aw-ad"><span class="k">AWOS<span class="aw-elev"></span></span><span class="v"><b class="icao">${esc(icao)}</b><span class="aw-nm"></span></span></div>
+      <div class="aw-box aw-aero"><span class="k">AWOS<span class="aw-elev"></span></span><span class="v"><b class="icao">${esc(icao)}</b><span class="aw-nm"></span></span></div>
       <div class="aw-box aw-utc"><span class="k">UTC</span><span class="v aw-clock">--:--:--</span></div>
       <div class="aw-box aw-q"><span class="k">QNH hPa</span><span class="v qnh">–</span></div>
       <div class="aw-box aw-q"><span class="k">QFE hPa</span><span class="v qfe">–</span></div>
@@ -498,7 +498,7 @@ RVR: z METAR; gdy METAR nie podaje RVR dla pasa: przy widzialności ≥ 1500 m (
 
   const drawTop = () => {
     const p = st.parsed, lvp = st.lvp || {}, sun = st.sun;
-    $(".aw-ad .aw-nm").textContent = " " + (st.name || "");
+    $(".aw-aero .aw-nm").textContent = " " + (st.name || "");
     $(".aw-elev").textContent = has(st.elevation_ft) ? ` · ELEV ${Math.round(st.elevation_ft)} FT` : "";
     $(".qnh").textContent = p?.qnh ?? "–";
     $(".qfe").textContent = st.qfe ?? "–";

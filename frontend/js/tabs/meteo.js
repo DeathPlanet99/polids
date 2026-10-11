@@ -222,7 +222,7 @@ function qnhMap(pane) {
     const dup = (a) => !a.metar && main.some((m) => Math.abs(m.lat - a.lat) < 0.04 && Math.abs(m.lon - a.lon) < 0.06);
     data.aerodromes.filter((a) => !dup(a)).forEach((a) => {
       L.marker([a.lat, a.lon], { pane: "qad", keyboard: false, icon: L.divIcon({ className: "qr-icon", iconSize: null,
-        html: `<div class="qr-ad${a.metar ? " ctl" : ""}"><i></i><span>${esc(a.icao)}</span></div>` }) })
+        html: `<div class="qr-aero${a.metar ? " ctl" : ""}"><i></i><span>${esc(a.icao)}</span></div>` }) })
         .bindTooltip(`${esc(a.icao)}${qnhOf[a.icao] ? " Q" + qnhOf[a.icao] : ""}`, { direction: "top", offset: [0, -6], className: "qr-tip" })
         .addTo(layers.ad);
     });
@@ -340,7 +340,7 @@ function windTab(pane) {
   const wrap = h(`<div class="wnd">
     <div class="wnd-bar">
       <span class="wnd-seg wnd-mode"><button data-m="0">0 ft</button><button data-m="3000">3000 ft (podejście)</button></span>
-      <label class="wnd-adl">Lotnisko <select class="wnd-ad"></select></label>
+      <label class="wnd-aero-l">Lotnisko <select class="wnd-aero"></select></label>
       <span class="wnd-rwyl">Pas <span class="wnd-seg wnd-rwys"></span></span>
       <span class="wnd-hint"></span>
     </div>
@@ -467,7 +467,7 @@ function windTab(pane) {
   };
   $(".wnd-rwys").addEventListener("click", choose);
   $(".wnd-side").addEventListener("click", choose);
-  $(".wnd-ad").addEventListener("change", (e) => pick(e.target.value));
+  $(".wnd-aero").addEventListener("change", (e) => pick(e.target.value));
 
   bar();
   side();
@@ -480,7 +480,7 @@ function windTab(pane) {
     if (ads.length && !ads.some((a) => a.icao === icao)) icao = ads.some((a) => a.icao === "EPWA") ? "EPWA" : ads[0].icao;
     const opt = (a) => `<option value="${a.icao}"${a.icao === icao ? " selected" : ""}>${a.icao} ${esc(a.name)}</option>`;
     const main = ads.filter((a) => MAIN_AD.includes(a.icao)), rest = ads.filter((a) => !MAIN_AD.includes(a.icao));
-    $(".wnd-ad").innerHTML = ads.length ? `<optgroup label="Lotniska główne">${main.map(opt).join("")}</optgroup><optgroup label="Pozostałe">${rest.map(opt).join("")}</optgroup>`
+    $(".wnd-aero").innerHTML = ads.length ? `<optgroup label="Lotniska główne">${main.map(opt).join("")}</optgroup><optgroup label="Pozostałe">${rest.map(opt).join("")}</optgroup>`
       : `<option>${esc(icao)}</option>`;
     pick(icao);
   };
