@@ -47,6 +47,9 @@ function wxList(kind, defaults, key) {
       <div class="wx"></div>
     </div>`));
     const $ = (s) => pane.querySelector(s);
+    // dead: podzakładka zamknięta w trakcie pobierania (np. szybkie przejście na TURB); pane zostaje w DOM i trafia do
+    // następnej podzakładki, więc spóźniona odpowiedź nie może do niego pisać
+    let dead = false;
     const load = async () => {
       const ids = normIds($(".ids").value);
       $(".ids").value = ids;
@@ -54,9 +57,10 @@ function wxList(kind, defaults, key) {
       try {
         // METAR i TAF alfabetycznie po ICAO (odpowiedź też sortujemy, gdyby backend zmienił kolejność)
         const rows = (await api(`/api/meteo/${kind}?ids=${encodeURIComponent(ids.split(" ").join(","))}`)).sort((a, b) => a.icao.localeCompare(b.icao));
+        if (dead) return;
         $(".wx").innerHTML = rows.map((r) => `<div class="row">${r.raw ? wxLines(kind, r.raw) : `<span class="st">${esc(r.icao)}</span> <span class="nil">NIL</span>`}</div>`).join("");
         $(".upd").textContent = "Aktualizacja " + new Date().toISOString().slice(11, 16) + "Z";
-      } catch (e) { $(".wx").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+      } catch (e) { if (!dead) $(".wx").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
     };
     $(".go").addEventListener("click", load);
     $(".ids").addEventListener("keydown", (e) => e.key === "Enter" && load());
@@ -65,7 +69,7 @@ function wxList(kind, defaults, key) {
     const online = () => $(".wx .error") && load();
     window.addEventListener(ONLINE_EVENT, online);
     load();
-    return { destroy: () => { clearInterval(timer); window.removeEventListener(ONLINE_EVENT, online); } };
+    return { destroy: () => { dead = true; clearInterval(timer); window.removeEventListener(ONLINE_EVENT, online); } };
   };
 }
 
@@ -304,10 +308,237 @@ function qnhMap(pane) {
   return { destroy: () => { dead = true; clearInterval(timer); window.removeEventListener(ONLINE_EVENT, online); ro.disconnect(); map.remove(); } };
 }
 
-const windy = (overlay) => (pane) => {
-  const url = `https://embed.windy.com/embed2.html?lat=52.0&lon=19.3&detailLat=52.17&detailLon=20.97&zoom=${overlay === "satellite" ? 4 : 6}&level=surface&overlay=${overlay}&product=ecmwf&menu=&message=true&marker=&calendar=now&pressure=true&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1`;
-  pane.append(h(`<iframe class="embed" src="${url}" allowfullscreen></iframe>`));
+// --- RADAR, SAT PL, SAT EUR: Windy z własnym środkiem i zoomem dla każdej podzakładki
+export const WINDY_VIEWS = {
+  radar: { overlay: "radar", lat: 52.0, lon: 19.3, zoom: 6 },
+  "sat-pl": { overlay: "satellite", lat: 52.0, lon: 19.0, zoom: 6 },     // Polska (FIR EPWW z sąsiadami)
+  "sat-eur": { overlay: "satellite", lat: 50.0, lon: 12.0, zoom: 4 },    // Europa
 };
+export const windyEmbedUrl = ({ overlay, lat, lon, zoom }) => `https://embed.windy.com/embed2.html?lat=${lat.toFixed(1)}`
+  + `&lon=${lon.toFixed(1)}&detailLat=52.17&detailLon=20.97&zoom=${zoom}&level=surface&overlay=${overlay}&product=ecmwf&menu=`
+  + "&message=true&marker=&calendar=now&pressure=true&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1";
+const windy = (view) => (pane) => {
+  pane.append(h(`<iframe class="embed" src="${esc(windyEmbedUrl(WINDY_VIEWS[view]))}" allowfullscreen></iframe>`));
+};
+
+// --- TURB i SIGWX: obrazy IMGW wczytywane wprost przez przeglądarkę (bez pośrednictwa serwera PolIDS: serwer IMGW może
+// wymagać sesji użytkownika w jego przeglądarce), dopasowane do okna (object-fit: contain) albo 1:1 z przewijaniem
+const IMGW = "https://aviation-api.imgw.pl/image";
+// turbulencja (IMGW, model DWD, statki rejsowe): 8 klatek co 3 h, od +0 h do +21 h, w animacji co 1,5 s
+export const TURB_STEPS = ["000", "003", "006", "009", "012", "015", "018", "021"];
+export const TURB_MS = 1500;
+export const turbFrames = () => TURB_STEPS.map((s) => ({
+  label: `+${Number(s)} h`, url: `${IMGW}/TURBULENCJE/gify_LOTN07_TURB_DWD_statkirejsowe/Turb11000.${s}.gif` }));
+export const SIGWX_URL = `${IMGW}/significant/pl`;
+export const IMG_REFRESH = 15 * 60000;   // nowe obrazy co 15 min
+// znacznik czasu do adresu (?t=20261012121500): ten sam w obrębie okresu, więc powrót na podzakładkę bierze obraz z pamięci
+// podręcznej przeglądarki, a po upływie okresu przeglądarka pobiera obraz od nowa
+export const stamp = (now, period) => new Date(Math.floor(now / period) * period).toISOString().replace(/\D/g, "").slice(0, 14);
+export const bust = (url, t) => `${url}${url.includes("?") ? "&" : "?"}t=${t}`;
+// następna klatka w kierunku dir z pominięciem klatek z błędem; null, gdy wszystkie pozostałe mają błąd
+export function nextFrame(states, i, dir = 1) {
+  const n = states.length;
+  for (let k = 1; k < n; k++) {
+    const j = (((i + dir * k) % n) + n) % n;
+    if (states[j] !== "err") return j;
+  }
+  return null;
+}
+// krok animacji (stany klatek: "load" / "ok" / "err"): indeks klatki do pokazania (ten sam = czekamy, aż bieżąca albo
+// następna się wczyta, klatki z błędem pomijamy), -1 = zatrzymać animację (żadna klatka nie wczytała się)
+export function playStep(states, cur) {
+  if (states[cur] === "load") return cur;   // np. +0 h wczytuje się dłużej niż reszta: pokazujemy ją, zanim pójdziemy dalej
+  const j = nextFrame(states, cur, 1);
+  if (j === null) return states[cur] === "err" ? -1 : cur;
+  return states[j] === "load" ? cur : j;
+}
+
+const utcHm = (d) => d.toISOString().slice(11, 16) + "Z";
+// czas pierwszego udanego pobrania każdego adresu obrazu (na czas życia strony): powrót na podzakładkę w tym samym
+// kwadransie bierze obraz z pamięci podręcznej przeglądarki, a "pobrano" pokazuje wtedy czas pobrania, nie wyświetlenia
+const FETCHED = new Map();
+export function fetchedAt(url, now = new Date()) {
+  if (!FETCHED.has(url)) {
+    FETCHED.set(url, now);
+    if (FETCHED.size > 200) FETCHED.delete(FETCHED.keys().next().value);   // najstarszy wpis
+  }
+  return FETCHED.get(url);
+}
+
+// Widok obrazu (klatek) z serwera IMGW. o: {key, title, note (krótko, w pasku), desc (w podpowiedzi), frames: [{label, url}]};
+// przy kilku klatkach odtwarzacz: start/stop, poprzednia/następna, wybór klatki; wszystkie klatki wczytywane od razu
+// (płynna animacja).
+function imgView(o) {
+  return (pane) => {
+    const fr = o.frames, n = fr.length, multi = n > 1;
+    const st = fr.map(() => "load"), got = fr.map(() => null), gen = fr.map(() => 0);
+    let cur = 0, playing = false, held = false, play = null, dead = false, lastMsg = "", period = stamp(Date.now(), IMG_REFRESH);
+    let zoom = lsGet(`meteo.${o.key}.zoom`) === "full" ? "full" : "fit";
+    const secs = String(TURB_MS / 1000).replace(".", ",");
+    const wrap = h(`<div class="mimg mimg-${esc(o.key)}">
+      <div class="mimg-bar">
+        <b class="mimg-title">${esc(o.title)}</b>
+        ${multi ? `<span class="mimg-seg mimg-ctl"><button data-act="prev" title="Poprzednia klatka (←)">◀</button><button data-act="play"
+          class="mimg-play"></button><button data-act="next" title="Następna klatka (→)">▶</button></span>
+          <span class="mimg-seg mimg-steps">${fr.map((f, i) => `<button data-i="${i}">${esc(f.label)}</button>`).join("")}</span>` : ""}
+        <span class="mimg-hint"></span>
+        <span class="mimg-seg mimg-zoom"><button data-z="fit" title="Cały obraz w oknie">DOPASUJ</button><button data-z="full"
+          title="Rzeczywista wielkość obrazu, z przewijaniem">1:1</button></span>
+        <a class="btn mimg-open" target="_blank" rel="noopener noreferrer" title="Otwórz obraz w nowej karcie">Otwórz<span
+          class="mimg-long"> w nowej karcie</span> ↗</a>
+      </div>
+      <div class="mimg-stage" tabindex="0"><div class="mimg-msg" hidden></div></div>
+    </div>`);
+    pane.append(wrap);
+    const $ = (s) => wrap.querySelector(s);
+    const stage = $(".mimg-stage"), msg = $(".mimg-msg");
+    // METEO na ekranie (główne zakładki zostają w DOM, ukryte): bez tego animacja i odświeżanie szłyby w tle całą zmianę
+    const shown = () => !document.hidden && stage.offsetParent !== null;
+
+    // klatki: <img> dla każdej, wszystkie od razu w DOM (przeglądarka pobiera je równolegle), widoczna tylko bieżąca
+    const mk = (i) => {
+      const im = document.createElement("img");
+      im.referrerPolicy = "no-referrer";
+      im.decoding = "async";
+      im.draggable = false;
+      im.alt = multi ? `${o.title} ${fr[i].label}` : o.title;
+      im.dataset.i = i;
+      return im;
+    };
+    // pobranie klatki i do im (adres ze znacznikiem ?t=); po błędzie jeszcze raz bez ?t= (gdyby serwer IMGW odrzucał
+    // nieznane parametry; znacznik wtedy tylko po "#", którego przeglądarka nie wysyła do serwera). done(true) po
+    // wczytaniu, done(false) po drugim błędzie; wynik starszego pobrania tej samej klatki jest pomijany
+    const fetchImg = (im, i, t, done) => {
+      const g = ++gen[i];
+      let again = false;
+      const fail = () => {
+        if (dead || g !== gen[i]) return;
+        if (again) return done(false);
+        again = true;
+        im.src = `${fr[i].url}#t=${t}`;
+      };
+      im.onerror = fail;
+      im.onload = () => {
+        if (dead || g !== gen[i]) return;
+        if (!im.naturalWidth) return fail();
+        got[i] = fetchedAt(im.src);
+        done(true);
+      };
+      im.src = bust(fr[i].url, t);
+    };
+    const imgs = fr.map((_, i) => stage.insertBefore(mk(i), msg));
+    const load = (i, t) => { st[i] = "load"; fetchImg(imgs[i], i, t, (ok) => set(i, ok ? "ok" : "err")); };
+    function set(i, s) {
+      st[i] = s;
+      if (s === "ok" && held) start();   // animacja stanęła, bo nic się nie wczytało; jest klatka, więc rusza dalej
+      draw();
+    }
+
+    function draw() {
+      imgs.forEach((im, i) => { im.classList.toggle("on", i === cur); im.classList.toggle("ok", st[i] === "ok"); });
+      stage.className = `mimg-stage ${zoom}`;
+      wrap.querySelectorAll(".mimg-zoom button").forEach((b) => b.classList.toggle("active", b.dataset.z === zoom));
+      wrap.querySelectorAll(".mimg-steps button").forEach((b, i) => {
+        b.classList.toggle("active", i === cur);
+        b.classList.toggle("load", st[i] === "load");
+        b.classList.toggle("err", st[i] === "err");
+        b.title = fr[i].label + (st[i] === "err" ? ": nie udało się wczytać obrazu" : st[i] === "load" ? ": wczytywanie…" : "");
+      });
+      const pb = $(".mimg-play");
+      if (pb) {
+        pb.textContent = playing ? "STOP" : "START";
+        pb.title = playing ? "Zatrzymaj animację (spacja)" : `Odtwarzaj klatki po kolei, co ${secs} s (spacja)`;
+        pb.classList.toggle("active", playing);
+      }
+      const f = fr[cur], name = multi ? `${o.title} ${f.label}` : o.title;
+      $(".mimg-open").href = f.url;
+      // najpierw źródło, potem czas: w wąskim oknie ucinany jest czas (jest też w podpowiedzi), nie źródło
+      const at = got[cur] && st[cur] === "ok" ? utcHm(got[cur]) : "";
+      const hint = $(".mimg-hint");
+      hint.textContent = [o.note, at && `pobrano\u00a0${at}`].filter(Boolean).join(" · ");   // \u00a0: bez łamania wiersza w środku
+      hint.title = `${name}: ${o.desc}${at ? `, pobrano ${at}` : ""}\n${f.url}\n`
+        + `Obraz z serwera IMGW, odświeżany co ${IMG_REFRESH / 60000} min.`;
+      msg.hidden = st[cur] === "ok";
+      msg.className = `mimg-msg ${st[cur]}`;
+      const html = st[cur] === "err"
+        ? `<b>${esc(name)}: nie udało się wczytać obrazu</b>
+          <span>Serwer IMGW (aviation-api.imgw.pl) nie wydał obrazu. Może wymagać zalogowania w serwisie lotniczym IMGW
+          w tej przeglądarce, nie pozwalać wyświetlać obrazu na innych stronach albo być chwilowo niedostępny.</span>
+          <span class="mimg-acts"><a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">otwórz w nowej karcie ↗</a>
+          <button class="btn mimg-retry">Wczytaj ponownie</button></span>`
+        : `<span>Wczytywanie: ${esc(name)}…</span>`;
+      if (html !== lastMsg) msg.innerHTML = lastMsg = html;   // bez przebudowy przy każdej klatce (fokus na przycisku zostaje)
+    }
+
+    const go = (i) => { cur = ((i % n) + n) % n; draw(); };
+    const tick = () => {
+      if (!shown()) return;
+      const j = playStep(st, cur);
+      if (j < 0) { stop(); held = true; return; }   // żadna klatka się nie wczytała: stop, ruszy po wczytaniu którejś
+      if (j !== cur) go(j);
+    };
+    function start() { clearInterval(play); held = false; playing = true; play = setInterval(tick, TURB_MS); draw(); }
+    function stop() { clearInterval(play); play = null; held = false; playing = false; draw(); }
+    const act = (a) => {
+      if (a === "play") return playing ? stop() : start();
+      stop();   // ręczny wybór klatki zatrzymuje animację
+      go(cur + (a === "next" ? 1 : -1));
+    };
+
+    $(".mimg-bar").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      if (b.dataset.act) act(b.dataset.act);
+      else if (b.dataset.i !== undefined) { stop(); go(Number(b.dataset.i)); }
+      else if (b.dataset.z) { zoom = b.dataset.z; lsSet(`meteo.${o.key}.zoom`, zoom); draw(); }
+    });
+    // "Wczytaj ponownie": nowy znacznik czasu, przeglądarka pyta serwer IMGW jeszcze raz (np. po zalogowaniu w innej karcie)
+    msg.addEventListener("click", (e) => {
+      if (!e.target.closest(".mimg-retry")) return;
+      const t = stamp(Date.now(), 1000);
+      fr.forEach((_, i) => st[i] === "err" && load(i, t));
+      draw();
+    });
+    stage.addEventListener("keydown", (e) => {
+      if (!multi || e.target !== stage) return;
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") act(e.key === "ArrowLeft" ? "prev" : "next");
+      else if (e.key === " ") act("play");
+      else return;
+      e.preventDefault();
+    });
+
+    // co 15 min (na pełny kwadrans) nowy znacznik czasu w adresie: nowy obraz wczytywany w tle i wstawiany w miejsce
+    // starego dopiero po wczytaniu, więc nieudane odświeżenie nie zabiera wczytanego wcześniej obrazu; klatki z błędem
+    // wczytujemy od nowa. Tylko gdy METEO jest na ekranie: po powrocie zaległy kwadrans dociągany w ciągu 10 s.
+    const refresh = () => {
+      const t = stamp(Date.now(), IMG_REFRESH);
+      if (t === period || !shown()) return;
+      period = t;
+      fr.forEach((_, i) => {
+        if (st[i] !== "ok") return load(i, t);
+        const pre = mk(i);
+        fetchImg(pre, i, t, (ok) => {
+          if (!ok) return;   // nieudane odświeżenie: zostaje poprzedni obraz (z czasem "pobrano" sprzed odświeżenia)
+          imgs[i].replaceWith(pre);
+          imgs[i] = pre;
+          set(i, "ok");
+        });
+      });
+      draw();
+    };
+    const refreshTimer = setInterval(refresh, 10000);
+
+    fr.forEach((_, i) => load(i, period));
+    if (multi) start(); else draw();
+    return {
+      destroy: () => {
+        dead = true;
+        clearInterval(play);
+        clearInterval(refreshTimer);
+      },
+    };
+  };
+}
 
 // --- WIND: Windy przy ziemi (0 ft) albo na 900 hPa (≈3000 ft AMSL) z punktem prognozy w punkcie podejścia wybranego
 // pasa; obok wiatr z Open-Meteo w punktach podejścia wszystkich pasów lotniska (backend: services/upperwind.py)
@@ -505,7 +736,12 @@ export default {
       { id: "qnh", label: "QNH", fill: true, render: qnhMap },
       { id: "wind", label: "WIND", fill: true, render: windTab },
       { id: "radar", label: "RADAR", fill: true, render: windy("radar") },
-      { id: "sat", label: "SAT EUR", fill: true, render: windy("satellite") },
+      { id: "sat-pl", label: "SAT PL", fill: true, render: windy("sat-pl") },
+      { id: "sat-eur", label: "SAT EUR", fill: true, render: windy("sat-eur") },
+      { id: "turb", label: "TURB", fill: true, render: imgView({ key: "turb", title: "TURB", frames: turbFrames(),
+        note: "IMGW · DWD · statki\u00a0rejsowe", desc: "prognoza turbulencji IMGW (model DWD), statki rejsowe" }) },
+      { id: "sigwx", label: "SIGWX", fill: true, render: imgView({ key: "sigwx", title: "SIGWX", frames: [{ label: "", url: SIGWX_URL }],
+        note: "IMGW · SFC–FL100", desc: "mapa zjawisk istotnych SFC–FL100 (FIR Warszawa), IMGW" }) },
     ]);
   },
 };

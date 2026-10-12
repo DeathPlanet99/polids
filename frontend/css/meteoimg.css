@@ -1,1 +1,46 @@
-/* METEO: obrazy (SAT PL, SAT EUR, TURB, SIGWX) (runda 10) */
+/* METEO: obrazy (SAT PL, SAT EUR, TURB, SIGWX) (runda 10).
+   SAT PL / SAT EUR to ramki Windy (iframe.embed ze style.css). TURB i SIGWX: obraz z serwera IMGW na czarnym tle,
+   dopasowany do okna (object-fit: contain) albo 1:1 z przewijaniem; nad nim pasek jak w METEO › WIND. Bez poświaty. */
+.mimg { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.mimg-bar { flex: none; display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; padding: 6px 10px; background: var(--panel);
+  border-bottom: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); }
+.mimg-title { font: 700 13px var(--mono); letter-spacing: .8px; color: var(--green-text); }
+/* opis (źródło, potem czas pobrania): gdy brak miejsca w jednym wierszu, w dwóch (pasek się nie wydłuża), dalej ucięty "…" */
+.mimg-hint { flex: 1 1 0; min-width: 0; text-align: right; line-height: 13px; overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.mimg-open { flex: none; white-space: nowrap; text-decoration: none; }
+/* okno węższe niż 1600 px (np. 1366x768): przy TURB pasek ma mało miejsca na opis, więc przycisk tylko "Otwórz ↗" */
+@media (max-width: 1599px) { .mimg-turb .mimg-long { display: none; } }
+
+/* przyciski w jednej ramce jak .wnd-seg (METEO › WIND) */
+.mimg-seg { display: inline-flex; flex: none; border: 1px solid var(--line); }
+.mimg-seg button { background: #0b0d0b; border: 0; border-right: 1px solid var(--line); color: var(--muted); padding: 4px 9px; cursor: pointer;
+  font: 700 12px var(--mono); letter-spacing: .3px; white-space: nowrap; }
+.mimg-seg button:last-child { border-right: 0; }
+.mimg-seg button:hover { color: var(--text); background: var(--panel-2); }
+.mimg-seg button.active { background: #14240f; color: var(--green-hi); box-shadow: inset 0 -2px 0 var(--green-hi); }
+.mimg-ctl button { min-width: 32px; }
+.mimg-ctl .mimg-play { min-width: 58px; }
+/* klatka jeszcze się wczytuje: przygaszona; nie wczytała się: czerwona */
+.mimg-steps button.load { color: #4d554d; }
+.mimg-steps button.err { color: var(--bad); }
+.mimg-steps button.err.active { color: #ff8a80; box-shadow: inset 0 -2px 0 var(--bad); background: #2a0d0b; }
+
+/* obraz: wszystkie klatki w jednym miejscu, widoczna tylko bieżąca i tylko wczytana (bez ikony zepsutego obrazka) */
+.mimg-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; background: var(--bg); outline: none; }
+.mimg-stage:focus-visible { box-shadow: inset 0 0 0 1px var(--green); }
+.mimg-stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; visibility: hidden; user-select: none; }
+.mimg-stage img.on.ok { visibility: visible; }
+.mimg-stage.full { overflow: auto; }
+.mimg-stage.full img { position: static; display: none; width: auto; height: auto; max-width: none; margin: 0 auto; }
+.mimg-stage.full img.on.ok { display: block; }
+
+/* komunikat na środku: wczytywanie albo błąd z odnośnikiem do obrazu w nowej karcie */
+.mimg-msg { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, calc(100% - 32px));
+  display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 3px; font: 13px/1.45 var(--mono); color: var(--muted); text-align: center; }
+.mimg-msg[hidden] { display: none; }
+.mimg-msg.err { border-color: #7a2a22; }
+.mimg-msg.err b { color: var(--bad); }
+.mimg-acts { display: flex; gap: 14px; justify-content: center; align-items: center; flex-wrap: wrap; }
+.mimg-acts a { color: var(--green-text); font-weight: 700; }
