@@ -3,7 +3,8 @@ import json
 import logging
 import threading
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -205,8 +206,15 @@ def _board_static(db: Session, positions: dict) -> dict:
             return _BOARD["data"]
         data = _build_static(db, positions)
         data["ver"] = hashlib.sha1(repr(stamp).encode()).hexdigest()[:12]
+        # geometria podglądów (ok. 240 KB JSON) zakodowana raz na wersję danych: odpowiedź ?geo=1 tylko ją wkleja
+        data["geo_json"] = _dumps(data["geo"])
         _BOARD.update(stamp=stamp, data=data)
         return data
+
+
+def _dumps(obj) -> str:
+    """JSON jak w JSONResponse FastAPI (jsonable_encoder, UTF-8, bez spacji)."""
+    return json.dumps(jsonable_encoder(obj), ensure_ascii=False, allow_nan=False, separators=(",", ":"))
 
 
 def _build_static(db: Session, positions: dict) -> dict:
@@ -264,6 +272,9 @@ async def board(geo: bool = False, have: str = "", db: Session = Depends(get_db)
     out = radioboard.board(static, online, positions, feed_atis)
     out["net"] = net
     out["ver"] = static["ver"]
+    # kodowanie w wątku (jsonable_encoder to czysty Python); geometria już zakodowana w części stałej – bez tego
+    # odpowiedź z geo=1 wstrzymywała serwer na 50–140 ms przy każdym otwarciu RADIO
+    body = await run_in_threadpool(_dumps, out)
     if geo or (have and have != static["ver"]):
-        out["geo"] = static["geo"]
-    return out
+        body = body[:-1] + ',"geo":' + static["geo_json"] + "}"
+    return Response(body.encode("utf-8"), media_type="application/json")

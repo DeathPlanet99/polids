@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from ..config import settings
 from ..database import get_db
@@ -55,6 +56,18 @@ def fir_list(key: str, db: Session = Depends(get_db)):
             for a in fir_lists(db)[k]]
 
 
+def _card_local(db: Session, code: str) -> dict:
+    """Część karty z bazy i navdata (bez sieci): wpis z list FIR-ów, znane stanowiska, położenie, FIR i wysokość.
+    Listy FIR-ów liczone od nowa (pierwsze zapytanie, co godzinę, po imporcie) to ok. 0,1–0,3 s pracy CPU, więc karta
+    woła tę funkcję w wątku (run_in_threadpool), żeby nie wstrzymać innych zapytań do serwera."""
+    entry = airport_entry(db, code)
+    known = [p for p in all_positions(db) if (p.get("callsign") or "").upper().startswith(code + "_")]
+    ad = db.get(Aerodrome, code)
+    lat, lon = (entry["lat"], entry["lon"]) if entry else (ad.lat, ad.lon) if ad else (None, None)
+    return {"entry": entry, "known": known, "lat": lat, "lon": lon, "fir": fir_key(code, lat, lon) if entry or known else None,
+            "elevation_ft": ad.elevation_ft if ad else None}
+
+
 @router.get("/{icao}/card")
 async def card(icao: str, db: Session = Depends(get_db)):
     """Karta lotniska zagranicznego (i polskiego spoza bazy lotnisk): METAR, TAF i stanowiska APP, TWR, GND, DEL,
@@ -62,8 +75,8 @@ async def card(icao: str, db: Session = Depends(get_db)):
     code = icao.upper()
     if not re.fullmatch(r"[A-Z0-9]{4}", code):
         raise HTTPException(404, f"Nie znam lotniska {icao[:8]}")
-    entry = airport_entry(db, code)
-    known = [p for p in all_positions(db) if (p.get("callsign") or "").upper().startswith(code + "_")]
+    local = await run_in_threadpool(_card_local, db, code)
+    entry, known = local["entry"], local["known"]
     if not entry and not known:
         raise HTTPException(404, f"Nie znam lotniska {code}")
 
@@ -82,13 +95,11 @@ async def card(icao: str, db: Session = Depends(get_db)):
     ctrls = (feed or {}).get("controllers", []) + (feed or {}).get("atis", [])
     updated = (feed or {}).get("general", {}).get("update_timestamp")
     positions = airport_positions(code, known, ctrls)
-    ad = db.get(Aerodrome, code)
-    lat, lon = (entry["lat"], entry["lon"]) if entry else (ad.lat, ad.lon) if ad else (None, None)
-    fir = fir_key(code, lat, lon)
+    fir = local["fir"]
     return {
         "icao": code, "name": entry["name"] if entry else code, "kind": entry["kind"] if entry else None,
-        "fir": fir, "fir_label": FIR_LABELS.get(fir), "lat": lat, "lon": lon,
-        "elevation_ft": ad.elevation_ft if ad else None,
+        "fir": fir, "fir_label": FIR_LABELS.get(fir), "lat": local["lat"], "lon": local["lon"],
+        "elevation_ft": local["elevation_ft"],
         "metar": metar, "parsed": parse_metar(metar).to_dict() if metar else None, "taf": taf,
         "positions": positions, "network_error": net_error, "updated": updated, "errors": errors,
     }

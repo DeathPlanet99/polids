@@ -138,6 +138,10 @@ def test_board_geo(client):
     assert all(a["lo"] < a["hi"] and a["geometry"]["coordinates"] for a in g["acc"])
     assert g["tma"] and g["ctr"] and g["fis"]
     assert len(json.dumps(g)) < 400_000  # raz na sesję, ale bez przesady
+    # geometria zakodowana raz (część stała) i wklejona do odpowiedzi: poza nią ta sama treść co bez geo=1
+    r = client.get("/api/radio/board?geo=1")
+    assert r.headers["content-type"] == "application/json" and r.json()["geo"] == g
+    assert set(d) - {"geo"} == set(client.get("/api/radio/board").json())
 
 
 def test_board_version_and_reimport(client):
