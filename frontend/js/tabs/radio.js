@@ -197,12 +197,13 @@ export function tmaLines(parts, x) {
     return [g.id, { ls, more: Math.max(0, g.owners.length - 2) }];
   }));
 }
-// wieża (TWR, TWR/ATIS): online → jej częstotliwość; przejmuje inne stanowisko (np. APP) → częstotliwość wieży z ↑APP
-// (kto – w dymku); nikt → żadnej linijki (samo ID). Linia ATIS (twra) tylko z ATIS online. Wynik {tw, cover, ls, atl}
+// wieża (TWR, TWR/ATIS): online → jej częstotliwość; przejmuje inne stanowisko (np. APP) → częstotliwość tego, kto
+// przejmuje, z ↑APP (jak sektory ACC; na częstotliwości wieży nikt nie siedzi); nikt → żadnej linijki (samo ID).
+// Linia ATIS (twra) tylko z ATIS online. Wynik {tw, cover, ls, atl}
 export function twrLines(g, x, twra = false) {
   const tw = g.owners.find((o) => /_TWR$/.test(o)) || null, cover = tw ? null : g.owners[0] || null;
   const ls = tw ? [{ fq: x.freq(tw), by: tw === g.nominal ? "" : x.nm(tw) }]
-    : cover ? [{ fq: x.pos?.[g.nominal]?.frequency || "", by: `↑${byShort(x.nm(cover))}` }] : [];
+    : cover ? [{ fq: x.freq(cover), by: `↑${byShort(x.nm(cover))}` }] : [];
   const a = twra && g.atis ? x.on(g.atis) : null;
   const atl = a ? `<span class="rb-ln rb-atl"><i class="rb-by">ATIS</i><span class="rb-fq">${esc(x.freq(g.atis))}</span>`
     + `${a.atis_code ? `<b class="rb-code">${esc(a.atis_code)}</b>` : ""}</span>` : "";

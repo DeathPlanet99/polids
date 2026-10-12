@@ -1013,11 +1013,11 @@ def test_js_label_variants(tmp_path):
     for part in ("TMA Warszawa · EPWA_APP", "TMA Warszawa · EPWA_N_APP"):
         assert was[part]["ls"] == [{"fq": "", "by": "WA S APP"}], part
     assert all(p["ls"] == [] for p in out["tmaNone"].values())
-    # wieża: nikt → bez linijek i bez linii ATIS (ATIS offline); przejmuje APP → częstotliwość wieży z ↑APP; online →
+    # wieża: nikt → bez linijek i bez linii ATIS (ATIS offline); przejmuje APP → częstotliwość APP z ↑APP; online →
     # jej częstotliwość, linia ATIS z literą tylko na TWR/ATIS
     t = out["twr"]
     assert t["none"] == {"tw": None, "cover": None, "ls": [], "atl": ""} and t["atisOff"]["atl"] == ""
-    assert t["app"]["cover"] == "EPWA_APP" and t["app"]["ls"] == [{"fq": "118.305", "by": "↑APP"}] and t["app"]["atl"] == ""
+    assert t["app"]["cover"] == "EPWA_APP" and t["app"]["ls"] == [{"fq": "128.805", "by": "↑APP"}] and t["app"]["atl"] == ""
     assert t["on"]["tw"] == "EPWA_TWR" and t["on"]["ls"] == [{"fq": "118.305", "by": ""}]
     assert '<span class="rb-fq">120.455</span><b class="rb-code">K</b>' in t["on"]["atl"] and t["noTwra"]["atl"] == ""
     assert t["atisOnly"]["ls"] == [] and "120.455" in t["atisOnly"]["atl"]

@@ -82,9 +82,8 @@
 /* skrócona etykieta (brak miejsca przy punkcie, bez nikogo): ID i częstotliwość w jednej linii albo samo ID */
 .rb-lbl.cmp { display: inline-flex; align-items: baseline; gap: 4px; padding: 0 3px; }
 .rb-lbl.cmp .rb-id { font-size: max(9px, calc(var(--rb-f) - 2px)); }
-/* wieża offline, którą przejmuje inne stanowisko (np. APP): częstotliwość wieży, ↑APP, kto – w dymku */
+/* wieża offline, którą przejmuje inne stanowisko (np. APP): częstotliwość przejmującego, ↑APP, kto – w dymku */
 .rb-lbl.cov { border-color: #2f6a24; border-style: dashed; }
-.rb-lbl.cov .rb-fq { color: #8a948a; }
 .rb-lbl.twr:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
 .rb-lbl.app { border-left: 3px solid var(--cyan); }
 .rb-lbl.twr { border-left: 3px solid var(--yellow); cursor: pointer; }
