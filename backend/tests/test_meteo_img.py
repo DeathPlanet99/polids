@@ -34,7 +34,12 @@ console.log(JSON.stringify({
          m.nextFrame(st("eeeeeeee"), 3), m.nextFrame(st("oooooooo"), 0, -1), m.nextFrame(st("eooooooe"), 1, -1)],
   play: [m.playStep(st("oooooooo"), 0), m.playStep(st("oooooooo"), 7), m.playStep(st("olllllll"), 0),
          m.playStep(st("oeolllll"), 0), m.playStep(st("eeeeeeee"), 0), m.playStep(st("eeeeoeee"), 4),
-         m.playStep(st("leeeeeee"), 0), m.playStep(st("oeeeeeee"), 0), m.playStep(st("eeoeeeeo"), 7)],
+         m.playStep(st("leeeeeee"), 0), m.playStep(st("oeeeeeee"), 0), m.playStep(st("eeoeeeeo"), 7),
+         m.playStep(st("looooooo"), 0), m.playStep(st("oolooooo"), 2), m.playStep(st("ooleoooo"), 3)],
+  fetched: (() => {
+    const u = "https://x/a.gif?t=1", a = new Date(T), b = new Date(T + 9 * 60000);
+    return [m.fetchedAt(u, a).toISOString(), m.fetchedAt(u, b).toISOString(), m.fetchedAt(u + "0", b).toISOString()];
+  })(),
 }));
 """
 
@@ -93,20 +98,34 @@ def test_frame_order_logic(js):
     # następna klatka: po kolei z zawinięciem, klatki z błędem pominięte, null gdy wszystkie pozostałe z błędem
     assert js["next"] == [0, 3, 0, None, 7, 6]
     # krok animacji: następna wczytana klatka; czeka (ta sama), gdy następna się wczytuje; -1 = stop (nic się nie wczytało)
-    assert js["play"] == [1, 0, 0, 2, -1, 4, 0, 0, 2]
+    assert js["play"][:9] == [1, 0, 0, 2, -1, 4, 0, 0, 2]
+    # bieżąca klatka jeszcze się wczytuje (np. wolna +0 h na starcie): czeka na nią, nie przeskakuje do następnej
+    assert js["play"][9:] == [0, 2, 4]
+
+
+def test_fetched_time(js):
+    """"pobrano": czas pierwszego udanego pobrania adresu, nie czas ponownego wyświetlenia z pamięci podręcznej."""
+    assert js["fetched"] == ["2026-10-12T12:22:05.000Z", "2026-10-12T12:22:05.000Z", "2026-10-12T12:31:05.000Z"]
 
 
 def test_images_loaded_by_browser():
     """Obrazy IMGW bezpośrednio z aviation-api.imgw.pl (bez pośrednictwa serwera PolIDS), bez nagłówka Referer."""
-    assert METEO.count("referrerPolicy = \"no-referrer\"") == 1 and "const pre = mk(i);" in METEO
+    # wszystkie <img> klatek (także te wczytywane w tle przy odświeżaniu) powstają w jednym miejscu, bez Referer
+    assert re.search(r"referrerPolicy\s*=\s*[\"']no-referrer[\"']", METEO)
+    assert len(re.findall(r"createElement\([\"']img[\"']\)", METEO)) == 1
     assert "aviation-api" not in "".join(p.read_text("utf-8").lower() for p in (ROOT_DIR / "backend" / "app").rglob("*.py"))
     assert not re.search(r"api\([^)]*imgw", METEO, re.I)
     # błąd klatki: odnośnik do obrazu w nowej karcie; obraz dopasowany do okna
-    assert "otwórz w nowej karcie ↗</a>" in METEO and 'rel="noopener noreferrer"' in METEO
-    assert "object-fit: contain" in CSS
+    assert re.search(r"otwórz w nowej karcie", METEO) and 'rel="noopener noreferrer"' in METEO
+    assert re.search(r"object-fit:\s*contain", CSS)
     # timery odtwarzacza i odświeżania zatrzymywane przy zamknięciu podzakładki
-    assert "return { destroy: () => { dead = true; clearInterval(play); clearInterval(refreshTimer); } };" in METEO
-    assert "setInterval(tick, TURB_MS)" in METEO
+    view = METEO[METEO.index("function imgView("):METEO.index("// --- WIND")]
+    destroy = re.search(r"destroy:\s*\(\)\s*=>\s*\{(.*?)\}", view, re.S)
+    assert destroy and re.search(r"clearInterval\(\s*play\s*\)", destroy.group(1))
+    assert re.search(r"clearInterval\(\s*refreshTimer\s*\)", destroy.group(1))
+    assert re.search(r"setInterval\(\s*tick\s*,\s*TURB_MS\s*\)", view)
+    # animacja i odświeżanie tylko, gdy METEO jest na ekranie (ukryte zakładki zostają w DOM)
+    assert re.search(r"offsetParent\s*!==\s*null", view)
 
 
 def test_no_glow():

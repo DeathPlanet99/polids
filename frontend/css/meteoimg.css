@@ -5,8 +5,12 @@
 .mimg-bar { flex: none; display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; padding: 6px 10px; background: var(--panel);
   border-bottom: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); }
 .mimg-title { font: 700 13px var(--mono); letter-spacing: .8px; color: var(--green-text); }
-.mimg-hint { flex: 1 1 0; min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* opis (źródło, potem czas pobrania): gdy brak miejsca w jednym wierszu, w dwóch (pasek się nie wydłuża), dalej ucięty "…" */
+.mimg-hint { flex: 1 1 0; min-width: 0; text-align: right; line-height: 13px; overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .mimg-open { flex: none; white-space: nowrap; text-decoration: none; }
+/* okno węższe niż 1600 px (np. 1366x768): przy TURB pasek ma mało miejsca na opis, więc przycisk tylko "Otwórz ↗" */
+@media (max-width: 1599px) { .mimg-turb .mimg-long { display: none; } }
 
 /* przyciski w jednej ramce jak .wnd-seg (METEO › WIND) */
 .mimg-seg { display: inline-flex; flex: none; border: 1px solid var(--line); }

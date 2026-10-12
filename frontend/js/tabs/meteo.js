@@ -47,6 +47,9 @@ function wxList(kind, defaults, key) {
       <div class="wx"></div>
     </div>`));
     const $ = (s) => pane.querySelector(s);
+    // dead: podzakładka zamknięta w trakcie pobierania (np. szybkie przejście na TURB); pane zostaje w DOM i trafia do
+    // następnej podzakładki, więc spóźniona odpowiedź nie może do niego pisać
+    let dead = false;
     const load = async () => {
       const ids = normIds($(".ids").value);
       $(".ids").value = ids;
@@ -54,9 +57,10 @@ function wxList(kind, defaults, key) {
       try {
         // METAR i TAF alfabetycznie po ICAO (odpowiedź też sortujemy, gdyby backend zmienił kolejność)
         const rows = (await api(`/api/meteo/${kind}?ids=${encodeURIComponent(ids.split(" ").join(","))}`)).sort((a, b) => a.icao.localeCompare(b.icao));
+        if (dead) return;
         $(".wx").innerHTML = rows.map((r) => `<div class="row">${r.raw ? wxLines(kind, r.raw) : `<span class="st">${esc(r.icao)}</span> <span class="nil">NIL</span>`}</div>`).join("");
         $(".upd").textContent = "Aktualizacja " + new Date().toISOString().slice(11, 16) + "Z";
-      } catch (e) { $(".wx").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+      } catch (e) { if (!dead) $(".wx").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
     };
     $(".go").addEventListener("click", load);
     $(".ids").addEventListener("keydown", (e) => e.key === "Enter" && load());
@@ -65,7 +69,7 @@ function wxList(kind, defaults, key) {
     const online = () => $(".wx .error") && load();
     window.addEventListener(ONLINE_EVENT, online);
     load();
-    return { destroy: () => { clearInterval(timer); window.removeEventListener(ONLINE_EVENT, online); } };
+    return { destroy: () => { dead = true; clearInterval(timer); window.removeEventListener(ONLINE_EVENT, online); } };
   };
 }
 
@@ -340,22 +344,34 @@ export function nextFrame(states, i, dir = 1) {
   }
   return null;
 }
-// krok animacji (stany klatek: "load" / "ok" / "err"): indeks klatki do pokazania (ten sam = czekamy, aż następna się
-// wczyta, klatki z błędem pomijamy), -1 = zatrzymać animację (żadna klatka nie wczytała się)
+// krok animacji (stany klatek: "load" / "ok" / "err"): indeks klatki do pokazania (ten sam = czekamy, aż bieżąca albo
+// następna się wczyta, klatki z błędem pomijamy), -1 = zatrzymać animację (żadna klatka nie wczytała się)
 export function playStep(states, cur) {
+  if (states[cur] === "load") return cur;   // np. +0 h wczytuje się dłużej niż reszta: pokazujemy ją, zanim pójdziemy dalej
   const j = nextFrame(states, cur, 1);
   if (j === null) return states[cur] === "err" ? -1 : cur;
   return states[j] === "load" ? cur : j;
 }
 
 const utcHm = (d) => d.toISOString().slice(11, 16) + "Z";
+// czas pierwszego udanego pobrania każdego adresu obrazu (na czas życia strony): powrót na podzakładkę w tym samym
+// kwadransie bierze obraz z pamięci podręcznej przeglądarki, a "pobrano" pokazuje wtedy czas pobrania, nie wyświetlenia
+const FETCHED = new Map();
+export function fetchedAt(url, now = new Date()) {
+  if (!FETCHED.has(url)) {
+    FETCHED.set(url, now);
+    if (FETCHED.size > 200) FETCHED.delete(FETCHED.keys().next().value);   // najstarszy wpis
+  }
+  return FETCHED.get(url);
+}
 
-// Widok obrazu (klatek) z serwera IMGW. o: {key, title, note, frames: [{label, url}]}; przy kilku klatkach odtwarzacz:
-// start/stop, poprzednia/następna, wybór klatki; wszystkie klatki wczytywane od razu (płynna animacja).
+// Widok obrazu (klatek) z serwera IMGW. o: {key, title, note (krótko, w pasku), desc (w podpowiedzi), frames: [{label, url}]};
+// przy kilku klatkach odtwarzacz: start/stop, poprzednia/następna, wybór klatki; wszystkie klatki wczytywane od razu
+// (płynna animacja).
 function imgView(o) {
   return (pane) => {
     const fr = o.frames, n = fr.length, multi = n > 1;
-    const st = fr.map(() => "load"), got = fr.map(() => null);
+    const st = fr.map(() => "load"), got = fr.map(() => null), gen = fr.map(() => 0);
     let cur = 0, playing = false, held = false, play = null, dead = false, lastMsg = "", period = stamp(Date.now(), IMG_REFRESH);
     let zoom = lsGet(`meteo.${o.key}.zoom`) === "full" ? "full" : "fit";
     const secs = String(TURB_MS / 1000).replace(".", ",");
@@ -368,13 +384,16 @@ function imgView(o) {
         <span class="mimg-hint"></span>
         <span class="mimg-seg mimg-zoom"><button data-z="fit" title="Cały obraz w oknie">DOPASUJ</button><button data-z="full"
           title="Rzeczywista wielkość obrazu, z przewijaniem">1:1</button></span>
-        <a class="btn mimg-open" target="_blank" rel="noopener noreferrer">Otwórz w nowej karcie ↗</a>
+        <a class="btn mimg-open" target="_blank" rel="noopener noreferrer" title="Otwórz obraz w nowej karcie">Otwórz<span
+          class="mimg-long"> w nowej karcie</span> ↗</a>
       </div>
       <div class="mimg-stage" tabindex="0"><div class="mimg-msg" hidden></div></div>
     </div>`);
     pane.append(wrap);
     const $ = (s) => wrap.querySelector(s);
     const stage = $(".mimg-stage"), msg = $(".mimg-msg");
+    // METEO na ekranie (główne zakładki zostają w DOM, ukryte): bez tego animacja i odświeżanie szłyby w tle całą zmianę
+    const shown = () => !document.hidden && stage.offsetParent !== null;
 
     // klatki: <img> dla każdej, wszystkie od razu w DOM (przeglądarka pobiera je równolegle), widoczna tylko bieżąca
     const mk = (i) => {
@@ -386,17 +405,31 @@ function imgView(o) {
       im.dataset.i = i;
       return im;
     };
-    const watch = (im, i) => {
-      im.addEventListener("load", () => set(i, im.naturalWidth ? "ok" : "err"));
-      im.addEventListener("error", () => set(i, "err"));
-      return im;
+    // pobranie klatki i do im (adres ze znacznikiem ?t=); po błędzie jeszcze raz bez ?t= (gdyby serwer IMGW odrzucał
+    // nieznane parametry; znacznik wtedy tylko po "#", którego przeglądarka nie wysyła do serwera). done(true) po
+    // wczytaniu, done(false) po drugim błędzie; wynik starszego pobrania tej samej klatki jest pomijany
+    const fetchImg = (im, i, t, done) => {
+      const g = ++gen[i];
+      let again = false;
+      const fail = () => {
+        if (dead || g !== gen[i]) return;
+        if (again) return done(false);
+        again = true;
+        im.src = `${fr[i].url}#t=${t}`;
+      };
+      im.onerror = fail;
+      im.onload = () => {
+        if (dead || g !== gen[i]) return;
+        if (!im.naturalWidth) return fail();
+        got[i] = fetchedAt(im.src);
+        done(true);
+      };
+      im.src = bust(fr[i].url, t);
     };
-    const imgs = fr.map((_, i) => stage.insertBefore(watch(mk(i), i), msg));
-    const load = (i, t) => { imgs[i].src = bust(fr[i].url, t); };
+    const imgs = fr.map((_, i) => stage.insertBefore(mk(i), msg));
+    const load = (i, t) => { st[i] = "load"; fetchImg(imgs[i], i, t, (ok) => set(i, ok ? "ok" : "err")); };
     function set(i, s) {
-      if (dead) return;
       st[i] = s;
-      if (s === "ok") got[i] = new Date();
       if (s === "ok" && held) start();   // animacja stanęła, bo nic się nie wczytało; jest klatka, więc rusza dalej
       draw();
     }
@@ -419,15 +452,18 @@ function imgView(o) {
       }
       const f = fr[cur], name = multi ? `${o.title} ${f.label}` : o.title;
       $(".mimg-open").href = f.url;
+      // najpierw źródło, potem czas: w wąskim oknie ucinany jest czas (jest też w podpowiedzi), nie źródło
+      const at = got[cur] && st[cur] === "ok" ? utcHm(got[cur]) : "";
       const hint = $(".mimg-hint");
-      hint.textContent = [got[cur] ? `pobrano ${utcHm(got[cur])}` : "", o.note].filter(Boolean).join(" · ");
-      hint.title = `${name}: ${o.note}\n${f.url}\nObraz z serwera IMGW, odświeżany co ${IMG_REFRESH / 60000} min.`;
+      hint.textContent = [o.note, at && `pobrano\u00a0${at}`].filter(Boolean).join(" · ");   // \u00a0: bez łamania wiersza w środku
+      hint.title = `${name}: ${o.desc}${at ? `, pobrano ${at}` : ""}\n${f.url}\n`
+        + `Obraz z serwera IMGW, odświeżany co ${IMG_REFRESH / 60000} min.`;
       msg.hidden = st[cur] === "ok";
       msg.className = `mimg-msg ${st[cur]}`;
       const html = st[cur] === "err"
         ? `<b>${esc(name)}: nie udało się wczytać obrazu</b>
           <span>Serwer IMGW (aviation-api.imgw.pl) nie wydał obrazu. Może wymagać zalogowania w serwisie lotniczym IMGW
-          w tej przeglądarce albo jest chwilowo niedostępny.</span>
+          w tej przeglądarce, nie pozwalać wyświetlać obrazu na innych stronach albo być chwilowo niedostępny.</span>
           <span class="mimg-acts"><a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">otwórz w nowej karcie ↗</a>
           <button class="btn mimg-retry">Wczytaj ponownie</button></span>`
         : `<span>Wczytywanie: ${esc(name)}…</span>`;
@@ -436,7 +472,7 @@ function imgView(o) {
 
     const go = (i) => { cur = ((i % n) + n) % n; draw(); };
     const tick = () => {
-      if (document.hidden) return;
+      if (!shown()) return;
       const j = playStep(st, cur);
       if (j < 0) { stop(); held = true; return; }   // żadna klatka się nie wczytała: stop, ruszy po wczytaniu którejś
       if (j !== cur) go(j);
@@ -460,7 +496,7 @@ function imgView(o) {
     msg.addEventListener("click", (e) => {
       if (!e.target.closest(".mimg-retry")) return;
       const t = stamp(Date.now(), 1000);
-      fr.forEach((_, i) => { if (st[i] === "err") { st[i] = "load"; load(i, t); } });
+      fr.forEach((_, i) => st[i] === "err" && load(i, t));
       draw();
     });
     stage.addEventListener("keydown", (e) => {
@@ -473,30 +509,34 @@ function imgView(o) {
 
     // co 15 min (na pełny kwadrans) nowy znacznik czasu w adresie: nowy obraz wczytywany w tle i wstawiany w miejsce
     // starego dopiero po wczytaniu, więc nieudane odświeżenie nie zabiera wczytanego wcześniej obrazu; klatki z błędem
-    // wczytujemy od nowa
+    // wczytujemy od nowa. Tylko gdy METEO jest na ekranie: po powrocie zaległy kwadrans dociągany w ciągu 10 s.
     const refresh = () => {
       const t = stamp(Date.now(), IMG_REFRESH);
-      if (t === period) return;
+      if (t === period || !shown()) return;
       period = t;
-      fr.forEach((f, i) => {
-        if (st[i] !== "ok") { st[i] = "load"; load(i, t); return; }
+      fr.forEach((_, i) => {
+        if (st[i] !== "ok") return load(i, t);
         const pre = mk(i);
-        pre.onload = () => {
-          if (dead || !pre.naturalWidth) return;
-          pre.onload = null;
-          imgs[i].replaceWith(watch(pre, i));
+        fetchImg(pre, i, t, (ok) => {
+          if (!ok) return;   // nieudane odświeżenie: zostaje poprzedni obraz (z czasem "pobrano" sprzed odświeżenia)
+          imgs[i].replaceWith(pre);
           imgs[i] = pre;
           set(i, "ok");
-        };
-        pre.src = bust(f.url, t);
+        });
       });
       draw();
     };
-    const refreshTimer = setInterval(refresh, 60000);
+    const refreshTimer = setInterval(refresh, 10000);
 
     fr.forEach((_, i) => load(i, period));
     if (multi) start(); else draw();
-    return { destroy: () => { dead = true; clearInterval(play); clearInterval(refreshTimer); } };
+    return {
+      destroy: () => {
+        dead = true;
+        clearInterval(play);
+        clearInterval(refreshTimer);
+      },
+    };
   };
 }
 
@@ -699,9 +739,9 @@ export default {
       { id: "sat-pl", label: "SAT PL", fill: true, render: windy("sat-pl") },
       { id: "sat-eur", label: "SAT EUR", fill: true, render: windy("sat-eur") },
       { id: "turb", label: "TURB", fill: true, render: imgView({ key: "turb", title: "TURB", frames: turbFrames(),
-        note: "prognoza IMGW (model DWD), statki rejsowe" }) },
+        note: "IMGW · DWD · statki\u00a0rejsowe", desc: "prognoza turbulencji IMGW (model DWD), statki rejsowe" }) },
       { id: "sigwx", label: "SIGWX", fill: true, render: imgView({ key: "sigwx", title: "SIGWX", frames: [{ label: "", url: SIGWX_URL }],
-        note: "mapa zjawisk istotnych SFC–FL100, IMGW" }) },
+        note: "IMGW · SFC–FL100", desc: "mapa zjawisk istotnych SFC–FL100 (FIR Warszawa), IMGW" }) },
     ]);
   },
 };
