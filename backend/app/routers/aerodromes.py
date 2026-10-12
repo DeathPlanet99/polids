@@ -63,23 +63,21 @@ async def card(icao: str, db: Session = Depends(get_db)):
     known = [p for p in all_positions(db) if (p.get("callsign") or "").upper().startswith(code + "_")]
     if not entry and not known:
         raise HTTPException(404, f"Nie znam lotniska {code}")
-    errors = []
-    metar = taf = None
-    try:
-        metar = (await get_metars([code])).get(code)
-    except UpstreamError as exc:
-        errors.append(f"METAR: {exc}")
-    try:
-        taf = (await get_tafs([code])).get(code)
-    except UpstreamError as exc:
-        errors.append(f"TAF: {exc}")
-    ctrls, net_error, updated = [], None, None
-    try:
-        feed = await get_feed()
-        ctrls = feed.get("controllers", []) + feed.get("atis", [])
-        updated = feed.get("general", {}).get("update_timestamp")
-    except (UpstreamError, ValueError) as exc:
-        net_error = f"VATSIM: {exc}"
+
+    async def safe(label, coro, errs=(UpstreamError,)):
+        try:
+            return await coro, None
+        except errs as exc:
+            return None, f"{label}: {exc}"
+
+    # METAR, TAF i data feed VATSIM naraz (karta odświeża się co minutę, każde źródło z własnym błędem)
+    (metars, m_err), (tafs, t_err), (feed, net_error) = await asyncio.gather(
+        safe("METAR", get_metars([code])), safe("TAF", get_tafs([code])),
+        safe("VATSIM", get_feed(), (UpstreamError, ValueError)))
+    errors = [e for e in (m_err, t_err) if e]
+    metar, taf = (metars or {}).get(code), (tafs or {}).get(code)
+    ctrls = (feed or {}).get("controllers", []) + (feed or {}).get("atis", [])
+    updated = (feed or {}).get("general", {}).get("update_timestamp")
     positions = airport_positions(code, known, ctrls)
     ad = db.get(Aerodrome, code)
     lat, lon = (entry["lat"], entry["lon"]) if entry else (ad.lat, ad.lon) if ad else (None, None)

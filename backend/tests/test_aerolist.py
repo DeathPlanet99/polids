@@ -190,6 +190,24 @@ def test_card_foreign_airport(client, fakes):
     assert client.get("/api/aerodromes/E%3CB%3E/card").status_code == 404
 
 
+
+def test_card_upstream_errors(client, monkeypatch):
+    """Brak METAR-u albo sieci VATSIM: karta z komunikatem błędu i stanowiskami offline zamiast błędu 500."""
+    from backend.app.services.http_cache import UpstreamError
+
+    async def down(*_a):
+        raise UpstreamError("timeout (test)")
+
+    async def tafs(icaos):
+        return {}
+    monkeypatch.setattr(aerodromes, "get_metars", down)
+    monkeypatch.setattr(aerodromes, "get_tafs", tafs)
+    monkeypatch.setattr(aerodromes, "get_feed", down)
+    d = client.get("/api/aerodromes/EDDB/card").json()
+    assert d["metar"] is None and d["taf"] is None and d["errors"] == ["METAR: timeout (test)"]
+    assert d["network_error"] == "VATSIM: timeout (test)" and d["updated"] is None
+    assert d["positions"] and all(p["online"] is None for p in d["positions"])
+
 # --- frontend/js/aerolist.js w Node: adres zakładki, wyszukiwanie bez polskich znaków, FIR z ICAO -----------------
 
 JS_SCRIPT = r"""
