@@ -1,7 +1,12 @@
 /* AERODROME › RUCH: paski postępu lotu jak w EFES. Odlot niebieski, przylot żółty, lokalny różowy, planowany przygaszony.
    Paski to jedyne miejsce z dominującym kolorem innym niż zielony; obudowa (pasek informacji, zatoki) jak NM UI.
    Bez poświaty: żadnych text-shadow ani cieni wokół pasków. */
-.aero-pane .strips { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.aero-pane .strips, .strip-pane .strips { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+/* zakładka STRIP: podzakładka lotniska z paskiem tytułu, paski pod spodem na całą wysokość */
+.pane.strip-pane { padding: 8px 12px; }
+.strip-pane > .strip-head { flex: none; margin-bottom: 6px; }
+.strip-pane > .strip-head .title { font-weight: 600; }
+.strip-pane > .strip-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .strips {
   --strip-font: Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace;
 }
@@ -160,7 +165,7 @@
 .aero-ruch:hover { border-color: var(--green); }
 
 @media (max-width: 1180px), (max-height: 560px) {
-  .aero-pane .strips { overflow: auto; }
+  .aero-pane .strips, .strip-pane .strips { overflow: auto; }
   .sx-board { display: flex; flex-direction: column; flex: none; }
   .sx-bay.main, .sx-bay.side { flex: none; max-height: none; }
   .sx-list { max-height: 60vh; }

@@ -12,7 +12,7 @@ export const FIR_LABELS = {
 };
 // rodzaje stanowisk jak na plakietkach lotnisk na MAP (airspace.js FACILITIES): kolory .ab-* w style.css
 const FAC = [["DEL", "D"], ["GND", "G"], ["TWR", "T"], ["ATIS", "A"], ["APP", "APP"]];
-const VIEWS = ["awos", "ruch"];   // widoki lotniska z bazy w adresie (#aerodrome/EPWA/awos); PRZEGLĄD = sam ICAO
+const VIEWS = ["awos", "ruch", "dman", "aman"];   // widoki lotniska z bazy w adresie (#aerodrome/EPWA/awos, RUCH: …/dman, …/aman); PRZEGLĄD = sam ICAO
 
 // wyszukiwanie bez wielkości liter i polskich znaków: "łódź" = "LODZ" (Ł nie rozkłada się w NFD)
 export const fold = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "")

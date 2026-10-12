@@ -11,8 +11,10 @@ Odczyt działa bez klucza. Jeśli autor vIFF wyda klucz, ustaw POLIDS_VIFF_API_K
 Endpointów zapisujących (POST) aplikacja nigdy nie wywołuje: zmieniają wspólny stan sieci.
 Schematów odpowiedzi nie ma w dokumentacji API, więc nazwy pól poniżej pochodzą z obserwacji odpowiedzi."""
 
+import asyncio
 import json
 import re
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -74,6 +76,8 @@ def departure(f: dict) -> dict:
         "airspace": f.get("mostPenalizingAirspace") or None,
         "dep_info": cdm.get("depInfo") or None,
         "atfcm_status": f.get("atfcmStatus") or None, "cdm_status": f.get("cdmSts") or None,
+        # czas kołowania z vIFF (minuty) do EST TAXI OUT i ETOT w DMAN
+        "taxi": f.get("taxi") if isinstance(f.get("taxi"), int) and f.get("taxi") > 0 else None,
     }
 
 
@@ -100,6 +104,86 @@ async def departures(icao: str) -> dict:
     flights = [departure(f) for f in (data if isinstance(data, list) else []) if f.get("callsign")]
     flights.sort(key=lambda f: (bool(f["atot"]), f["eobt"] or "9999", f["callsign"]))
     return {"icao": icao, "cdm": await is_cdm_airport(icao), "flights": flights, "states": FLIGHT_STATES}
+
+
+# Ustawienia A-CDM lotnisk (/etfms/getCadAirports) to tylko dodatek do DMAN: czekamy na nie najwyżej CAD_WAIT_S,
+# zapytanie, które nie zdążyło, kończy się w tle (i trafia do cache), a po błędzie albo przekroczeniu czasu nie pytamy
+# przez CAD_MISS_S. Dzięki temu awaria vIFF nie wydłuża odświeżania widoku RUCH.
+CAD_WAIT_S = 4.0
+CAD_MISS_S = 300
+_cad: dict = {"failed": 0.0, "task": None}
+
+
+async def _cad_airports():
+    try:
+        data = await _get("/etfms/getCadAirports", ttl=3600)
+    except Exception:  # noqa: BLE001 - błąd sieci, 404 albo odpowiedź nie-JSON
+        _cad["failed"] = time.monotonic()
+        return None
+    _cad["failed"] = 0.0
+    return data
+
+
+async def cad_info(icao: str, wait: float = CAD_WAIT_S) -> dict | None:
+    """Ustawienia A-CDM lotniska z /etfms/getCadAirports (jedno zapytanie na wszystkie lotniska, cache 1 h):
+    przepustowość odlotów (rate na godzinę) i domyślny czas kołowania; None bez danych, po błędzie i po `wait` s."""
+    if _cad["failed"] and time.monotonic() - _cad["failed"] < CAD_MISS_S:
+        return None
+    task = _cad["task"]
+    if task is None or task.done() or task.get_loop() is not asyncio.get_running_loop():
+        task = _cad["task"] = asyncio.ensure_future(_cad_airports())
+    try:
+        data = await asyncio.wait_for(asyncio.shield(task), wait)
+    except asyncio.TimeoutError:
+        _cad["failed"] = time.monotonic()   # odpowiedź, która przyjdzie w tle, kasuje ten znacznik
+        return None
+    num = lambda v: v if isinstance(v, int) and v > 0 else None  # noqa: E731
+    for a in data if isinstance(data, list) else []:
+        if isinstance(a, dict) and str(a.get("icao") or "").upper() == icao.upper():
+            return {"rate": num(a.get("rate")), "taxi": num(a.get("taxiTime"))}
+    return None
+
+
+# ELDT przylotów z /ifps/callsign (pole eta). Loty, których vIFF nie zna, nie są pytane ponownie przez ETA_MISS_S,
+# a zapytania, które nie zdążyły w czasie odpowiedzi, kończą się w tle i trafiają do cache na następne odświeżenie.
+ETA_TTL_S = 120
+ETA_MISS_S = 600
+_eta_miss: dict[str, float] = {}
+_eta_bg: set = set()
+
+
+async def arrival_etas(icao: str, callsigns: list[str], wait: float = 4.0, limit: int = 25) -> dict[str, str]:
+    """{callsign: 'HHMM'} ELDT z vIFF dla przylotów do `icao` (najwyżej `limit` lotów, 5 zapytań naraz)."""
+    icao = icao.upper()
+    now = time.monotonic()
+    for cs in [c for c, t in _eta_miss.items() if now - t > ETA_MISS_S]:
+        del _eta_miss[cs]
+    todo = [cs for cs in dict.fromkeys(c.upper() for c in callsigns if c) if cs not in _eta_miss][:limit]
+    if not todo:
+        return {}
+    sem = asyncio.Semaphore(5)
+
+    async def one(cs: str):
+        async with sem:
+            try:
+                data = await _get("/ifps/callsign", {"callsign": cs}, ttl=ETA_TTL_S)
+            except Exception:  # noqa: BLE001 - 404 (lot nieznany), błąd sieci albo odpowiedź nie-JSON
+                data = None
+        if isinstance(data, list):
+            data = next((d for d in data if isinstance(d, dict) and str(d.get("callsign", "")).upper() == cs), None)
+        ok = (isinstance(data, dict) and str(data.get("callsign") or "").upper() == cs
+              and str(data.get("arrival") or icao).upper() == icao and not data.get("landed"))
+        eta = hhmm(data.get("eta")) if ok else None
+        if eta is None:
+            _eta_miss[cs] = time.monotonic()
+        return cs, eta
+
+    tasks = [asyncio.ensure_future(one(cs)) for cs in todo]
+    done, pending = await asyncio.wait(tasks, timeout=wait)
+    for t in pending:
+        _eta_bg.add(t)
+        t.add_done_callback(_eta_bg.discard)
+    return {cs: eta for t in done for cs, eta in [t.result()] if eta}
 
 
 # --- sektory: ruch i przepustowość na najbliższą godzinę

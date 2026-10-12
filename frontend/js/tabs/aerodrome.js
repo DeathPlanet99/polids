@@ -218,7 +218,7 @@ const NOTAM_SORT = {
   end: (a, b) => (a.perm - b.perm) || (a.end || "9").localeCompare(b.end || "9"),
 };
 
-// Ruch: paski postępu lotu w widoku RUCH (strips.js); w PRZEGLĄDZIE tylko jednowierszowe podsumowanie
+// Ruch: w PRZEGLĄDZIE tylko jednowierszowe podsumowanie; widok RUCH to DMAN/AMAN (dman.js), paski EFES są w zakładce STRIP
 function ruchLine(t, icao) {
   const local = t.departures.filter((p) => p.arrival === icao).length;
   const n = (v, one, few, many) => `<b>${v}</b> ${v === 1 ? one : v % 10 >= 2 && v % 10 <= 4 && (v % 100 < 10 || v % 100 >= 20) ? few : many}`;
@@ -367,7 +367,7 @@ export default {
             <div class="values compact"></div>
             <div class="card aero-rwy-card"><h3>Pasy</h3><div class="aero-rwys"></div></div>
             <div class="card grow aero-taf-card"><h3>TAF</h3><div class="scroll aero-taf wx"></div></div>
-            <div class="card aero-ruch" title="Pokaż paski postępu lotu (widok RUCH)"><h3>Ruch VATSIM<span class="ruch-go">paski ›</span></h3><div class="aero-ruch-line"><span class="hint">Ładowanie…</span></div></div>
+            <div class="card aero-ruch" title="Pokaż ruch na drabinach DMAN/AMAN (widok RUCH)"><h3>Ruch VATSIM<span class="ruch-go">DMAN/AMAN ›</span></h3><div class="aero-ruch-line"><span class="hint">Ładowanie…</span></div></div>
           </div>
           <div class="aero-col">
             <div class="card part"><h3>Częstotliwości · online · rezerwacje</h3><div class="scroll freqs"></div></div>
@@ -544,13 +544,17 @@ export default {
       });
     };
 
-    // lotnisko z bazy: PRZEGLĄD, AWOS albo RUCH (jak dotąd; widok z adresu)
+    // RUCH ma dwa widoki (dman.js): DMAN/AMAN i AMAN, w adresie #aerodrome/EPWA/dman i #aerodrome/EPWA/aman;
+    // samo "ruch" (przycisk RUCH, stary adres) = ostatnio używany widok
+    const ruchOf = (v) => (["dman", "aman"].includes(v) ? v : v === "ruch" ? (lsGet("dman.view") === "aman" ? "aman" : "dman") : null);
+    // lotnisko z bazy: PRZEGLĄD, AWOS albo RUCH (jak dotąd; widok z adresu); zwraca adres pokazanego widoku
     const showPage = (code, v = "overview") => {
       markSub("EPWW");
       leave();
       setMode("page");
       icao = code;
-      view = v;
+      const rv = ruchOf(v);
+      view = rv ? "ruch" : v;
       $(".aero-icao").value = icao;
       ticks = 0;
       if (awFor !== icao) { aw = null; awErr = ""; awAt = 0; awFor = icao; lastSt = null; }
@@ -563,11 +567,16 @@ export default {
       if (view === "ruch") {
         $(".title").textContent = icao;
         $(".upd").textContent = "";
-        strips = mountDman($(".content"), icao, { onUpdate: (d) => {
+        // przycisk widoku DMAN/AMAN ↔ AMAN w dman.js = krok do cofnięcia (#aerodrome/EPWA/aman)
+        strips = mountDman($(".content"), icao, { view: rv, onView: (vv, o) => {
+          state = `${code}/${vv}`;
+          remember("aerodrome", state, o);
+          saveLast();
+        }, onUpdate: (d) => {
           $(".title").textContent = `${d.icao} · ${d.name}  (elev ${fmt(d.elevation_ft, 0)} ft)`;
           $(".upd").textContent = `Aktualizacja ${d.now.slice(0, 2)}:${d.now.slice(2)}Z · co 30 s`;
         } });
-        return;
+        return `${code}/${rv}`;
       }
       build();
       load();   // wiatr na podejściu po statusie (load: tylko lotnisko z pasami, także przy błędzie statusu)
@@ -589,7 +598,7 @@ export default {
       else if (a.startsWith("fir/")) showList(a.slice(4), opts);
       else {
         const { code, view: v } = splitArg(a);
-        if (isPage(code)) showPage(code, v);
+        if (isPage(code)) a = showPage(code, v) || a;
         else {
           showCard(code);
           a = code;
@@ -634,7 +643,7 @@ export default {
     // pole ICAO w pasku: na stronie lotniska zostaje bieżący widok (z RUCH EPWA wpisane EPKK otwiera RUCH EPKK)
     const typed = () => {
       const t = $(".aero-icao").value.trim().toUpperCase();
-      return t && /^[A-Z0-9]{4}$/.test(t) && mode === "page" && view !== "overview" ? `${t}/${view}` : t;
+      return t && /^[A-Z0-9]{4}$/.test(t) && mode === "page" && view !== "overview" ? `${t}/${view === "ruch" ? splitArg(state).view : view}` : t;
     };
     $(".go").addEventListener("click", () => typed() && goto(typed()));
     // PRZEGLĄD / AWOS / RUCH: krok w historii (← wraca do poprzedniego widoku tego lotniska)
@@ -654,7 +663,13 @@ export default {
     // (zaznaczony pasek, przewinięcie zatok) i tylko wznawia odświeżanie co 30 s; lista dostaje kursor w wyszukiwarce.
     return { activate: (arg) => {
       let a = (arg ? aeroArg(arg) : null) || (arg ? "0" : state || initial());
+      const rv = a && splitArg(a).view;
       if (a === state && mode === "page" && strips) strips.resume();
+      else if (mode === "page" && strips && ["dman", "aman"].includes(rv) && splitArg(a).code === icao) {
+        strips.setView(rv);         // ←/Wstecz między DMAN/AMAN a AMAN tego samego lotniska: bez przebudowy
+        strips.resume();
+        state = a;
+      }
       else if (a === state && mode === "page" && awos) { /* AWOS bez zmian */ }
       else if (a === state && mode === "list" && list) list.focus();
       else a = show(a);
