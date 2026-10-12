@@ -13,9 +13,10 @@ FRONTEND = ROOT_DIR / "frontend"
 INDEX = (FRONTEND / "index.html").read_text("utf-8")
 APP = (FRONTEND / "js" / "app.js").read_text("utf-8")
 
-MENU = ["home", "radio", "meteo", "aerodrome", "adciv", "admil", "advfr", "callsign", "aircraft", "map", "inop", "docs",
+# INOP pod AD VFR, DOCS w OTHER (runda 11)
+MENU = ["home", "radio", "meteo", "aerodrome", "adciv", "admil", "advfr", "inop", "callsign", "aircraft", "map",
         "phraseology", "checklist", "sytop", "aup", "strip", "other", "about", "emergency", "admin"]
-LABELS = ["?", "RADIO", "METEO", "AERODROME", "AD CIV", "AD MIL", "AD VFR", "CALLSIGN", "AIRCRAFT", "MAP", "INOP", "DOCS",
+LABELS = ["?", "RADIO", "METEO", "AERODROME", "AD CIV", "AD MIL", "AD VFR", "INOP", "CALLSIGN", "AIRCRAFT", "MAP",
           "PHRASEOLOGY", "CHECKLIST", "SYT OP", "AUP", "STRIP", "OTHER", "ABOUT", "EMERGENCY", "ADMIN"]
 
 
@@ -48,6 +49,23 @@ def test_every_tab_has_module():
     assert 'open("home");' in APP and 'open("about");' not in APP
 
 
+def test_docs_moved_to_other():
+    """DOCS nie ma już w menu: to pierwsza podzakładka OTHER (#other/docs/<plik>); stare adresy #docs i #docs/<plik>
+    app.js przekierowuje na OTHER › DOCS, a DOCS › LOA w RADIO otwiera PDF w OTHER."""
+    assert not (FRONTEND / "js" / "tabs" / "docs.js").exists() and "docs" not in MENU
+    assert 'const MOVED = { docs: (arg) => ["other", arg ? "docs/" + arg : "docs"] };' in APP
+    assert "if (Object.hasOwn(MOVED, tab)) [tab, arg] = MOVED[tab](arg);" in APP
+    other = (FRONTEND / "js" / "tabs" / "other.js").read_text("utf-8")
+    assert 'import { mountDocs } from "../docs.js";' in other and "soon(" not in other
+    subs = re.findall(r'\{ id: "([^"]+)", label: "([^"]+)"', other)
+    assert subs[0] == ("docs", "DOCS")
+    assert 'remember("other", argOf("docs"))' in other and "activate(arg)" in other
+    docs = (FRONTEND / "js" / "docs.js").read_text("utf-8")
+    assert "export function mountDocs(" in docs and "remember(" not in docs and "frameGo(" in docs
+    radio = (FRONTEND / "js" / "tabs" / "radio.js").read_text("utf-8")
+    assert 'navigate("other", "docs/" + doc.dataset.docs)' in radio and 'navigate("docs"' not in radio
+
+
 def test_all_css_linked():
     """Każdy arkusz z frontend/css jest podpięty w index.html (zakładki rundy 10 dopisują style bez zmian index.html)."""
     linked = re.findall(r'href="/static/css/([^"]+\.css)"', INDEX)
@@ -62,7 +80,7 @@ const api = await import(process.argv[2]);
 const home = await import(process.argv[3]);
 const hashes = ["#aerodrome/fir/ED", "#aerodrome/EPWA", "#meteo", "#home", "", "#", "#docs/LOA/LOA%20EPWW%20EDMM%20(AIRAC%202602).pdf",
   "#map/%E2%82%AC%", "#checklist/a/a2"];
-const roundtrip = [["aerodrome", "fir/ED"], ["map", "LOT 3 #1 100%"], ["docs", "LOA/LOA EPWW ESAA Szwecja (v2.3, 19.02.2026).pdf"],
+const roundtrip = [["aerodrome", "fir/ED"], ["map", "LOT 3 #1 100%"], ["other", "docs/LOA/LOA EPWW ESAA Szwecja (v2.3, 19.02.2026).pdf"],
   ["meteo", ""], ["aircraft", "maker/airbus"]];
 console.log(JSON.stringify({
   parsed: hashes.map((h) => api.parseHash(h)),
@@ -105,7 +123,7 @@ def test_hash_roundtrip(js):
     assert js["built"][0] == "#aerodrome/fir/ED" and js["built"][3] == "#meteo" and js["built"][4] == "#aircraft/maker/airbus"
     assert "#" not in js["built"][1][1:] and " " not in js["built"][2]
     # adres zbudowany przez hashOf, przepuszczony przez przeglądarkowy URL, wraca jako ten sam arg
-    assert [x["arg"] for x in js["back"]] == ["fir/ED", "LOT 3 #1 100%", "LOA/LOA EPWW ESAA Szwecja (v2.3, 19.02.2026).pdf",
+    assert [x["arg"] for x in js["back"]] == ["fir/ED", "LOT 3 #1 100%", "docs/LOA/LOA EPWW ESAA Szwecja (v2.3, 19.02.2026).pdf",
                                               "", "maker/airbus"]
 
 

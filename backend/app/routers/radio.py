@@ -70,7 +70,7 @@ def positions(db: Session = Depends(get_db)):
 
 @router.get("/loa")
 def loa():
-    """Wyciąg z LOA EPWW z sąsiadami (data/seed/loa.json, PDF-y w DOCS › LOA): klucz = FIR zakładki sąsiada
+    """Wyciąg z LOA EPWW z sąsiadami (data/seed/loa.json, PDF-y w OTHER › DOCS): klucz = FIR zakładki sąsiada
     (EDWW, EDUU, EDMM, LKAA, LZBB, UKLV, EYVL, ESAA), w każdym tytuł, wersja, PDF, stanowiska, przekazania
     (dir out = EPWW → sąsiad, in = sąsiad → EPWW) i zasady (silent, vfr, other)."""
     try:

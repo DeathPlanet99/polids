@@ -4,7 +4,7 @@
 // np. LB) i częstotliwość stanowiska, które teraz go obsługuje wg kolejności przejmowania (ownership.json); bez nikogo
 // online przygaszona częstotliwość stanowiska sektora. Dane: GET /api/radio/board co 30 s (geometria raz, potem tylko po
 // zmianie wersji danych `ver`, np. po imporcie nowego pliku .ese). Kliknięcie nagłówka stosu sąsiada (np. EDWW BREMEN):
-// panel z wyciągiem z LOA EPWW z tym FIR-em (GET /api/radio/loa) i odnośnikiem do PDF-u w DOCS › LOA.
+// panel z wyciągiem z LOA EPWW z tym FIR-em (GET /api/radio/loa) i odnośnikiem do PDF-u w OTHER › DOCS (kategoria LOA).
 import { api, esc, h, lsGet, lsSet, navigate, remember } from "../api.js";
 import { labelPoint } from "../coverage.js";
 import { displayName, loadDisplayNames, posName } from "../posname.js";
@@ -48,7 +48,7 @@ const areaOf = (g) => ringsOf(g).reduce((a, r) => a + Math.abs(r.reduce((s, [x1,
 // Lista raz na sesję (plik zmienia się z nową wersją PolIDS); błąd nie zostaje w pamięci.
 let loaP = null;
 const loadLoa = () => (loaP ||= api("/api/radio/loa").catch((e) => { loaP = null; throw e; }));
-// tylko ścieżki do plików PolIDS (/files/docs/…): adres DOCS (#docs/LOA/…) i PDF w nowej karcie
+// tylko ścieżki do plików PolIDS (/files/docs/…): adres OTHER › DOCS (#other/docs/LOA/…) i PDF w nowej karcie
 const DOCS = "/files/docs/";
 const pdfPath = (pdf) => (String(pdf || "").startsWith(DOCS) ? String(pdf) : "");
 const arr = (x) => (Array.isArray(x) ? x : []);
@@ -77,12 +77,12 @@ export function loaHtml(fir, title, f, radio, { msg = "", loading = false } = {}
   const head = `<div class="rb-loa-h"><b class="rb-loa-tag">LOA</b>${f ? "" : `<span class="rb-loa-fir"><b>${esc(fir)}</b> ${esc(title)}</span>`}`
     + (f ? `<span class="rb-loa-t" title="${esc(f.title)}">${esc(f.title)}</span><span class="rb-loa-v" title="${esc(f.version)}">${esc(f.version)}</span>` : "")
     + `<span class="rb-loa-sp"></span>`
-    + (pdf ? `<button type="button" class="rb-loa-a" data-docs="${esc(pdf.slice(DOCS.length))}" title="Otwórz PDF w zakładce DOCS (← wraca do RADIO)">DOCS › LOA</button>`
+    + (pdf ? `<button type="button" class="rb-loa-a" data-docs="${esc(pdf.slice(DOCS.length))}" title="Otwórz PDF w OTHER › DOCS (← wraca do RADIO)">DOCS › LOA</button>`
       + `<a class="rb-loa-a" href="${esc(encodeURI(pdf))}" target="_blank" rel="noopener" title="${esc(pdf)}">PDF ↗</a>` : "")
     + `<button type="button" class="rb-loa-x" title="Zamknij (Esc)">✕</button></div>`;
   if (!f) {
     return head + `<div class="rb-loa-b"><p class="${msg ? "error" : "hint"}">${msg ? esc(msg) : loading ? "Wczytywanie LOA…"
-      : `Brak LOA EPWW z ${esc(fir)} w PolIDS. Wszystkie LOA: zakładka DOCS › LOA.`}</p></div>`;
+      : `Brak LOA EPWW z ${esc(fir)} w PolIDS. Wszystkie LOA: OTHER › DOCS, kategoria LOA.`}</p></div>`;
   }
   const pos = arr(f.positions).map((p) => `<tr data-f="${esc(Object.values(p).join(" ").toLowerCase())}">`
     + `<td class="${p.side === "EP" ? "ep" : "nb"}">${p.side === "EP" ? "EPWW" : esc(fir)}</td><td class="pcs">${esc(p.callsign)}</td>`
@@ -508,7 +508,7 @@ export default {
     loaBox.addEventListener("click", (e) => {
       if (e.target.closest(".rb-loa-x")) return closeLoa();
       const doc = e.target.closest("button[data-docs]");
-      if (doc) navigate("docs", doc.dataset.docs);
+      if (doc) navigate("other", "docs/" + doc.dataset.docs);   // OTHER › DOCS z tym PDF-em
     });
     // filtr: wiersze tabel i zasady zawierające wpisany tekst; sekcje bez trafień znikają
     loaBox.addEventListener("input", (e) => {
