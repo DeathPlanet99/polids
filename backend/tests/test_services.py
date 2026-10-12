@@ -12,8 +12,8 @@ from types import SimpleNamespace
 from backend.app.importers.callsigns import parse_gr_operator_info
 from backend.app.services.lvp import evaluate as evaluate_lvp
 from backend.app.services.notam import for_aerodrome, split_notams
-from backend.app.services.vatsim import (airport_atc, airport_traffic, bookings_by_callsign, match_positions, online_firs,
-                                        parse_atis)
+from backend.app.services.vatsim import (airport_atc, airport_traffic, atis_in_use, bookings_by_callsign, match_positions,
+                                        online_firs, parse_atis)
 from backend.app.services.runways import runway_equipment, select_runways, suggest_runway, wind_components
 
 
@@ -95,6 +95,60 @@ def test_parse_atis_approach_runway():
     # pas zamknięty nie jest pasem w użyciu
     a = parse_atis(["RUNWAY 15 CLOSED FOR LANDING . RUNWAY IN USE 33"], rw)
     assert (a["arr"], a["dep"]) == ("33", "33")
+
+
+def test_parse_atis_remarks_not_in_use():
+    # uwagi o innym pasie (NOTAM, na żądanie, od godziny, zakaz) nie zmieniają pasa w użyciu
+    rw = ["11", "29", "15", "33"]
+    for remark in ["ILS RUNWAY 11 GLIDE PATH OUT OF SERVICE", "RUNWAY 11 APPROACH LIGHTS UNSERVICEABLE",
+                   "VISUAL APPROACH RUNWAY 33 AVAILABLE ON REQUEST", "EXPECT RUNWAY 11 FROM 1800 UTC",
+                   "NO INTERSECTION DEPARTURES FROM RUNWAY 15", "CRANES ON APPROACH PATH RUNWAY 33"]:
+        a = parse_atis([f"WARSAW CHOPIN INFORMATION K . RUNWAY IN USE 29 . {remark} . TRANSITION LEVEL 80 ."], rw)
+        assert (a["arr"], a["dep"]) == ("29", "29"), remark
+    a = parse_atis(["EPWA INFO A RWY 29 TL 80 WIND 280/12KT CAVOK T15 DP11 Q1015 ILS RWY 11 INOP"], rw)
+    assert (a["arr"], a["dep"]) == ("29", "29")
+
+
+def test_parse_atis_closed_conditional_later():
+    # zamknięcie z poprzedniej pozycji, zakaz, warunek, zmiana pasa później i uwaga o ptakach nie zmieniają pasa 29
+    rw = ["11", "29", "15", "33"]
+    for lines in (["WARSAW CHOPIN INFORMATION K TIME 1530 . RUNWAY 15/33 CLOSED .", "RUNWAY 29 . TRANSITION LEVEL 80 ."],
+                  ["EPWA ATIS K 1530Z RWY 15/33 CLSD RWY 29 TL 80 WIND 290/12KT CAVOK"], ["EPWA ATIS K TWY M CLSD RWY 29 TL 80"],
+                  ["WARSAW CHOPIN DEPARTURE INFORMATION B . RUNWAY 15/33", "AND TAXIWAY M CLOSED DUE TO WORKS . DEPARTURES RUNWAY 29 ."],
+                  ["WARSAW CHOPIN INFORMATION M . RUNWAY IN USE 29 . DUE TO WORKS LANDING NOT PERMITTED ON RUNWAY 33 ."],
+                  ["WARSAW CHOPIN INFORMATION M . RUNWAY IN USE 29 . RUNWAY CHANGE EXPECTED AT 1800 TO RUNWAY 33 ."],
+                  ["EPWA ATIS R 1735Z RWY 29 IN USE TL 80 QNH 1019", "EXP RWY 33 AT 1800Z . ACK INFO R"],
+                  ["WARSAW CHOPIN INFORMATION S . RUNWAY IN USE 29 . AIRCRAFT REQUIRING RUNWAY", "33 FOR DEPARTURE ADVISE ."],
+                  ["WARSAW CHOPIN INFORMATION Q . RUNWAY IN USE 29 . BIRD ACTIVITY ON FINAL APPROACH RUNWAY 33 ."],
+                  ["EPWA ATIS K 1530Z RWY 29 ARR/DEP RWY 11 GP U/S TL 80 WIND 290/12KT"]):
+        a = parse_atis(lines, rw)
+        assert (a["arr"], a["dep"]) == ("29", "29"), lines
+    a = parse_atis(["EPKK INFO K RWY 25 IN USE TL 80 Q1015 RNAV DEPARTURES ONLY BIRD ACT RWY 07 THR ACK INFO K"], ["07", "25"])
+    assert (a["arr"], a["dep"]) == ("25", "25")
+    a = parse_atis(["RUNWAY IN USE 27 . TAILWIND DEPARTURES RUNWAY 09 AVAILABLE ON PILOT REQUEST ."], ["09", "27"])
+    assert (a["arr"], a["dep"]) == ("27", "27")
+    assert parse_atis(["RUNWAY 15/33 CLOSED . RUNWAY 29"], rw)["stated"] == {"arr": "29", "dep": "29"}
+
+
+def test_atis_in_use_split_atis():
+    # EPWA_A_ATIS i EPWA_D_ATIS: rola z ATIS tej roli, potem z innego ATIS, który ją podaje; kopia nie wygrywa z podanym
+    rw = ["11", "29", "15", "33"]
+    both = parse_atis(["EXPECT ILS APPROACH RUNWAY 33 . DEPARTURES RUNWAY 29 ."], rw)
+    assert atis_in_use([("arr", both)]) == atis_in_use([("dep", both)]) == {"arr": "33", "dep": "29"}
+    dep_only = parse_atis(["DEPARTURES RUNWAY 29 ."], rw)
+    d = parse_atis(["LANDING RUNWAY 33 . DEPARTURES RUNWAY 11 ."], rw)
+    assert atis_in_use([("arr", dep_only), ("dep", d)]) == {"arr": "33", "dep": "11"}
+    assert atis_in_use([("dep", dep_only)]) == {"arr": None, "dep": "29"}
+
+
+def test_parse_atis_role_after_runway():
+    # rola po pasie ("RWY 33 LDG") albo przed następnym pasem ("ARR RWY 33 DEP RWY 29"), także bez kropek
+    rw = ["11", "29", "15", "33"]
+    for lines in (["EPWA ATIS L", "RWY 33 LDG", "RWY 29 TKOF", "TL 80"], ["EPWA ATIS P DEP RWY 29 ARR EXP ILS APCH RWY 33"],
+                  ["EPWA ATIS Q RWY 29 IN USE ARR RWY 33 TL 80"], ["RUNWAY 33 , LANDING ONLY , RUNWAY 29 , DEPARTURES ONLY"],
+                  ["EPWA INFO T RWY 33: ARR , RWY 29: DEP , TL 80"], ["EXPECT ILS APPROACH . RUNWAY 33 . DEPARTURES RUNWAY 29"]):
+        a = parse_atis(lines, rw)
+        assert (a["arr"], a["dep"]) == ("33", "29"), lines
 
 
 def test_airac():

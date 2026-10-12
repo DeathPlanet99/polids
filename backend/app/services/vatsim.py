@@ -206,37 +206,110 @@ def pilot_info(p: dict) -> dict:
 # Odczyt pasa z ATIS. Każdą wzmiankę o pasie ("RWY 33", "RUNWAYS 25L AND 25C", "RWY24", albo goły numer tuż przy
 # słowie ARR/DEP/APCH) klasyfikujemy po słowach wokół niej:
 #   1. do lądowania albo do startu: słowa po pasie ("33 FOR LANDING", "RWY 33 IN USE FOR ARR AND DEP", "RWY 26R LDG",
-#      "RWY 24 (ARR)"), a gdy ich nie ma, najbliższe słowo przed pasem w tym samym zdaniu ("EXPECT UNIFORM ARRIVALS
-#      FOR RNP ZULU APPROACH RUNWAY 33", "EXPECT ILS Z RWY 26R", "DEPARTURES RUNWAY 29", "LDG RWY 23 T/O RWY 33");
+#      "RWY 24 (ARR)", "RWY 33, LANDING ONLY"), a gdy ich nie ma, najbliższe słowo przed pasem w tym samym zdaniu
+#      ("EXPECT UNIFORM ARRIVALS FOR RNP ZULU APPROACH RUNWAY 33", "EXPECT ILS Z RWY 26R", "DEPARTURES RUNWAY 29",
+#      "LDG RWY 23 T/O RWY 33");
 #   2. ogólne "RWY 29 IN USE", "RUNWAY IN USE 33", "ACTIVE RWY 29" (lądowanie i start), gdy 1. nic nie dało;
-#   3. gdy nic z tego: pierwszy wymieniony pas.
-# W klasie wygrywa pierwszy pas w tekście ("RUNWAYS 25L AND 25C FOR LANDING" → 25L). Pas zamknięty
-# ("RWY 15/33 CLSD", "LANDING RUNWAY 15 NOT AVAILABLE") pomijamy.
+#   3. pas bez opisu wymieniony przed pasami z klas 1-2 ("RUNWAY 33 . DEPARTURES RUNWAY 29"): to, czego brakuje.
+# W klasie wygrywa pierwszy pas w tekście ("RUNWAYS 25L AND 25C FOR LANDING" → 25L). Pomijamy pas zamknięty albo
+# niedostępny ("RWY 15/33 AND TWY M CLSD", "LANDING NOT PERMITTED ON RUNWAY 33"), na żądanie ("RUNWAY 30 FOR
+# DEPARTURES ON REQUEST"), oczekiwany od podanej godziny ("EXPECT RUNWAY 11 FROM 1800", "EXP RWY 33 AT 1800Z"),
+# z zakazem albo warunkiem ("NO INTERSECTION DEPARTURES FROM RUNWAY 15", "AIRCRAFT REQUIRING RUNWAY 33 FOR DEPARTURE").
+# Pas z niesprawnym wyposażeniem ("ILS RWY 11 GP U/S") liczy się tylko ze słowem roli tuż przed nim ("ARR RWY 33 ILS
+# U/S"); uwaga o ptakach albo uskoku wiatru ("BIRD ACT RWY 07") nie opisuje pasa w użyciu.
 RWY = r"\d{2}[LRC]?"
-_ARR = r"ARR(?:IVAL|IVALS|IVING|S)?|LANDINGS?|LDG|APPROACH(?:ES)?|APCH|APP"
-_DEP = r"DEP(?:ARTURE|ARTURES|ARTING|S)?|TAKE ?-?OFFS?|TKOF|T/O"
+# rola przed rzeczownikiem to nie rola pasa: "APPROACH PATH", "APP LIGHTS", "DEP FREQ 127.25", "DEPARTURE DELAYS"
+_NOUN = r"(?! (?:PATH|LIGHTS?|LIGHTING|AREA|CONTROL|FREQ\w*|CLEARANCE|DELAYS?)\b)"
+_ARR = rf"(?:ARR(?:IVAL|IVALS|IVING|S)?|LANDINGS?|LDG|APPROACH(?:ES)?|APCH|APP){_NOUN}"
+_DEP = rf"(?:DEP(?:ARTURE|ARTURES|ARTING|S)?|TAKE ?-?OFFS?|TKOF|T/O){_NOUN}"
 _ROLE = rf"(?:{_ARR}|{_DEP})"
-# przed pasem słowo o podejściu też oznacza lądowanie: "EXPECT ILS Z RWY 33", "EXP RNP RWY 29"
+_APP_TYPE = r"ILS|LOC|RNP|RNAV|GNSS|GLS|VOR|NDB|VISUAL"
+# przed pasem słowo o podejściu też oznacza lądowanie: "EXPECT ILS Z RWY 33", "EXP RNP RWY 29", "LOGDA STAR FOR RWY 33"
 # samo EXPECT liczy się tylko bez mocniejszego słowa: "DEPARTING AIRCRAFT EXPECT RUNWAY 29" to start
-_PRE_ARR = rf"{_ARR}|ILS|LOC|RNP|RNAV|GNSS|GLS|VOR|NDB|VISUAL"
-_PRE_CUE = re.compile(rf"\b(?:(?P<a>{_PRE_ARR})|(?P<d>{_DEP})|(?P<x>EXPECT(?:ED)?|EXP))\b")
+_PRE_CUE = re.compile(rf"\b(?:(?P<a>{_ARR}|{_APP_TYPE}|STARS?)|(?P<d>{_DEP}|SIDS?)|(?P<x>EXPECT(?:ED)?|EXP))\b")
 _MENTION = re.compile(rf"\b(?P<pre>(?:RWY|RUNWAY)S?(?: IN USE)?:? ?)?(?P<rwy>{RWY})(?P<more>(?:(?: AND |/| & ){RWY})*)\b")
-_POST_ROLE = re.compile(rf"^(?P<link>(?: IN USE| ACTIVE)?(?: FOR | \(| - | ))(?P<roles>{_ROLE}(?:(?: AND |/| & ){_ROLE})?)\b")
+_POST_ROLE = re.compile(rf"^(?P<link>(?: IS)?(?: IN USE| ACTIVE)?(?: FOR (?:ALL )?(?:(?:{_APP_TYPE}) )?| ?\(| - | ?[,:] | ))"
+                        rf"(?P<roles>{_ROLE}(?:(?: AND |/| & ){_ROLE})?)\b")
 # "ARR RWY 33 DEP RWY 29": DEP po 33 to słowo przed następnym pasem, nie opis pasa 33
 _NEXT_RUNWAY = re.compile(rf"^ (?:RWY|RUNWAY|IN USE\b|{RWY}\b)")
-_CLOSED = re.compile(rf"^(?: (?:IS|TEMPORARILY|TEMPO|COMPLETELY|FULLY|ALSO|NOW|FOR|{_ROLE}))*? "
-                     r"(?:CLOSED|CLSD|NOT AVBL|NOT AVAILABLE|UNAVAILABLE|NOT IN USE|OUT OF SERVICE|U/S)\b")
-_IN_USE_AFTER = re.compile(r"^ (?:IN USE|ACTIVE)\b")
+_FILL = rf"IS|TEMPORARILY|TEMPO|COMPLETELY|FULLY|ALSO|NOW|FOR|AVAILABLE|AVBL|{_ROLE}"
+_OUT = r"U/S|UNSERVICEABLE|INOP|INOPERATIVE|OUT OF SERVICE|NOT AVBL|NOT AVAILABLE|UNAVAILABLE"
+_TIME = r"(?:AT|FROM|AFTER) \d{4}Z?\b"
+# "RWY 15/33 AND TWY M CLSD": zamknięcie dotyczy też pasa przed AND
+_CLOSED = re.compile(rf"^(?: AND (?:TWYS?|TAXIWAYS?|RWYS?|RUNWAYS?|APRON) [A-Z0-9/]+)?(?: (?:{_FILL}))*? "
+                     rf"(?:CLOSED|CLSD|NOT IN USE|NOT PERMITTED|PROHIBITED|{_OUT}|(?:ON|UPON)(?: PILOTS?'?S?)? REQ(?:UEST)?"
+                     rf"|IF REQ(?:UIRED|UESTED)?|(?:FROM|AFTER) \d{{4}}Z?)\b")
+# po EXPECT godzina przed pasem albo tuż po nim to zmiana pasa później: "RUNWAY CHANGE EXPECTED AT 1800 TO RUNWAY 33",
+# "EXPECT RUNWAY 09 IN USE FROM 1500", "EXP RWY 33 AT 1800Z"
+_EXPECT = re.compile(r"\bEXP(?:ECT(?:ED)?)?\b")
+_LATER = re.compile(rf"^(?: (?:{_FILL}|IN USE|ACTIVE))*? {_TIME}")
+# niesprawne wyposażenie pasa ("ILS RWY 11 GP U/S", "RWY 07 APP LIGHTS U/S") nie mówi, że pas jest w użyciu
+# słowa rozłączne z _FILL (APP w _FILL to rola), bo powtarzalna alternatywa dwóch dopasowań cofa się wykładniczo
+_EQUIP = r"ILS|LOC|LLZ|LOCALI[SZ]ER|GP|GS|GLIDE ?PATH|GLIDE ?SLOPE|DME|PAPI|ALS|EDGE|(?:(?:APP|APCH|APPROACH) )?LIGHTS?|LIGHTING"
+_EQUIP_OUT = re.compile(rf"^(?: (?:{_FILL}|{_EQUIP}))*? (?:{_OUT})\b")
+# zakaz albo warunek przed pasem: "NO INTERSECTION DEPARTURES FROM RUNWAY 15", "IF RUNWAY 33 IS REQUIRED",
+# "AIRCRAFT REQUIRING RUNWAY 33 FOR DEPARTURE", "PILOTS REQUESTING ILS APPROACH RUNWAY 11"
+_NEGATION = re.compile(r"\b(?:NO|IF|REQUIRING|REQUESTING|NEEDING|UNABLE TO ACCEPT)(?: [A-Z]+)? $")
+_IN_USE_AFTER = re.compile(r"^(?: IS)? (?:IN USE|ACTIVE)\b")
 _IN_USE_BEFORE = re.compile(r"\b(?:ACTIVE|IN USE:?) $")
 # goły numer z jednostką to nie pas: "ARRIVALS 15 MINUTES DELAY"
 _UNIT_AFTER = re.compile(r"^ (?:MIN|MINS|MINUTES|NM|KT|KTS|KNOTS|FT|FEET|M|KM|DEG|DEGREES|SEC|SECONDS|PERCENT)\b|^ ?%")
-# słowa między wskazówką a pasem, po których pas nie jest pasem w użyciu ("AFTER LANDING VACATE RWY 33 VIA ...")
-_BLOCKER = re.compile(r"\b(?:VACATE|CROSS|CROSSING|BACKTRACK|HOLD|HOLDING|TAXI|VIA|BEHIND|CHANGE|CLOSED|CLSD)\b")
-_SENTENCE_END = re.compile(r"\.(?=\s|$)")  # kropka w 118.305 nie kończy zdania
+# uwaga o ptakach, uskoku wiatru albo dźwigu przy pasie (bez ACT, bo "ACT RWY 29" to też pas aktywny): między
+# wskazówką a pasem ją blokuje ("RNAV DEPARTURES ONLY BIRD ACT RWY 07 THR")
+_REMARK = r"BIRDS?|ACTIVITY|WS|WINDSHEAR|CRANES?"
+_REMARK_RE = re.compile(rf"\b(?:{_REMARK})\b")
+# słowa między wskazówką a pasem, po których pas nie jest pasem w użyciu ("AFTER LANDING VACATE RWY 33 VIA ...",
+# "ILS U/S RWY 29 TKOF", "TAKE OFF NOT PERMITTED FROM RUNWAY 15")
+_MOVE = r"VACATE|CROSS|CROSSING|BACKTRACK|HOLD|HOLDING|TAXI|VIA|BEHIND|CHANGE"
+_BLOCKER = re.compile(rf"\b(?:{_MOVE}|CLOSED|CLSD|{_OUT}|NOT PERMITTED|PROHIBITED|NOT IN USE|{_REMARK})\b")
+# pas bez opisu tuż po tych słowach to nie pas w użyciu; CLSD przed pasem kończy poprzednią pozycję ("TWY M CLSD RWY 29")
+_PLACE = re.compile(rf"\b(?:{_MOVE}|{_REMARK})\b")
 
 
 def _roles(words: str) -> set:
     return {"arr" if re.fullmatch(_ARR, w) else "dep" for w in re.split(r" AND | & |/(?!O\b)", words)}
+
+
+def _last_words(text: str, n: int) -> str:
+    return " ".join(text.rsplit(maxsplit=n)[-n:])  # rsplit od końca: bez kropek tekst może być bardzo długi
+
+
+def _cue(pre_text: str):
+    """Słowo przed pasem (do 6 słów). Mocniejsze od EXPECT, chyba że EXPECT po przecinku zaczyna nową pozycję:
+    "EXPECT DEPARTURE DELAYS, EXPECT RUNWAY 33"."""
+    lo = len(pre_text)
+    for _ in range(9):  # tylko koniec tekstu: bez kropek pre_text może być bardzo długi
+        lo = max(pre_text.rfind(" ", 0, lo), 0)
+    cues = [c for c in _PRE_CUE.finditer(pre_text, lo) if len(pre_text[c.end():].split()) <= 6]
+    if not cues:
+        return None
+    cue = next((c for c in reversed(cues) if not c.group("x")), None)
+    if not cue or "," in pre_text[cue.end():cues[-1].start()]:
+        cue = cues[-1]
+    return None if _BLOCKER.search(pre_text[cue.end():]) else cue
+
+
+def _post_role(after: str, bare: bool, cued: bool, postfix: bool):
+    """Rola po pasie. Samo słowo po pasie (bez FOR, nawiasu, myślnika) może też zaczynać następną pozycję:
+    w "ARR RWY 33 DEP RWY 29" DEP należy do 29, w "RWY 33 ARR RWY 29 DEP" ARR należy do 33. `postfix`: tekst już
+    opisuje pasy słowami po nich ("RWY 33 LDG RWY 29 TKOF RWY 15 CLSD")."""
+    post = _POST_ROLE.match(after)
+    link = post.group("link") if post else ""
+    if not post or re.search(r"FOR|\(|-", link):
+        return post
+    if cued or bare and re.search("[,:]", link):
+        return None
+    rest = after[post.end():]
+    if link.strip() and not _NEXT_RUNWAY.match(rest) and not re.match(r"(?: ONLY)?(?: ?[,.;]|$)", rest):
+        return None  # po przecinku albo IN USE rola musi kończyć pozycję: "RWY 29 IN USE, ARRIVALS EXPECT ILS RWY 33"
+    if _NEXT_RUNWAY.match(rest):
+        # następny pas ma własny opis (rolę, zamknięcie, niesprawne wyposażenie), więc rola należy do tego:
+        # "RWY 29 ARR/DEP RWY 11 GP U/S"
+        nxt = _MENTION.search(rest)
+        described = nxt and any(p.match(rest[nxt.end():]) for p in (_POST_ROLE, _CLOSED, _EQUIP_OUT))
+        if bare or not postfix and not described:
+            return None
+    return post
 
 
 def _atis_runways(text: str, ok) -> dict:
@@ -244,50 +317,58 @@ def _atis_runways(text: str, ok) -> dict:
     found = {1: {}, 2: {}}  # klasa -> {"arr"/"dep": pas}; pierwszy w tekście wygrywa
     first = None
     seg_start = 0
+    postfix = False
     for m in _MENTION.finditer(text):
-        before, after = text[:m.start()], text[m.end():]
-        rwys = [m.group("rwy")] + re.findall(RWY, m.group("more") or "")
-        rwys = [r for r in rwys if ok(r)]
-        post = _POST_ROLE.match(after)
-        if post and post.group("link") == " " and _NEXT_RUNWAY.match(after[post.end():]):
-            post = None
-        pre_text = text[max(seg_start, _last_sentence_end(text, m.start())):m.start()]
-        cues = [c for c in _PRE_CUE.finditer(pre_text) if len(pre_text[c.end():].split()) <= 6]
-        cue = next((c for c in reversed(cues) if not c.group("x")), cues[-1] if cues else None)
-        if cue and _BLOCKER.search(pre_text[cue.end():]):
-            cue = None
+        before, after = text[max(0, m.start() - 12):m.start()], text[m.end():]
+        rwys = [r for r in [m.group("rwy")] + re.findall(RWY, m.group("more") or "") if ok(r)]
         bare = not m.group("pre")
-        if bare and (_UNIT_AFTER.match(after) or not post and not (cue and not pre_text[cue.end():].strip(" :"))):
+        sentence = _last_sentence_end(text, m.start())
+        pre_text = text[max(seg_start, sentence):m.start()]
+        # krótkie zdanie z uwagą ("BIRD ACTIVITY ON FINAL APPROACH RUNWAY 33") nie podaje pasa w użyciu; bez kropki uwaga
+        # może należeć do poprzedniej pozycji ("CRANE 45 M AGL ARR RWY 33")
+        remark = sentence and sentence >= seg_start and m.start() - sentence <= 80 and _REMARK_RE.search(pre_text)
+        cue = None if remark else _cue(pre_text)
+        post = _post_role(after, bare, bool(cue and not cue.group("x")), postfix)
+        near = cue and pre_text[cue.end():].strip(" :") in ("", "FROM", "ON")  # "DEPARTURES FROM 29"
+        if bare and (not rwys or _UNIT_AFTER.match(after) or not post and not near):
             continue  # goły numer (temperatura, widzialność) liczy się tylko tuż przy ARR/DEP
-        seg_start = m.end() + (post.end() if post else 0)
-        if not rwys or _CLOSED.match(after):
+        closed = _CLOSED.match(after)
+        seg_start = m.end() + (post.end() if post else closed.end() if closed else 0)  # "RWY 15/33 CLSD RWY 29"
+        postfix = postfix or bool(post and _NEXT_RUNWAY.match(after[post.end():]))
+        if not rwys or closed or _NEGATION.search(_last_words(pre_text[:cue.start()] if cue else pre_text, 5) + " "):
             continue
+        recent = _last_words(pre_text, 6)
+        if (x := list(_EXPECT.finditer(recent))) and (re.search(_TIME, recent[x[-1].end():]) or _LATER.match(after)
+                                                       or re.match(rf" ?{_TIME}", pre_text)):  # "AT 1800 EXPECT RWY 33"
+            continue
+        in_use = "IN USE" in (m.group("pre") or "") or _IN_USE_AFTER.match(after) or _IN_USE_BEFORE.search(before)
+        if _EQUIP_OUT.match(after) and not (in_use or post or near and re.fullmatch(_ROLE, cue.group())):
+            cue = None  # "ILS RWY 11 GP U/S": zostaje tylko pas bez opisu (klasa 3); "ARR RWY 33 ILS U/S" to nadal ARR
         if post:
             roles, cls = _roles(post.group("roles")), 1
+            pre_role = cue and not cue.group("x") and ("dep" if cue.group("d") else "arr")
+            if len(rwys) > 1 and pre_role and pre_role not in roles:  # "LANDING RWY 33 AND 29 FOR TAKEOFF"
+                found[1].setdefault(pre_role, rwys[0])
+                rwys = rwys[-1:]
         elif cue:
             tail = pre_text[max(0, cue.start() - 20):cue.end()]
-            both = re.search(rf"(?:{_ARR}) (?:AND|&) (?:{_DEP})$|(?:{_DEP}) (?:AND|&) (?:{_ARR})$", tail)
+            both = re.search(rf"(?:{_ARR})(?: AND | & |/)(?:{_DEP})$|(?:{_DEP})(?: AND | & |/)(?:{_ARR})$", tail)
             roles, cls = ({"arr", "dep"} if both else {"dep" if cue.group("d") else "arr"}), 1
-        elif "IN USE" in (m.group("pre") or "") or _IN_USE_AFTER.match(after) or _IN_USE_BEFORE.search(before[-12:]):
+        elif in_use:
             roles, cls = {"arr", "dep"}, 2
         else:
-            if first is None and not _BLOCKER.search(" ".join(before[-60:].split()[-3:])):
+            if first is None and not found[1] and not found[2] and not remark and not _PLACE.search(
+                    _last_words(pre_text, 3)):  # "VACATE RWY 33", "BIRD ACT RWY 15"
                 first = rwys[0]
             continue
         for role in roles:
             found[cls].setdefault(role, rwys[0])
-    out = {"arr": None, "dep": None}
-    for cls in (1, 2):
-        for role in ("arr", "dep"):
-            out[role] = out[role] or found[cls].get(role)
-    if not out["arr"] and not out["dep"]:
-        out["arr"] = first
-    return out
+    return {role: found[1].get(role) or found[2].get(role) or first for role in ("arr", "dep")}
 
 
 def _last_sentence_end(text: str, pos: int) -> int:
-    ends = [m.end() for m in _SENTENCE_END.finditer(text, 0, pos)]
-    return ends[-1] if ends else 0
+    i = text.rfind(". ", 0, pos)  # tekst ma już pojedyncze spacje; kropka w 118.305 nie kończy zdania
+    return i + 1 if i >= 0 else 0
 
 
 def parse_atis(lines: list[str] | None, designators: list[str] | None = None, code: str | None = None) -> dict:
@@ -295,16 +376,30 @@ def parse_atis(lines: list[str] | None, designators: list[str] | None = None, co
 
     Działa z typowymi formatami vATIS i tekstem pisanym ręcznie: "RWY 29 IN USE", "RUNWAY IN USE 33",
     "33 FOR LANDING, 29 FOR TAKEOFF", "ARR RWY 33 DEP RWY 29", "EXPECT ILS APPROACH RUNWAY 33. DEPARTURES RUNWAY 29".
-    Brakujący pas (lądowanie albo start) kopiuje drugi. Pas musi istnieć na lotnisku (jeśli podano `designators`)."""
-    text = re.sub(r"\s+", " ", " ".join(lines or [])).upper()
+    Brakujący pas (lądowanie albo start) kopiuje drugi; `stated` to pasy podane wprost (bez kopii), dla atis_in_use.
+    Pas musi istnieć na lotnisku (jeśli podano `designators`)."""
+    text = re.sub(r"\s+", " ", " ".join(x for x in lines or [] if x)).upper()
     letter = code or None
     if not letter:
         m = re.search(r"\b(?:INFORMATION|INFO|ATIS) ([A-Z])\b", text)
         letter = m.group(1) if m else None
     ok = lambda r: not designators or r in designators  # noqa: E731
-    rw = _atis_runways(text, ok)
+    # cyfry rozstawione dla syntezy mowy ("RUNWAY 2 9") sklejamy tylko po RWY/RUNWAY, nie w temperaturze
+    rw = _atis_runways(re.sub(r"\b((?:RWY|RUNWAY)S?(?: IN USE)?:? )(\d) (\d)\b", r"\1\2\3", text), ok)
     arr, dep = rw["arr"], rw["dep"]
-    return {"letter": letter, "arr": arr or dep, "dep": dep or arr, "text": text}
+    return {"letter": letter, "arr": arr or dep, "dep": dep or arr, "stated": rw, "text": text}
+
+
+def atis_in_use(parsed: list[tuple[str, dict]]) -> dict:
+    """Pas do lądowania i do startu z kilku ATIS lotniska: [(rodzaj, parse_atis(...))], rodzaj "arr" (EPWA_A_ATIS),
+    "dep" (EPWA_D_ATIS) albo "both". Rolę bierzemy najpierw z ATIS tej roli (albo wspólnego), potem z innego ATIS,
+    który ją podaje wprost; pas skopiowany z drugiej roli nie wygrywa z podanym. Brakującą rolę zostawiamy None."""
+    out = {}
+    for role in ("arr", "dep"):
+        own = [i["stated"][role] for kind, i in parsed if kind in (role, "both") and i["stated"][role]]
+        other = [i["stated"][role] for _, i in parsed if i["stated"][role]]
+        out[role] = (own + other + [None])[0]
+    return out
 
 
 def distance_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
