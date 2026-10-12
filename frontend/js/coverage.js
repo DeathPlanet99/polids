@@ -1,60 +1,11 @@
-// Zasięg pozycji (RADIO › GEO i SEKTORYZACJA): kto przejmuje który wycinek sektora przy danym zestawie aktywnych pozycji.
-// Sektor ACC EPWW (B, C, … R-N): pierwsza aktywna pozycja z kolejności przejmowania (/api/nav/ownership) w warstwie
-// wycinka (LOW/MID/HIGH wg dolnej granicy). Pozostałe wycinki (TMA, CTR, FIS, sąsiedzi): kolejność z chains.js –
-// najpierw APP/TWR z listy OWNER pliku .ese, potem ACC (TMA: top-down z om.plvacc.pl, inne: lista OWNER .ese).
-// Wycinki z /api/radio/sectors (owners = znaki stanowisk).
-import { VACS_LAYERS, accLetter, fl, vacsLayer } from "./airspace.js";
-import { airspaceChain } from "./chains.js";
+// Punkt etykiety wewnątrz wycinka sektora (MAP: etykiety przestrzeni; RADIO: ID i częstotliwość sektora na podglądach).
 
-// kolejność przejmowania wycinka (znaki stanowisk) i warstwa (tylko sektory ACC EPWW);
-// src: "own" (sektor ACC, /api/nav/ownership), "om" (TMA z tabeli top-down om.plvacc.pl), "ese" (lista OWNER .ese)
-const chainCache = new WeakMap();  // wycinek → {own, out}: sliceChain woła się dla każdego wycinka przy każdym rysowaniu
-export function sliceChain(pr, own) {
-  const hit = chainCache.get(pr);
-  if (hit && hit.own === own) return hit.out;
-  const letter = pr.fir === "EPWW" || !pr.fir ? accLetter(pr.name) : null;
-  const layer = letter ? vacsLayer(pr.lower_ft ?? 0) : null;
-  const chain = letter && own?.sectors?.[letter]?.[layer];
-  let out;
-  if (chain?.length) out = { chain, letter, layer, src: "own" };
-  else {
-    const a = airspaceChain(pr.name, pr.owners, own);
-    out = { chain: a.chain, letter, layer, src: a.src, tma: a.tma };
-  }
-  chainCache.set(pr, { own, out });
-  return out;
-}
-export const sliceOwner = (pr, active, own) => sliceChain(pr, own).chain.find((c) => active.has(c)) || null;
-
-// filtr poziomu: {k: "all"} | {k: "LOW"|"MID"|"HIGH"} (wycinki zachodzące na warstwę) | {k: "fl", fl: 300}
-export function levelOk(pr, lv, own) {
-  if (!lv || lv.k === "all") return true;
-  if (lv.k === "fl") return pr.lower_ft <= lv.fl * 100 && pr.upper_ft > lv.fl * 100;
-  const L = own?.layers?.[lv.k];
-  return !L || (pr.lower_ft < L.upper_ft && pr.upper_ft > L.lower_ft);
-}
-export const levelText = (lv, own) => (lv.k === "all" ? "wszystkie poziomy" : lv.k === "fl" ? `FL${String(lv.fl).padStart(3, "0")}`
-  : `${lv.k} ${own?.layers?.[lv.k]?.label || ""}`.trim());
-export const rangeText = (lo, hi) => `${lo ? fl(lo) : "GND"}–${fl(hi)}`;
-
-// klucz kształtu: wycinki tej samej nazwy o tej samej geometrii (różne przedziały wysokości) rysujemy raz
+// klucz kształtu: wycinki tej samej nazwy o tej samej geometrii (różne przedziały wysokości) liczymy raz
 export function geomKey(f) {
   const g = f.geometry, ring = g.type === "Polygon" ? g.coordinates[0] : g.type === "MultiPolygon" ? g.coordinates[0][0] : [];
   const p = (c) => (c ? `${c[0].toFixed(4)},${c[1].toFixed(4)}` : "");
   return `${f.properties.fir}/${f.properties.name}/${ring.length}/${p(ring[0])}/${p(ring[Math.floor(ring.length / 2)])}`;
 }
-
-// Sektory ACC w warstwach dla aktywnego zestawu: {pozycja: {litera: "LMH"}}, oraz nieobsadzone {litera: "LM"}
-export function accSummary(active, own) {
-  const by = {}, free = {};
-  Object.keys(own?.sectors || {}).sort().forEach((s) => VACS_LAYERS.forEach((ly) => {
-    const o = (own.sectors[s][ly] || []).find((c) => active.has(c));
-    const m = o ? (by[o] ||= {}) : free;
-    m[s] = (m[s] || "") + ly[0];
-  }));
-  return { by, free };
-}
-export const accText = (m) => Object.entries(m || {}).map(([s, ls]) => `${s} ${ls}`).join(", ");
 
 // Punkt etykiety wewnątrz wielokąta, możliwie daleko od krawędzi (uproszczony polylabel: siatka próbek).
 // within: [lonMin, latMin, lonMax, latMax] – szukaj tylko w tej ramce (np. część sektora sąsiada blisko Polski).

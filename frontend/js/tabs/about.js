@@ -39,7 +39,7 @@ const TILES = [
   ["aerodrome", "AERODROME", "Lotnisko na jednym ekranie: METAR, wiatr, pasy, ATIS, ruch z vIFF, NOTAM, widok AWOS."],
   ["meteo", "METEO", "METAR i TAF lotnisk, mapa QNH regionalnego, wiatr przy ziemi i na podejściu."],
   ["map", "MAP", "Ruch VATSIM, przestrzeń na wybranym poziomie, TMA/CTR, przepustowość sektorów i status lotu z vIFF."],
-  ["radio", "RADIO", "Kafelki GEO z częstotliwościami, zasięg stanowisk na mapie, sektoryzacja, kto jest online i rezerwacje na dziś."],
+  ["radio", "RADIO", "Jedna strona jak w PANDORZE: sektory ACC EPWW na podglądach LOW/MID/HIGH z częstotliwościami, warstwy APP/TWR/FIS, ATIS i stanowiska sąsiadów."],
   ["callsign", "CALLSIGN", "Znaki wywoławcze linii lotniczych."],
   ["aircraft", "AIRCRAFT", "Typy samolotów wg producenta, kategorie turbulencji, zdjęcia."],
   ["checklist", "CHECKLIST", "Otwarcie i zamknięcie stanowiska, przekazanie, zmiana pasa."],

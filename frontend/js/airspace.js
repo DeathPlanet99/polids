@@ -30,11 +30,10 @@ let vacsPromise = null, vacsData = null;
 export const loadVacs = () => (vacsPromise ||= api("/api/nav/ownership").then((d) => (vacsData = d))
   .catch((e) => { vacsPromise = null; throw e; }));
 loadVacs().catch(() => { /* bez VACS: właściciele z listy OWNER pliku .ese */ });
-export const VACS_LAYERS = ["LOW", "MID", "HIGH"];
 // warstwa wg poziomu w stopach: poniżej FL335 LOW, poniżej FL365 MID, wyżej HIGH
 export const vacsLayer = (ft) => (ft < 33500 ? "LOW" : ft < 36500 ? "MID" : "HIGH");
 // litera sektora ACC z nazwy sektora .ese: EPWWB → B, EPWWR-N → R; EPWW-MIDSEA, TMA, CTA → null
-export const accLetter = (name) => /^EPWW([A-Z])(?:-[A-Z]+)?$/.exec(name || "")?.[1] || null;
+const accLetter = (name) => /^EPWW([A-Z])(?:-[A-Z]+)?$/.exec(name || "")?.[1] || null;
 // skrót stanowiska VACS (EPWW_DBF_CTR → DBF)
 export const vacsShort = (vacs, cs) => vacs?.acc_positions?.[cs]?.short || cs;
 
