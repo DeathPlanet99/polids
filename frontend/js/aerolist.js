@@ -113,6 +113,8 @@ export const onLoadedList = (icao) => Object.values(lists).some((c) => c.data?.s
 // Wybór klawiszem na liście n widocznych wierszy: i = numer wybranego (-1: nic), d = o ile (↑ ↓ o jeden, PgUp PgDn
 // o ekran). Bez wyboru pierwszy wiersz, dalej nie poza listę; pusta lista: -1.
 export const stepSel = (i, n, d) => (n ? Math.max(0, Math.min(n - 1, i < 0 ? 0 : i + d)) : -1);
+// PgUp PgDn: o tyle wierszy, ile mieści okienko wysokości h przy wierszu rowH, bez jednego (ostatni zostaje na ekranie)
+export const pageRows = (h, rowH) => (rowH > 0 ? Math.max(1, Math.floor(h / rowH) - 1) : 1);
 
 // Na ekranie: karta przeglądarki widoczna i element w pokazanej zakładce (ukryta zakładka ma display: none). Listy i karta
 // odświeżają się tylko wtedy; po powrocie (focus/resume, widoczna karta przeglądarki) od razu, jeśli dane są starsze niż okres.
@@ -140,11 +142,14 @@ Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnis
   const $ = (s) => el.querySelector(s);
   const input = $(".alist-q"), box = $(".alist-box"), rows = $(".alist-rows"), msg = $(".alist-msg");
   // items: {i, icao, name, rank, keys, el, tier}; vis: widoczne po filtrze, z góry na dół; pending: zapamiętane
-  // przewinięcie, które czeka, aż okienko będzie na ekranie (lista wczytana w ukrytej zakładce ma wysokość 0)
-  let items = [], byIcao = new Map(), vis = [], data = null, sel = null, destroyed = false, atcTimer = null, atcAt = 0, pending = null;
+  // przewinięcie, które czeka, aż okienko będzie na ekranie (lista wczytana w ukrytej zakładce ma wysokość 0);
+  // queried: przy ostatnim filtrze w polu był tekst
+  let items = [], byIcao = new Map(), vis = [], data = null, sel = null, destroyed = false, atcTimer = null, atcAt = 0, pending = null,
+    queried = false;
 
   // wiersz w okienku listy (bez przewijania strony): "near" (strzałki) tyle, żeby było widać go z jednym wierszem
-  // zapasu nad i pod nim; "center" (wyszukanie, powrót do listy) na środek, jeśli jest poza okienkiem
+  // zapasu nad i pod nim; "center" (wyszukanie, powrót do listy) na środek, jeśli jest poza okienkiem.
+  // offsetTop liczy się od okienka tylko dzięki position: relative na .alist-box (aerolist.css)
   const reveal = (it, how) => {
     const H = box.clientHeight, top = it.el.offsetTop, h = it.el.offsetHeight;
     if (!H) return;
@@ -181,6 +186,9 @@ Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnis
         + (isIcao(q) ? ` Enter albo WYŚWIETL otworzy <b>${esc(q)}</b>.` : "");
     }
     select(forms.length ? bestMatch(vis, forms) : null, "center");
+    // pole skasowane do końca (Backspace, wycięcie): jak Esc, lista od góry i bez wyboru
+    if (queried && !forms.length) box.scrollTop = 0;
+    queried = forms.length > 0;
   };
 
   // zapamiętane przewinięcie (albo wybrany wiersz) po wczytaniu listy, gdy okienko jest już na ekranie
@@ -209,8 +217,8 @@ Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnis
   const changed = debounce(() => { if (!destroyed) onChange?.(save()); }, 400);
   input.addEventListener("input", () => { filter(); changed(); });
   box.addEventListener("scroll", changed, { passive: true });
-  // PgUp PgDn: o tyle wierszy, ile widać w okienku, bez jednego (ostatni zostaje na ekranie)
-  const page = () => Math.max(1, Math.floor(box.clientHeight / (vis[0]?.el.offsetHeight || 38)) - 1);
+  // PgUp PgDn o ekran: wysokość wiersza z aerolist.css (--alist-row-h, ta sama ustala height .alist-row)
+  const page = () => pageRows(box.clientHeight, parseFloat(getComputedStyle(box).getPropertyValue("--alist-row-h")));
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); open(); return; }
     if (e.key === "Escape") { e.preventDefault(); clear(); return; }

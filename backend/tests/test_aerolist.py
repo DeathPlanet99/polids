@@ -285,6 +285,7 @@ console.log(JSON.stringify({
   plural: [1, 2, 4, 5, 12, 22, 32, 33, 93, 119, 469].map((n) => n + " " + m.lotnisk(n)),
   step: [[-1, 10, 1], [-1, 10, -1], [-1, 10, 18], [0, 10, -1], [3, 10, 1], [3, 10, -1], [9, 10, 1], [2, 10, 18],
     [9, 10, -18], [5, 0, 1], [-1, 0, -1]].map(([i, n, d]) => m.stepSel(i, n, d)),
+  page: [[684, 38], [708, 38], [38, 38], [0, 38], [684, 0], [684, NaN]].map(([h, r]) => m.pageRows(h, r)),
 }));
 """
 
@@ -352,3 +353,27 @@ def test_js_step_selection(aerojs):
     """Lista w jednej kolumnie: ↑ ↓ o jeden wiersz, PgUp PgDn o ekran, bez wyjścia poza listę; bez wyboru pierwszy
     wiersz (jak dotąd ↓ i ↑), pusta lista: nic."""
     assert aerojs["step"] == [0, 0, 0, 0, 4, 2, 9, 9, 0, -1, -1]
+    # PgUp PgDn: wierszy w okienku bez jednego, co najmniej jeden; bez wysokości wiersza (brak --alist-row-h) o jeden
+    assert aerojs["page"] == [17, 17, 1, 1, 1, 1]
+
+
+def test_list_css_contract():
+    """aerolist.js liczy na aerolist.css: offsetTop wierszy od okienka (position: relative na .alist-box), wysokość
+    wiersza z --alist-row-h (PgUp PgDn bez wpisanej w kod liczby), licznik stałej szerokości (pisanie nie zawija paska
+    i nie przesuwa listy); wiersz pod myszą ma własne tło i ramkę, inne niż wybrany."""
+    import re
+
+    from backend.app.config import ROOT_DIR
+    css = (ROOT_DIR / "frontend" / "css" / "aerolist.css").read_text("utf-8")
+    js = (ROOT_DIR / "frontend" / "js" / "aerolist.js").read_text("utf-8")
+
+    def rule(sel):
+        return re.search(r"(?m)^" + re.escape(sel) + r" \{([^}]*)\}", css).group(1)
+
+    assert "position: relative" in rule(".alist-box") and re.search(r"--alist-row-h: \d+px", rule(".alist-box"))
+    assert "height: var(--alist-row-h)" in rule(".alist-row") and '"--alist-row-h"' in js
+    assert "|| 38" not in js
+    assert re.search(r"min-width: 1\dch", rule(".alist-n"))
+    hover, sel = rule(".alist-row:hover"), rule(".alist-row.sel")
+    assert "var(--row-hover)" not in hover and "box-shadow" in hover and hover != sel
+    assert "text-shadow" not in css
