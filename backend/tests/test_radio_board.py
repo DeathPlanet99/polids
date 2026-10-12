@@ -206,7 +206,7 @@ def test_every_loa_has_a_stack(client, board):
     stacks = {s["fir"] for s in board["stacks"]}
     assert set(loa) <= stacks and stacks - set(loa) == {"UMKK", "UMMV"}
     radio = (FRONTEND / "js" / "tabs" / "radio.js").read_text("utf-8")
-    assert 'api("/api/radio/loa")' in radio and 'navigate("docs"' in radio
+    assert 'api("/api/radio/loa")' in radio and 'navigate("other", "docs/"' in radio
 
 
 # --- czyste funkcje radioboard.py
@@ -387,7 +387,7 @@ console.log(JSON.stringify({
 
 
 def test_js_loa_panel(tmp_path):
-    """Panel LOA w RADIO (tabs/radio.js loaHtml): tabele przekazań w obie strony, zasady, stanowiska, PDF w DOCS
+    """Panel LOA w RADIO (tabs/radio.js loaHtml): tabele przekazań w obie strony, zasady, stanowiska, PDF w OTHER › DOCS
     i w nowej karcie; brak LOA, wczytywanie i błąd; dane z loa.json zawsze przez esc()."""
     node = shutil.which("node")
     if not node:

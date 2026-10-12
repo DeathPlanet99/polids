@@ -2,6 +2,7 @@ import { api, clearNavPath, esc, hashOf, navPath, parseHash, presetNavPath, sele
 import home from "./tabs/home.js";
 import meteo from "./tabs/meteo.js";
 import { adciv, admil, advfr } from "./tabs/aip.js";
+import inop from "./tabs/inop.js";
 import about from "./tabs/about.js";
 import radio from "./tabs/radio.js";
 import emergency from "./tabs/emergency.js";
@@ -9,8 +10,6 @@ import aircraft from "./tabs/aircraft.js";
 import callsign from "./tabs/callsign.js";
 import aerodrome from "./tabs/aerodrome.js";
 import map from "./tabs/map.js";
-import inop from "./tabs/inop.js";
-import docs from "./tabs/docs.js";
 import phraseology from "./tabs/phraseology.js";
 import checklist from "./tabs/checklist.js";
 import sytop from "./tabs/sytop.js";
@@ -29,8 +28,10 @@ if (window.L) {
   }
 }
 
-const TABS = { home, about, radio, meteo, aerodrome, adciv, admil, advfr, callsign, aircraft, map, inop, docs, phraseology, checklist,
+const TABS = { home, about, radio, meteo, aerodrome, adciv, admil, advfr, inop, callsign, aircraft, map, phraseology, checklist,
   sytop, aup, strip, other, emergency, admin };
+// stare adresy zakładek przeniesionych do podmenu: #docs/<plik> → OTHER › DOCS (#other/docs/<plik>)
+const MOVED = { docs: (arg) => ["other", arg ? "docs/" + arg : "docs"] };
 const views = document.getElementById("views");
 const back = document.getElementById("nav-back");
 const mounted = {};
@@ -59,6 +60,7 @@ function write(tab, arg, push) {
 // arg: undefined = przycisk menu (zakładka zostaje w swoim stanie), napis = stan z adresu ("" = domyślny).
 // Zakładka z activate(arg) sama czyta arg; bez activate() arg to ścieżka podzakładek (subtabs w api.js).
 function open(tab, arg, push = false) {
+  if (Object.hasOwn(MOVED, tab)) [tab, arg] = MOVED[tab](arg);   // adres zapisuje już nowa zakładka (bez martwego ekranu)
   if (!TABS[tab]) { tab = "home"; arg = undefined; }
   document.querySelectorAll("#tabs button[data-tab]").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   views.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
@@ -135,7 +137,7 @@ document.addEventListener("click", (e) => {
   const href = a.getAttribute("href");
   if (href === "#") return e.preventDefault();
   const { tab, arg } = parseHash(href);
-  if (!TABS[tab]) return;
+  if (!TABS[tab] && !Object.hasOwn(MOVED, tab)) return;
   e.preventDefault();
   if (ready) open(tab, href.includes("/") ? arg : undefined, true);
 });
