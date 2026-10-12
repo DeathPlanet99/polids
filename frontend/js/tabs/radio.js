@@ -13,8 +13,8 @@ import { api, esc, h, lsGet, lsSet, navigate, remember } from "../api.js";
 import { labelPoint } from "../coverage.js";
 import { displayName, loadDisplayNames, posName } from "../posname.js";
 import { ADVISORY_FQ, DEFAULT_CUT, DEFAULT_LAYERS, EPWW_BBOX, LAYERS, LAYER_IDS, TOP_FT, argOf, bboxOf, bboxOrDefault, byShort,
-  controllersOn, coverGrid, cutAt, cutBand, cutBounds, cutRange, flNum, flText, parseArg, pathOf, placeLabels, projection, ringsOf,
-  sliceAt, stackBands, utcHhmm } from "../radioboard.js";
+  controllersOn, coverGrid, cutAt, cutBand, cutBounds, cutRange, flNum, flText, labelOpts, parseArg, pathOf, placeLabels, projection,
+  ringsOf, sliceAt, stackBands, utcHhmm } from "../radioboard.js";
 
 const LS_LAYERS = "radio.layers", LS_CUT = "radio.cut";
 const REFRESH_MS = 30000;
@@ -37,9 +37,10 @@ function readLayers() {
   } catch { /* brak albo uszkodzony wpis */ }
   return new Set(DEFAULT_LAYERS);
 }
+// zapamiętany przekrój LOW wyrównany do suwaka (stary wpis z przycisków ◀ ▶ mógł mieć FL335 albo FL302)
 function readCut() {
   const n = parseInt(lsGet(LS_CUT), 10);
-  return n >= 95 && n <= 335 ? n : DEFAULT_CUT;
+  return n >= 95 && n <= 335 ? cutAt(n, cutRange(null)) : DEFAULT_CUT;
 }
 
 // przybliżone pole wielokąta (do wyboru większej części sektora dzielonego w poziomie, np. R-N i R-S)
@@ -194,9 +195,11 @@ export default {
       const cls = `rb-lbl ${lb.cls} ${lb.state}${v ? " cmp" : ""}`;
       if (v === 2) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.cid)}</b></div>`;
       const fq = lb.ls[0]?.fq ? `<span class="rb-fq">${esc(lb.ls[0].fq)}</span>` : "";
-      // skrócona bez częstotliwości (podana w innej etykiecie): kto przejmuje zamiast pustej linii
-      const by = !fq && lb.ls[0]?.by ? `<i class="rb-by">↑${esc(lb.ls[0].by)}</i>` : "";
-      if (v === 1) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.cid)}</b>${fq || by}</div>`;
+      // skrócona: kto przejmuje (inny niż stanowisko etykiety) przed częstotliwością – skrótem (WA S ↑LL 124.230: TMA
+      // Łódź u wieży Łódź), a bez częstotliwości (podana w innej etykiecie) pełną nazwą zamiast pustej linii
+      const b0 = String(lb.ls[0]?.by || "").replace(/^↑/, "");
+      const by = b0 ? `<i class="rb-by">↑${esc(fq ? shortId(b0) : b0)}</i>` : "";
+      if (v === 1) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.cid)}</b>${by}${fq}</div>`;
       const more = lb.more ? `<i class="rb-more">+${lb.more}</i>` : "";
       return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.id)}</b>${lb.ls.filter((l) => l.fq || l.by).map((l) => `<span class="rb-ln">${l.by ? `<i class="rb-by">${esc(l.by)}</i>` : ""}`
         + `${l.fq ? `<span class="rb-fq">${esc(l.fq)}</span>` : ""}</span>`).join("")}${more}${lb.extra || ""}</div>`;
@@ -252,7 +255,7 @@ export default {
           const sl = byLetter.get(s.letter);
           const at = labelPoint({ type: "Feature", geometry: sl.geometry, properties: { fir: "EPWW", name: sl.name } })?.at;
           const owners = s.owner ? [s.owner] : [];
-          if (at) out.push({ at, prio: 0, max: 70, lb: { cls: "acc", state: owners.length ? "on" : "off", id: s.id, cid: s.id, k: s.letter,
+          if (at) out.push({ at, prio: 0, kind: "acc", lb: { cls: "acc", state: owners.length ? "on" : "off", id: s.id, cid: s.id, k: s.letter,
             ls: lines(s.nominal, owners), rt: accTip(s) } });
         });
       }
@@ -280,8 +283,10 @@ export default {
           const title = `${g.tma}${g.id !== g.tma ? ` – część ${id}` : ""} (${g.lo ? flText(g.lo) : "GND"}–${flText(g.hi)})`;
           const extra = [...(proc ? [`TMA proceduralna (bez APP): częstotliwość wieży ${id}`] : []),
             ...(g.apps.length > 1 ? [`APP w tej części: ${g.apps.map((c) => `${nm(c)} ${d.pos[c]?.frequency || ""}`).join(", ")}`] : [])];
-          out.push({ at: g.at, box: g.box, prio: g.owners.length ? 1 : 1.5, dot: "app", lb: { cls: "app", state: g.owners.length ? "on" : "off",
-            id, cid: shortId(id), ls, more, rt: groupTip(g, title, extra) } });
+          // bez częstotliwości (podana w innej etykiecie, offline bez własnej) mniejsze odmiany z pełnym ID: samo „GD”
+          // czytałoby się jak lotnisko
+          out.push({ at: g.at, box: g.box, prio: g.owners.length ? 1 : 1.5, kind: "app", dot: "app", lb: { cls: "app",
+            state: g.owners.length ? "on" : "off", id, cid: ls[0]?.fq ? shortId(id) : id, ls, more, rt: groupTip(g, title, extra) } });
         });
       }
       const twra = layers.has("twra");
@@ -296,7 +301,7 @@ export default {
           const atl = twra && g.atis ? `<span class="rb-ln rb-atl${a ? " on" : ""}"><i class="rb-by">ATIS</i><span class="rb-fq">${esc(freqOf(g.atis))}</span>${a?.atis_code ? `<b class="rb-code">${esc(a.atis_code)}</b>` : ""}</span>` : "";
           const extra = g.atis ? [`ATIS: ${posLine(g.atis)}${a ? ` – online${a.atis_code ? `, informacja ${a.atis_code}` : ""}` : " – offline"}`] : [];
           const id = nm(g.nominal);
-          out.push({ at: g.at, prio: tw ? 2 : 2.5, dot: "twr", lb: { cls: "twr", state: tw ? "on" : cover ? "cov" : "off", id, cid: shortId(id), ls, extra: atl,
+          out.push({ at: g.at, box: g.box, prio: tw ? 2 : 2.5, kind: "twr", dot: "twr", lb: { cls: "twr", state: tw ? "on" : cover ? "cov" : "off", id, cid: shortId(id), ls, extra: atl,
             icao: g.icao, k: g.icao, rt: groupTip(g, `${g.id} · ${g.icao}`, [...extra, "Kliknij: AERODROME"],
               cover ? `Wieża offline – przejmuje ${g.owners.map((o) => who(o) || o).join(", ")}` : null) } });
         });
@@ -306,7 +311,8 @@ export default {
           if (!g.at) return;
           const { ls, more } = local(g);
           const id = nm(g.nominal);
-          out.push({ at: g.at, prio: g.owners.length ? 3 : 3.5, dot: "fis", lb: { cls: "fis", state: g.owners.length ? "on" : "off", id, cid: shortId(id), ls, more,
+          out.push({ at: g.at, prio: g.owners.length ? 3 : 3.5, kind: "fis", dot: "fis", lb: { cls: "fis", state: g.owners.length ? "on" : "off", id,
+            cid: ls[0]?.fq ? shortId(id) : id, ls, more,
             rt: groupTip(g, `${g.id} (do ${flText(g.hi)})`) } });
         });
       }
@@ -349,21 +355,16 @@ export default {
       const obstacles = [...p.querySelectorAll(".rb-nb, .rb-title")].filter((e) => e.offsetWidth && e.offsetHeight).map(rel);
       // kształty, których etykiety nie zasłaniają (runda 11, Marek): TMA na warstwie APP, CTR na TWR i TWR/ATIS, kropki
       // lotnisk i punktów TMA; etykieta APP/TWR staje obok nich z linią do punktu, sektora ACC przesuwa się mniej
-      const shapes = low ? [...(layers.has("app") ? geo.tma : []), ...(layers.has("twr") || layers.has("twra") ? geo.ctr : [])] : [];
+      const twrOn = layers.has("twr") || layers.has("twra");
+      const shapes = low ? [...(layers.has("app") ? geo.tma : []), ...(twrOn ? geo.ctr : [])] : [];
+      const shapeKind = !shapes.length ? "" : twrOn ? "twr" : "app";
       const cover = shapes.length ? coverGrid(shapes.flatMap((x) => ringsOf(x.geometry).map((r) => r.map(P))), W, H,
         { points: pts.filter((_, i) => items[i].dot && items[i].dot !== "fis") }) : null;
+      // zasięg (część TMA, CTR: od ramki kształtu), waga obrysów, kara za mniejszą odmianę i kropka pod etykietą: labelOpts
       const moves = placeLabels(items.map((it, i) => {
         const [full, ...alts] = vars[i].map(sz);
-        // część TMA: etykieta może odejść od punktu o pół przekątnej ramki części (poza TMA), najwyżej 160 px
-        let far = it.max;
-        if (it.box?.length === 4) {
-          const [a, b] = [P([it.box[0], it.box[3]]), P([it.box[2], it.box[1]])];
-          far = Math.max(50, Math.min(160, Math.hypot(b[0] - a[0], b[1] - a[1]) / 2 + 20));
-        }
-        // częstotliwość ważniejsza niż odległość i zasłonięte obrysy, najbardziej obsadzonych; samo ID w ostateczności
-        // (bez częstotliwości mniejsza odmiana nic nie traci: podana w innej etykiecie)
-        return { x: pts[i][0], y: pts[i][1], ...full, alts, max: far, near: it.box ? far : undefined, wc: it.prio ? 1 : 0.15,
-          wv: it.lb.state !== "off" || it.lb.ls?.[0]?.fq ? 4 : 1 };
+        return { x: pts[i][0], y: pts[i][1], ...full, alts, ...labelOpts(it.kind, { box: it.box, on: it.lb.state !== "off",
+          fq: !!it.lb.ls?.[0]?.fq, shapes: shapeKind }, P) };
       }), { x: 2, y: 2, w: W - 4, h: H - 4 }, { obstacles, cover, near: cover ? 40 : 26 });
       // przesunięta etykieta: cienka linia do jej punktu; lotniska (TWR), TMA (APP) i FIS z kropką w punkcie
       let marks = "";
@@ -460,7 +461,10 @@ export default {
           setTimeout(load, 0);
         }
         d = r;
+        // poziom z adresu albo starej pamięci przeglądarki (fl302, fl335) wyrównany do suwaka: od razu też w adresie
+        const was = cut;
         cut = lowCut();
+        if (cut !== was) { save(); remember("radio", argOf(layers, cut), { replace: true }); }
         err = "";
         lastLoad = Date.now();
       } catch (e) {

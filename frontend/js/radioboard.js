@@ -153,21 +153,55 @@ function crosses(x0, y0, x1, y1, r) {
   }
   return true;
 }
+// czy odcinki a i b ([x0, y0, x1, y1]) przecinają się (bez stykania końcami)
+function cross2(a, b) {
+  const o = (x0, y0, x1, y1, px, py) => Math.sign((x1 - x0) * (py - y0) - (y1 - y0) * (px - x0));
+  return o(...a, b[0], b[1]) * o(...a, b[2], b[3]) < 0 && o(...b, a[0], a[1]) * o(...b, a[2], a[3]) < 0;
+}
+// odległość punktu (px, py) od odcinka s
+function distSeg(px, py, [x0, y0, x1, y1]) {
+  const dx = x1 - x0, dy = y1 - y0, l2 = dx * dx + dy * dy;
+  const t = l2 ? Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / l2)) : 0;
+  return Math.hypot(px - x0 - t * dx, py - y0 - t * dy);
+}
+// zasięg etykiety kształtu (część TMA, CTR): pół przekątnej ramki box [lon0, lat0, lon1, lat1] w pikselach + 20 px,
+// w granicach lo–hi; bez ramki null
+export function boxReach(box, P, lo, hi) {
+  if (box?.length !== 4) return null;
+  const [a, b] = [P([box[0], box[3]]), P([box[2], box[1]])];
+  return Math.max(lo, Math.min(hi, Math.hypot(b[0] - a[0], b[1] - a[1]) / 2 + 20));
+}
+// Parametry etykiety warstwy do placeLabels (wspólne dla strony i testu): kind acc / app / twr / fis; box = ramka
+// kształtu (część TMA, CTR), on = obsadzona, fq = z częstotliwością, shapes = obrysy na podglądzie ("twr": CTR,
+// "app": TMA, "" = żadne). ACC: do 70 px od punktu, schodzi z CTR i małych TMA, gdy jest miejsce; część TMA: do pół
+// przekątnej swojej ramki (50–160 px); CTR: 60–90 px (CTR na 1366 px ma kilkanaście px, a w środku kraju leży pięć
+// lotnisk), obrys najważniejszy – mały CTR nie znika pod etykietą; punkt TMA i lotniska zostaje widoczny (pin);
+// częstotliwość obsadzonych i podanych ważniejsza niż odległość (wv)
+export function labelOpts(kind, { box = null, on = false, fq = false, shapes = "" } = {}, P = null) {
+  if (kind === "acc") return { max: 70, wc: { twr: 1, app: 0.5 }[shapes] ?? 0.15 };
+  const r = P ? (kind === "twr" ? boxReach(box, P, 60, 90) : boxReach(box, P, 50, 160)) : null;
+  return { ...(r ? { max: r, near: r } : {}), wc: kind === "twr" ? 6 : 1.5, wv: on || fq ? 4 : 2, pin: kind !== "fis" };
+}
 
-// Etykiety bez nakładania się. items [{x, y, w, h, alts?: [{w, h}], near?, max?, wc?, wv?}] w kolejności priorytetu (najpierw
-// ważniejsze); x, y = punkt zakotwiczenia, w, h = rozmiar pełnej etykiety, alts = mniejsze odmiany (skrócona, samo ID).
+// Etykiety bez nakładania się. items [{x, y, w, h, alts?: [{w, h}], near?, max?, wc?, wv?, pin?}] w kolejności priorytetu
+// (najpierw ważniejsze); x, y = punkt zakotwiczenia, w, h = rozmiar pełnej etykiety, alts = mniejsze odmiany (skrócona,
+// samo ID), pin = punkt to kropka na mapie (lotnisko, TMA), której etykiety nie zasłaniają.
 // Kandydaci leżą na pierścieniach coraz dalej od punktu (coraz więcej kierunków); dozwolony jest tylko kandydat bez
 // kolizji z już ułożonymi etykietami i przeszkodami (obstacles: stosy sąsiadów, tytuł podglądu; {x0, y0, x1, y1}),
-// w obrębie bounds {x, y, w, h}. Spośród nich wygrywa najtańszy: odległość etykiety od punktu (px) + pole zasłoniętych
-// obrysów warstwy (cover z coverGrid, waga wc etykiety, domyślnie 1) × WC + kara za mniejszą odmianę (× wv) + kara za linię
-// prowadzącą przez inną etykietę. Bez kształtów etykieta zostaje na punkcie, gdy jest tam miejsce; z kształtami
-// (CTR, TMA) odchodzi obok nich, w wolne miejsce, z cienką linią do punktu. Pełna etykieta może odejść od punktu
-// najwyżej o `near` px (krawędź etykiety od punktu; it.near nadpisuje), mniejsza odmiana o `max` px (domyślnie `far`);
-// gdy nic nie pasuje, najmniejsza odmiana w miejscu najmniejszego nałożenia. Wynik: [{dx, dy, v, hit}] – przesunięcie
-// środka, numer odmiany (0 = pełna) i czy coś zasłania.
-const WC = 0.5, WV = [0, 25, 70], WX = 40;
+// w obrębie bounds {x, y, w, h}, a etykieta z pin – też bez żadnej kropki (swojej i cudzej) pod sobą. Spośród nich
+// wygrywa najtańszy: odległość etykiety od punktu (px) + pole zasłoniętych obrysów warstwy (cover z coverGrid, waga wc
+// etykiety, domyślnie 1) × WC + kara za mniejszą odmianę (× wv) + kara WX za linię prowadzącą przez inną etykietę, przez
+// inną linię albo tuż obok cudzej kropki i za etykietę na cudzej linii (WD za kropkę pod etykietą bez pin). Bez
+// kształtów etykieta zostaje na punkcie, gdy jest tam miejsce; z kształtami (CTR, TMA) odchodzi obok nich, w wolne
+// miejsce, z cienką linią do punktu. Pełna etykieta może odejść od punktu najwyżej o `near` px (krawędź etykiety od
+// punktu; it.near nadpisuje), mniejsza odmiana o `max` px (domyślnie `far`); gdy nic nie pasuje, najmniejsza odmiana
+// w miejscu najmniejszego nałożenia. Układ zachłanny; gdy etykieta z wv > 1 zmalała (np. straciła częstotliwość) albo
+// coś zasłania, kolejna runda układa ją przed innymi (w tłoku, np. Warszawa–Modlin–Łódź–Radom na 1366 px, najpierw ta
+// bez miejsca), a zostaje runda o najmniejszym koszcie. Wynik: [{dx, dy, v, hit}] – przesunięcie środka, numer odmiany
+// (0 = pełna) i czy coś zasłania.
+const WC = 0.5, WV = [0, 25, 100], WX = 40, WD = 60, HIT = 500, ROUNDS = 4;
 export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26, far = 90, rings = 14, cover = null } = {}) {
-  const placed = obstacles.map((o) => ({ ...o })), out = [];
+  const pins = items.map((it, i) => (it.pin ? [it.x, it.y, i] : null)).filter(Boolean);
   const over = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
   const rectAt = (it, s, dx, dy) => ({ x0: it.x + dx - s.w / 2 - gap / 2, y0: it.y + dy - s.h / 2 - gap / 2,
     x1: it.x + dx + s.w / 2 + gap / 2, y1: it.y + dy + s.h / 2 + gap / 2 });
@@ -175,57 +209,81 @@ export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26,
     + Math.max(0, bounds.y - r.y0) + Math.max(0, r.y1 - (bounds.y + bounds.h)) : 0);
   // odległość punktu zakotwiczenia od etykiety (0 = punkt pod etykietą)
   const reach = (s, dx, dy) => Math.hypot(Math.max(0, Math.abs(dx) - s.w / 2), Math.max(0, Math.abs(dy) - s.h / 2));
-  items.forEach((it) => {
-    const sizes = [{ w: it.w, h: it.h }, ...(it.alts || [])];
-    const wc = WC * (it.wc ?? 1);
-    let pick = null, best = Infinity;
-    sizes.forEach((s, v) => {
-      const limit = v === 0 && sizes.length > 1 ? (it.near ?? near) : (it.max ?? far);
-      const sx = s.w * 0.3 + gap, sy = s.h * 0.55 + gap, pv = WV[Math.min(v, WV.length - 1)] * (it.wv ?? 1);
-      for (let k = 0; k <= rings; k++) {
-        const n = k ? 8 * k : 1;
-        let any = false;
-        for (let a = 0; a < n; a++) {
-          const t = (a * 2 * Math.PI) / n;
-          const dx = Math.round(Math.cos(t) * k * sx), dy = Math.round(Math.sin(t) * k * sy);
-          const d = reach(s, dx, dy);
-          if (d > limit) continue;
-          any = true;
+  // kropki pod prostokątem (z promieniem kropki)
+  const dots = (r) => pins.filter(([x, y]) => x > r.x0 - 3 && x < r.x1 + 3 && y > r.y0 - 3 && y < r.y1 + 3);
+  // linia od punktu do najbliższego miejsca etykiety
+  const leadOf = (it, r) => [it.x, it.y, Math.max(r.x0, Math.min(it.x, r.x1)), Math.max(r.y0, Math.min(it.y, r.y1))];
+  // kandydaci etykiety: pierścienie wokół punktu dla odmiany s w zasięgu limit
+  function* ring(s, limit) {
+    const sx = s.w * 0.3 + gap, sy = s.h * 0.55 + gap;
+    for (let k = 0; k <= rings; k++) {
+      const n = k ? 8 * k : 1;
+      let any = false;
+      for (let a = 0; a < n; a++) {
+        const t = (a * 2 * Math.PI) / n;
+        const dx = Math.round(Math.cos(t) * k * sx), dy = Math.round(Math.sin(t) * k * sy), d = reach(s, dx, dy);
+        if (d > limit) continue;
+        any = true;
+        yield [dx, dy, d];
+      }
+      if (!any && k > 1) return;  // cały pierścień poza zasięgiem
+    }
+  }
+  // jedna runda w kolejności order: wybór i koszt każdej etykiety
+  function once(order) {
+    const placed = obstacles.map((o) => ({ ...o })), leads = [], out = [];
+    let total = 0;
+    order.forEach((idx) => {
+      const it = items[idx], sizes = [{ w: it.w, h: it.h }, ...(it.alts || [])], wc = WC * (it.wc ?? 1);
+      let pick = null, best = Infinity;
+      sizes.forEach((s, v) => {
+        const pv = WV[Math.min(v, WV.length - 1)] * (it.wv ?? 1);
+        for (const [dx, dy, d] of ring(s, v === 0 && sizes.length > 1 ? (it.near ?? near) : (it.max ?? far))) {
           if (d + pv >= best) continue;  // już droższy niż najlepszy
           const r = rectAt(it, s, dx, dy);
           if (outside(r) || placed.some((p) => over(r, p) > 0)) continue;
-          let cost = d + pv + coverOf(cover, r) * wc;
-          if (d > 0 && cost < best) {
-            // linia od punktu do najbliższego miejsca etykiety
-            const ex = Math.max(r.x0, Math.min(it.x, r.x1)), ey = Math.max(r.y0, Math.min(it.y, r.y1));
-            cost += placed.reduce((acc, p) => acc + (crosses(it.x, it.y, ex, ey, p) ? WX : 0), 0);
+          const under = dots(r);
+          if (it.pin && under.length) continue;  // kropka (swoja albo cudza) zostaje widoczna
+          let cost = d + pv + coverOf(cover, r) * wc + under.length * WD;
+          if (cost >= best) continue;
+          cost += leads.reduce((acc, l) => acc + (crosses(...l, r) ? WX : 0), 0);
+          if (d > 0) {
+            const l = leadOf(it, r);
+            cost += placed.reduce((acc, p) => acc + (crosses(...l, p) ? WX : 0), 0)
+              + leads.reduce((acc, m) => acc + (cross2(l, m) ? WX : 0), 0)
+              + pins.reduce((acc, [x, y, i]) => acc + (i !== idx && distSeg(x, y, l) < 6 ? WX : 0), 0);
           }
-          if (cost < best) { best = cost; pick = { dx, dy, v, r, hit: false }; }
+          if (cost < best) { best = cost; pick = { dx, dy, v, r, d, hit: false }; }
         }
-        if (!any && k > 1) break;  // cały pierścień poza zasięgiem
-      }
-    });
-    if (!pick) {
-      // nic wolnego: najmniejsza odmiana tam, gdzie zasłania najmniej
-      const v = sizes.length - 1, s = sizes[v];
-      const sx = s.w * 0.3 + gap, sy = s.h * 0.55 + gap;
-      let least = Infinity;
-      for (let k = 0; k <= rings; k++) {
-        const n = k ? 8 * k : 1;
-        for (let a = 0; a < n; a++) {
-          const t = (a * 2 * Math.PI) / n;
-          const dx = Math.round(Math.cos(t) * k * sx), dy = Math.round(Math.sin(t) * k * sy);
-          if (reach(s, dx, dy) > (it.max ?? far)) continue;
+      });
+      if (!pick) {
+        // nic wolnego: najmniejsza odmiana tam, gdzie zasłania najmniej (także kropek)
+        const v = sizes.length - 1, s = sizes[v];
+        for (const [dx, dy, d] of ring(s, it.max ?? far)) {
           const r = rectAt(it, s, dx, dy);
-          const cost = placed.reduce((acc, p) => acc + over(r, p), 0) + outside(r) * s.h * 4 + Math.hypot(dx, dy) * 0.05;
-          if (cost < least) { least = cost; pick = { dx, dy, v, r, hit: true }; }
+          const cost = placed.reduce((acc, p) => acc + over(r, p), 0) + outside(r) * s.h * 4 + dots(r).length * s.w * 2
+            + Math.hypot(dx, dy) * 0.05;
+          if (cost < best) { best = cost; pick = { dx, dy, v, r, d, hit: true }; }
         }
+        best += HIT;
       }
-    }
-    placed.push(pick.r);
-    out.push({ dx: pick.dx, dy: pick.dy, v: pick.v, hit: pick.hit });
-  });
-  return out;
+      placed.push(pick.r);
+      if (pick.d > 0) leads.push(leadOf(it, pick.r));
+      out[idx] = { dx: pick.dx, dy: pick.dy, v: pick.v, hit: pick.hit };
+      total += best;
+    });
+    return { out, total };
+  }
+  let order = items.map((_, i) => i), front = [], win = null;
+  for (let round = 0; round < ROUNDS; round++) {
+    const res = once(order);
+    if (!win || res.total < win.total) win = res;
+    const bad = order.filter((i) => (res.out[i].hit || (res.out[i].v > 0 && (items[i].wv ?? 1) > 1)) && !front.includes(i));
+    if (!bad.length) break;
+    front = [...front, ...bad];
+    order = [...front, ...order.filter((i) => !front.includes(i))];
+  }
+  return win.out;
 }
 
 // FL660: górna granica stosów sąsiadów – ta sama co TOP_FT w backend/app/services/radioboard.py (zmieniać razem)

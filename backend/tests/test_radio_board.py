@@ -151,6 +151,9 @@ def test_board_tma_parts_online(client, monkeypatch):
     ummv = {t["label"]: t for s in d["stacks"] if s["fir"] == "UMMV" for t in s["tiles"]}
     assert {k: t["owner"] for k, t in ummv.items()} == dict.fromkeys(ummv, "UMMV_CTR")
     assert ummv["UMMV W"]["chain"][:2] == ["UMMV_W_CTR", "UMMV_CTR"]
+    # za UMMV_CTR w całym stosie to samo, co .ese stawia za nim w UMMV N (RU-WRC_FSS)
+    tails = {tuple(t["chain"][t["chain"].index("UMMV_CTR") + 1:]) for t in ummv.values()}
+    assert len(tails) == 1 and tails != {()}, tails
 
 
 def test_board_atis(board):
@@ -386,6 +389,24 @@ def test_neighbour_tile_chains():
                           {"label": "UMBB TWR", "alt": None, "controlled_by": ["UMBB_TWR"], "callsign": "UMBB_TWR"}],
                          ese, {"UMMV_CTR"})
     assert [t["chain"] for t in out["UMMV"]] == [["UMMV_W_CTR", "UMMV_CTR"], ["UMBB_TWR", "UMMV_CTR"]]
+    # top-down dalej niż do głównego CTR: ogon list OWNER za stanowiskiem (UMMV_CTR → RU-WRC_FSS z wycinka UMMV N,
+    # choć w wycinkach UMMV W jest ostatni); bez CTR innych stosów (UKR_CTR → LZBB_CTR z jednego wycinka przy granicy)
+    nb = [["UMMV_W_CTR", "UMMV_CTR"]] * 5 + [["UMMV_N_CTR", "UMMV_CTR", "RU-WRC_FSS"], ["UMBB_TWR", "UMMV_CTR"],
+                                            ["UKLV_CTR", "UKR_CTR"], ["UKLU_TWR", "UKLV_CTR", "UKR_CTR", "LZBB_CTR"]]
+    ese, tails = rb.first_chains(nb), rb.chain_tails(nb)
+    assert tails["UMMV_CTR"] == ["RU-WRC_FSS"] and tails["UMMV_W_CTR"] == ["UMMV_CTR"] and "RU-WRC_FSS" not in tails
+    assert tails["UKR_CTR"] == ["LZBB_CTR"]
+    vacs = [{"label": lb, "alt": None, "controlled_by": [cs], "callsign": cs}
+            for lb, cs in (("UMMV N", "UMMV_N_CTR"), ("UMMV W", "UMMV_W_CTR"), ("UMBB TWR", "UMBB_TWR"), ("UMMV", "UMMV_CTR"),
+                           ("UKR CTR", "UKR_CTR"), ("UKLV", "UKLV_CTR"))]
+    out = rb.stack_tiles(vacs, ese, {"UMMV_CTR", "UKLV_CTR"}, tails)
+    assert {t["label"]: t["chain"] for t in out["UMMV"]} == {
+        "UMMV N": ["UMMV_N_CTR", "UMMV_CTR", "RU-WRC_FSS"], "UMMV W": ["UMMV_W_CTR", "UMMV_CTR", "RU-WRC_FSS"],
+        "UMBB TWR": ["UMBB_TWR", "UMMV_CTR", "RU-WRC_FSS"], "UMMV": ["UMMV_CTR", "RU-WRC_FSS"]}
+    assert {t["label"]: t["chain"] for t in out["UKLV"]} == {"UKR CTR": ["UKR_CTR"], "UKLV": ["UKLV_CTR", "UKR_CTR"]}
+    # VACS z innym CTR i bez głównego CTR na końcu: bez zmian (EDMM MEI › GER › HOF nie idzie dalej ogonem HOF)
+    assert rb.tile_chain(["EDMM_MEI_CTR", "EDMM_GER_CTR", "EDMM_HOF_CTR"], "EDMM_MEI_CTR", {}, None,
+                         {"EDMM_HOF_CTR": ["EDMM_RDG_CTR"]}, "EDMM") == ["EDMM_MEI_CTR", "EDMM_GER_CTR", "EDMM_HOF_CTR"]
 
 
 def _sq(x0, y0, x1, y1):
@@ -566,6 +587,90 @@ def test_js_layout_helpers(js):
     assert js["path"] == "M0.0,0.0L10.0,0.0L10.0,10.0Z"
     assert js["bbox"] == [-1, 0, 2, 5]
 
+
+
+LAYOUT_SCRIPT = r"""
+// warstwa TWR na podglądzie LOW jak na ekranie 1366×768 (FL300): etykiety ACC i TWR z /api/radio/board ułożone przez
+// placeLabels z parametrami labelOpts (jak tabs/radio.js); rozmiary etykiet zmierzone w przeglądarce
+import fs from "fs";
+const rb = await import(process.argv[2]);
+const { labelPoint } = await import(process.argv[3]);
+const { board, geo } = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
+const W = 487, H = 731, free = { x: 140, y: 124, w: 341, h: 470 };
+const obstacles = [[6, 6, 128, 211], [6, 352, 128, 162], [6, 650, 128, 75], [181, 6, 164, 112], [153, 600, 193, 125], [203, 125, 277, 20]]
+  .map(([x, y, w, h]) => ({ x0: x - 2, y0: y - 2, x1: x + w + 2, y1: y + h + 2 }));
+const { P } = rb.projection(rb.bboxOrDefault(rb.bboxOf(geo.border)) || rb.EPWW_BBOX, free, 0.03);
+const area = (g) => rb.ringsOf(g).reduce((a, r) => a + Math.abs(r.reduce((s, [x1, y1], i) => s + x1 * r[(i + 1) % r.length][1] - r[(i + 1) % r.length][0] * y1, 0)) / 2, 0);
+const byLetter = new Map();
+rb.sliceAt(geo.acc, 30000).forEach((s) => { const b = byLetter.get(s.letter); if (!b || area(s.geometry) > area(b.geometry)) byLetter.set(s.letter, s); });
+const items = [];
+board.sectors.filter((s) => s.layer === "LOW" && byLetter.has(s.letter)).forEach((s) => {
+  const sl = byLetter.get(s.letter), at = labelPoint({ type: "Feature", geometry: sl.geometry, properties: { fir: "EPWW", name: sl.name } })?.at;
+  if (at) items.push({ name: s.id, twr: false, prio: 0, at, w: 60, h: 26, ...rb.labelOpts("acc", { shapes: "twr" }, P) });
+});
+board.twr.filter((g) => g.at).forEach((g) => {
+  const tw = g.owners.find((o) => /_TWR$/.test(o)), by = !tw && g.owners.length ? 23 : 0;  // "↑APP" poszerza etykietę
+  items.push({ name: g.icao, twr: true, prio: tw ? 2 : 2.5, at: g.at, w: 54 + by, h: 23, alts: [{ w: 67 + by, h: 13 }, { w: 24, h: 13 }],
+    ...rb.labelOpts("twr", { box: g.box, on: true, fq: true, shapes: "twr" }, P) });
+});
+items.sort((a, b) => a.prio - b.prio).forEach((it) => { [it.x, it.y] = P([it.at[1], it.at[0]]); });
+const rings = geo.ctr.flatMap((c) => rb.ringsOf(c.geometry).map((r) => ({ icao: c.name.slice(0, 4), r: r.map(P) })));
+const cover = rb.coverGrid(rings.map((x) => x.r), W, H, { points: items.filter((it) => it.twr).map((it) => [it.x, it.y]) });
+const mv = rb.placeLabels(items, { x: 2, y: 2, w: W - 4, h: H - 4 }, { obstacles, cover, near: 40 });
+const rects = items.map((it, i) => { const s = mv[i].v ? it.alts[mv[i].v - 1] : it;
+  return { x0: it.x + mv[i].dx - s.w / 2, y0: it.y + mv[i].dy - s.h / 2, x1: it.x + mv[i].dx + s.w / 2, y1: it.y + mv[i].dy + s.h / 2 }; });
+const inside = (r, x, y, m) => x > r.x0 - m && x < r.x1 + m && y > r.y0 - m && y < r.y1 + m;
+const twr = items.map((it, i) => i).filter((i) => items[i].twr);
+// obrys każdego CTR co 1 px: ile pod etykietami
+const ctr = {};
+rings.forEach(({ icao, r }) => r.forEach(([ax, ay], k) => {
+  const [bx, by] = r[(k + 1) % r.length], n = Math.max(1, Math.floor(Math.hypot(bx - ax, by - ay)));
+  for (let t = 0; t < n; t++) {
+    const x = ax + ((bx - ax) * t) / n, y = ay + ((by - ay) * t) / n, c = (ctr[icao] ||= [0, 0]);
+    c[1]++;
+    if (rects.some((q) => inside(q, x, y, -1))) c[0]++;
+  }
+}));
+const o = (a, px, py) => Math.sign((a[2] - a[0]) * (py - a[1]) - (a[3] - a[1]) * (px - a[0]));
+const leads = twr.map((i) => { const r = rects[i], it = items[i];
+  return [it.x, it.y, Math.max(r.x0, Math.min(it.x, r.x1)), Math.max(r.y0, Math.min(it.y, r.y1))]; });
+console.log(JSON.stringify({
+  n: twr.length,
+  dots: twr.flatMap((i) => twr.filter((j) => inside(rects[i], items[j].x, items[j].y, 1)).map((j) => `${items[i].name}>${items[j].name}`)),
+  ctr: Object.fromEntries(Object.entries(ctr).map(([k, [a, b]]) => [k, a / b])),
+  overlaps: rects.flatMap((a, i) => rects.slice(i + 1).map((b, j) => (a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1 ? `${items[i].name}/${items[i + 1 + j].name}` : "")))
+    .filter(Boolean),
+  hits: mv.filter((m) => m.hit).length, idOnly: twr.filter((i) => mv[i].v === 2).map((i) => items[i].name),
+  far: Math.max(...leads.map((l) => Math.hypot(l[2] - l[0], l[3] - l[1]))),
+  crossed: leads.flatMap((a, i) => leads.slice(i + 1).filter((b) => o(a, b[0], b[1]) * o(a, b[2], b[3]) < 0 && o(b, a[0], a[1]) * o(b, a[2], a[3]) < 0)).length,
+}));
+"""
+
+
+def test_js_twr_layout(client, board, tmp_path):
+    """Runda 11 (przegląd): etykiety TWR na podglądzie LOW 1366×768 nie zasłaniają CTR ani kropek lotnisk – geometria
+    z /api/radio/board, układ placeLabels z labelOpts jak na stronie (zrzuty w przeglądarce sprawdzają resztę)."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("brak Node.js")
+    d = tmp_path / "js"
+    shutil.copytree(FRONTEND / "js", d)
+    (d / "package.json").write_text('{"type": "module"}', "utf-8")
+    data = tmp_path / "board.json"
+    data.write_text(json.dumps({"board": board, "geo": client.get("/api/radio/board?geo=1").json()["geo"]}), "utf-8")
+    script = tmp_path / "layout.mjs"
+    script.write_text(LAYOUT_SCRIPT, "utf-8")
+    r = subprocess.run([node, str(script), (d / "radioboard.js").as_uri(), (d / "coverage.js").as_uri(), str(data)],
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    assert out["n"] >= 15  # wszystkie CTR z pliku .ese (EPWA … EPZG, wojskowe EPDE, EPKS)
+    # żadna etykieta TWR nie stoi na kropce lotniska (swojej ani cudzej), żaden CTR nie jest schowany pod etykietami
+    assert out["dots"] == []
+    assert max(out["ctr"].values()) <= 0.2, {k: round(v, 2) for k, v in out["ctr"].items() if v > 0.2}
+    # bez nakładania się, każda wieża z częstotliwością, linie prowadzące krótkie i bez skrzyżowań
+    assert out["overlaps"] == [] and out["hits"] == 0 and out["idOnly"] == []
+    assert out["far"] <= 90 and out["crossed"] == 0
 
 LOA_SCRIPT = r"""
 const radio = await import(process.argv[2]);

@@ -322,7 +322,8 @@ def _uniq_chains(sl: list[dict]) -> list[list[str]]:
 
 
 def ctr_groups(slices: list[dict], own: dict, coords: dict, positions: dict) -> list[dict]:
-    """Warstwa TWR: CTR lotnisk (wieża = pierwsze stanowisko TWR z listy OWNER), ATIS lotniska do TWR/ATIS."""
+    """Warstwa TWR: CTR lotnisk (wieża = pierwsze stanowisko TWR z listy OWNER), ATIS lotniska do TWR/ATIS; ramka CTR
+    (box) do odsunięcia etykiety obok CTR."""
     by: dict[str, list[dict]] = {}
     for s in slices:
         by.setdefault(sector_group("EPWW", s["name"], "ctr"), []).append({**s, "chain": air_chain(s["name"], s["owners"], own)})
@@ -335,8 +336,8 @@ def ctr_groups(slices: list[dict], own: dict, coords: dict, positions: dict) -> 
             continue
         at = list(coords[icao]) if icao in coords else label_point(_largest(sl)["geom"])
         atis = f"{icao}_ATIS" if f"{icao}_ATIS" in positions else None
-        out.append({"id": key, "icao": icao, "at": at, "nominal": nominal, "chains": chains, "atis": atis,
-                    "hi": max(s["hi"] for s in sl)})
+        out.append({"id": key, "icao": icao, "at": at, "box": _box(sl), "nominal": nominal, "chains": chains,
+                    "atis": atis, "hi": max(s["hi"] for s in sl)})
     return sorted(out, key=lambda g: g["id"])
 
 
@@ -384,21 +385,49 @@ def first_chains(chains) -> dict[str, list[str]]:
     return {cs: list(c.most_common(1)[0][0]) for cs, c in cnt.items()}
 
 
-def tile_chain(chain: list[str], own: str, ese: dict[str, list[str]], main: str | None) -> list[str]:
+def chain_tails(chains) -> dict[str, list[str]]:
+    """Kto dalej przejmuje stanowisko wg plików .ese: najczęstszy niepusty ogon list OWNER za nim (UMMV_CTR → RU-WRC_FSS
+    z wycinka UMMV N, choć w wycinkach UMMV W jest ostatni)."""
+    cnt: dict[str, Counter] = {}
+    for ch in chains or ():
+        ch = [cs for cs in ch if cs]
+        for i, cs in enumerate(ch[:-1]):
+            cnt.setdefault(cs, Counter())[tuple(ch[i + 1:])] += 1
+    return {cs: list(c.most_common(1)[0][0]) for cs, c in cnt.items()}
+
+
+def _same_stack(cs: str, key: str | None) -> bool:
+    """Stanowisko tego stosu (EDDB_N_APP → EDWW) albo regionalne bez kodu ICAO (RU-WRC_FSS); nie CTR innego FIR-u."""
+    first = cs.split("_")[0]
+    return "-" in first or stack_key(first) == key
+
+
+def tile_chain(chain: list[str], own: str, ese: dict[str, list[str]], main: str | None,
+               tails: dict[str, list[str]] | None = None, key: str | None = None) -> list[str]:
     """Kolejność kafelka: controlled_by z VACS, a gdy nie ma w niej żadnego CTR poza samym kafelkiem (UMMV N, UKLV,
-    EDDB N APP), dalej lista OWNER z pliku .ese wycinka tego stanowiska (UMMV_W_CTR → UMMV_CTR, EDDB_N_APP → EDWW_…_CTR);
-    bez wycinka w .ese kafelek APP/TWR przejmuje główny CTR FIR-u (main). Kolejność VACS zostaje pierwsza."""
-    if any(facility(cs) in RADAR and cs != own for cs in chain):
-        return chain
-    extra = ese.get(own) or ([main] if main and facility(own) not in RADAR else [])
-    return chain + [cs for cs in extra if cs not in chain]
+    EDDB N APP), dalej lista OWNER z pliku .ese wycinka tego stanowiska (UMMV_W_CTR → UMMV_CTR, EDDB_N_APP → EDWW_…_CTR),
+    bez takiego wycinka – to, co pliki .ese stawiają za nim (tails: UMMV_CTR → RU-WRC_FSS), a kafelek APP/TWR bez
+    niczego przejmuje główny CTR FIR-u (main). Kolejność kończąca się na głównym CTR idzie dalej jego ogonem z .ese
+    (UMMV W, UMBB TWR: … › UMMV_CTR › RU-WRC_FSS, jak UMMV N); bez CTR innych stosów (key = stos kafelka). Kolejność
+    VACS zostaje pierwsza."""
+    def tail(cs: str) -> list[str]:
+        return [x for x in (tails or {}).get(cs, ()) if x not in chain and _same_stack(x, key)]
+
+    if not any(facility(cs) in RADAR and cs != own for cs in chain):
+        extra = ese.get(own) or tail(own) or ([main] if main and facility(own) not in RADAR else [])
+        chain = chain + [cs for cs in extra if cs not in chain]
+    if main and chain[-1] == main:
+        chain = chain + tail(main)
+    return chain
 
 
-def stack_tiles(items: list[dict], ese: dict[str, list[str]] | None = None, known=()) -> dict[str, list[dict]]:
+def stack_tiles(items: list[dict], ese: dict[str, list[str]] | None = None, known=(),
+                tails: dict[str, list[str]] | None = None) -> dict[str, list[dict]]:
     """Kafelki stosów sąsiadów z profilu VACS ACC_EPWW (vacs_epww.json, klucz neighbours): tylko sektory graniczące
     z EPWW, bez FMP. Kafelek: etykieta i wysokość z VACS, stanowisko kafelka (callsign) i kolejność przejmowania
-    (chain = controlled_by, uzupełniona top-down z plików .ese: tile_chain; ese = first_chains, known = znane znaki
-    do głównego CTR FIR-u). W stosie od najwyższego zakresu; bez wysokości jak do FL660 od ziemi, CTR przed APP i TWR."""
+    (chain = controlled_by, uzupełniona top-down z plików .ese: tile_chain; ese = first_chains, tails = chain_tails,
+    known = znane znaki do głównego CTR FIR-u). W stosie od najwyższego zakresu; bez wysokości jak do FL660 od ziemi,
+    CTR przed APP i TWR."""
     out: dict[str, list[dict]] = {}
     seen = set()
     for n in items or ():
@@ -415,7 +444,7 @@ def stack_tiles(items: list[dict], ese: dict[str, list[str]] | None = None, know
         main = f"{key}_CTR" if f"{key}_CTR" in known else None
         out.setdefault(key, []).append({"label": n["label"], "alt": n.get("alt") if rng else None,
                                         "lo": rng[0] if rng else None, "hi": rng[1] if rng else None,
-                                        "callsign": own, "chain": tile_chain(chain, own, ese or {}, main)})
+                                        "callsign": own, "chain": tile_chain(chain, own, ese or {}, main, tails, key)})
     for tiles in out.values():
         tiles.sort(key=lambda t: (-(t["hi"] or TOP_FT), -(t["lo"] or 0), _RANK.get(facility(t["callsign"]), 3)))
     return out
@@ -434,7 +463,7 @@ def build_static(*, own: dict, epww_slices: list[dict], vacs_tiles: list[dict], 
         k = sector_kind(s["fir"], s["name"])
         if s["fir"].upper() == "EPWW" and k in kinds:
             kinds[k].append(s)
-    tiles = stack_tiles(vacs_tiles, first_chains(nb_chains), positions)
+    tiles = stack_tiles(vacs_tiles, first_chains(nb_chains), positions, chain_tails(nb_chains))
     stacks = [{**st, "tiles": tiles.get(st["fir"], [])} for st in STACKS]
     acc_geo, seen = [], set()
     for s in kinds["acc"]:
