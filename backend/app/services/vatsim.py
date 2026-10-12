@@ -204,7 +204,7 @@ def pilot_info(p: dict) -> dict:
 
 
 RWY = r"(\d{2}[LRC]?)"
-_ATIS_PATTERNS = [  # (wzorzec, do czego się odnosi)
+_ATIS_PATTERNS = [  # (wzorzec, do czego się odnosi); "both" uzupełnia tylko to, czego nie dały konkretniejsze
     (rf"\b{RWY} FOR (?:LANDING|ARRIVALS?)", "arr"),
     (rf"\b{RWY} FOR (?:TAKE ?-?OFF|DEPARTURES?)", "dep"),
     (rf"\b(?:ARR(?:IVAL)?S?|LANDING|LDG)(?: RWY| RUNWAY)?(?: IN USE)?:? {RWY}\b", "arr"),
@@ -213,29 +213,71 @@ _ATIS_PATTERNS = [  # (wzorzec, do czego się odnosi)
     (rf"\b(?:RWY|RUNWAY)S? IN USE:? {RWY}\b", "both"),
 ]
 _ATIS_FALLBACK = rf"\b(?:RWY|RUNWAY) {RWY}\b"  # tylko gdy nic konkretniejszego nie pasuje
+# Słowa przed "RUNWAY 33" w tym samym zdaniu mówiące, do czego jest pas, np. vATIS EPWA:
+# "EXPECT UNIFORM ARRIVALS FOR RNP ZULU APPROACH RUNWAY 33 . DEPARTURES RUNWAY 29 ."
+_ARR_CUE = r"ARR(?:IVAL|IVALS|IVING|S)?|LANDINGS?|LDG|APPROACH(?:ES)?|APCH|APP"
+_DEP_CUE = r"DEP(?:ARTURE|ARTURES|ARTING|S)?|TAKE ?-?OFFS?|TKOF"
+_CUE = re.compile(rf"\b(?:(?P<arr>{_ARR_CUE})|(?P<dep>{_DEP_CUE}))\b")
+_CUE_BOTH = re.compile(rf"\b(?:(?:{_ARR_CUE}) (?:AND|&) (?:{_DEP_CUE})|(?:{_DEP_CUE}) (?:AND|&) (?:{_ARR_CUE}))\b")
+_MENTION = re.compile(rf"\b(?:RWY|RUNWAY)S?(?: IN USE)?:? {RWY}\b")
+# zdanie o pasie zamkniętym albo niedostępnym nie wskazuje pasa w użyciu
+_UNUSABLE = re.compile(r"\b(?:CLOSED|CLSD|NOT AVBL|NOT AVAILABLE|UNAVAILABLE|U/S|OUT OF SERVICE|WIP|WORK IN PROGRESS|"
+                       r"NOT IN USE)\b")
+
+
+def _cue_runways(text: str, ok) -> dict:
+    """Pas po słowie ARRIVAL/APPROACH/LANDING albo DEPARTURE/TAKEOFF w tym samym zdaniu (najbliższe słowo przed pasem)."""
+    out = {"arr": None, "dep": None}
+    for clause in re.split(r"\.(?=\s|$)|[,;]", text):  # kropka w 118.305 nie kończy zdania
+        if _UNUSABLE.search(clause):
+            continue
+        start = 0
+        for m in _MENTION.finditer(clause):
+            segment, start = clause[start:m.start()], m.end()
+            cues = list(_CUE.finditer(segment))
+            if not cues or not ok(m.group(1)):
+                continue
+            kinds = ("arr", "dep") if _CUE_BOTH.search(segment) else ("arr" if cues[-1].group("arr") else "dep",)
+            for kind in kinds:
+                out[kind] = out[kind] or m.group(1)
+    return out
 
 
 def parse_atis(lines: list[str] | None, designators: list[str] | None = None, code: str | None = None) -> dict:
     """Litera ATIS i pas(y) w użyciu z tekstu ATIS z sieci VATSIM.
 
     Działa z typowymi formatami vATIS: "RWY 29 IN USE", "RUNWAY IN USE 33", "33 FOR LANDING, 29 FOR TAKEOFF",
-    "ARR RWY 33 DEP RWY 29". Pas musi istnieć na lotnisku (jeśli podano listę `designators`)."""
+    "ARR RWY 33 DEP RWY 29", "EXPECT ILS APPROACH RUNWAY 33. DEPARTURES RUNWAY 29". Pas do lądowania i do startu
+    wskazany wprost ma pierwszeństwo przed ogólnym "RWY 29 IN USE". Pas musi istnieć na lotnisku (jeśli podano
+    listę `designators`)."""
     text = re.sub(r"\s+", " ", " ".join(lines or [])).upper()
     letter = code or None
     if not letter:
         m = re.search(r"\b(?:INFORMATION|INFO|ATIS) ([A-Z])\b", text)
         letter = m.group(1) if m else None
     ok = lambda r: not designators or r in designators  # noqa: E731
-    arr = dep = None
+    found = {"arr": None, "dep": None}
+
+    def take(kinds: tuple, rwy: str) -> None:
+        for kind in kinds:
+            found[kind] = found[kind] or rwy
+
     for pattern, kind in _ATIS_PATTERNS:
+        if kind == "both":
+            continue
         for m in re.finditer(pattern, text):
-            rwy = m.group(1)
-            if not ok(rwy):
-                continue
-            if kind in ("arr", "both") and not arr:
-                arr = rwy
-            if kind in ("dep", "both") and not dep:
-                dep = rwy
+            if ok(m.group(1)):
+                take((kind,), m.group(1))
+    for kind, rwy in _cue_runways(text, ok).items():
+        if rwy:
+            take((kind,), rwy)
+    for pattern, kind in _ATIS_PATTERNS:
+        if kind != "both":
+            continue
+        for m in re.finditer(pattern, text):
+            if ok(m.group(1)):
+                take(("arr", "dep"), m.group(1))
+    arr, dep = found["arr"], found["dep"]
     if not arr and not dep:
         arr = next((m.group(1) for m in re.finditer(_ATIS_FALLBACK, text) if ok(m.group(1))), None)
     return {"letter": letter, "arr": arr or dep, "dep": dep or arr, "text": text}

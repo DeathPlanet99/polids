@@ -79,6 +79,24 @@ def test_parse_atis():
     assert parse_atis(["RWY 07 IN USE"], rw)["arr"] is None
 
 
+def test_parse_atis_approach_runway():
+    # vATIS EPWA 12.10.2026 (zgłoszenie Marka): pas do lądowania tylko w zdaniu o podejściu
+    rw = ["11", "29", "15", "33"]
+    lines = ["THIS IS WARSAW INFORMATION GOLF . TIME 1530 .", "EXPECT UNIFORM ARRIVALS FOR RNP ZULU APPROACH RUNWAY 33 .",
+             "DEPARTURES RUNWAY 29 .", "TRANSITION LEVEL 8 0 .", "FOR ATC CLEARANCE CONTACT TOWER ON 118.305 .",
+             "END OF INFORMATION GOLF ."]
+    a = parse_atis(lines, rw, "G")
+    assert (a["letter"], a["arr"], a["dep"]) == ("G", "33", "29")
+    assert parse_atis(["EXPECT ILS APPROACH RWY 33, RUNWAY 29 IN USE FOR DEPARTURE"], rw)["arr"] == "33"
+    a = parse_atis(["EXPECT RNP APPROACH RUNWAY 33 DEPARTURES RUNWAY 29 TRANSITION LEVEL 80"], rw)
+    assert (a["arr"], a["dep"]) == ("33", "29")
+    a = parse_atis(["ARRIVALS AND DEPARTURES RUNWAY 29"], rw)
+    assert (a["arr"], a["dep"]) == ("29", "29")
+    # pas zamknięty nie jest pasem w użyciu
+    a = parse_atis(["RUNWAY 15 CLOSED FOR LANDING . RUNWAY IN USE 33"], rw)
+    assert (a["arr"], a["dep"]) == ("33", "33")
+
+
 def test_airac():
     assert current_airac(date(2026, 10, 5))["ident"] == "2610"
     assert current_airac(date(2026, 10, 5))["effective"] == "2026-10-01"
