@@ -110,8 +110,8 @@ export default {
 
     const drawOptions = () => {
       const all = data?.notams || [];
-      // liczby NOTAM-ów przy lokalizacjach dopiero z danymi (przed pierwszym pobraniem "(0)" byłoby nieprawdą)
-      const count = (c) => (data ? ` (${c ? all.filter((n) => (n.locations || [n.location]).includes(c)).length : all.length})` : "");
+      // liczby NOTAM-ów przy lokalizacjach tylko z danymi (przed pobraniem albo po awarii "(0)" byłoby nieprawdą)
+      const count = (c) => (data && !allDown(data) ? ` (${c ? all.filter((n) => (n.locations || [n.location]).includes(c)).length : all.length})` : "");
       const codes = [...new Set(all.flatMap((n) => n.locations || [n.location]))].filter((c) => c !== FIR).sort();
       if (loc && loc !== FIR && !codes.includes(loc)) codes.push(loc);
       sel.innerHTML = [["", `Wszystkie${count("")}`], [FIR, `${FIR} – FIR${count(FIR)}`],
