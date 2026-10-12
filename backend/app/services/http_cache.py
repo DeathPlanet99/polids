@@ -26,8 +26,12 @@ def _prune():
             del _locks[key]
 
 
+def _key(url: str, params: dict | None = None) -> str:
+    return url + "?" + "&".join(f"{k}={v}" for k, v in sorted((params or {}).items()))
+
+
 async def fetch_text(url: str, ttl: int, params: dict | None = None, headers: dict | None = None) -> str:
-    key = url + "?" + "&".join(f"{k}={v}" for k, v in sorted((params or {}).items()))
+    key = _key(url, params)
     hit = _cache.get(key)
     if hit and time.monotonic() - hit[0] < ttl:
         return hit[1]
@@ -49,6 +53,13 @@ async def fetch_text(url: str, ttl: int, params: dict | None = None, headers: di
             return resp.text
     finally:
         _prune()
+
+
+def peek(url: str, params: dict | None = None) -> tuple[float, str] | None:
+    """Ostatnio pobrany tekst adresu i jego wiek w sekundach, bez pobierania i bez względu na ttl (None = brak).
+    Wiek >= ttl tuż po fetch_text znaczy, że serwer nie odpowiedział i fetch_text oddał starsze dane."""
+    hit = _cache.get(_key(url, params))
+    return (time.monotonic() - hit[0], hit[1]) if hit else None
 
 
 def clear_cache():

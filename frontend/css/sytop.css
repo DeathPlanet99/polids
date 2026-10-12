@@ -15,8 +15,9 @@
 .sytop-upd.stale { color: var(--yellow); }
 .sytop-refresh:disabled { opacity: .5; cursor: default; }
 
-.sytop-msg { flex: none; padding: 5px 10px; border: 1px solid #5a4d0a; border-left: 3px solid var(--yellow); background: #141104;
-  color: var(--yellow); font-size: 12px; }
+/* pasek ostrzeżeń: najwyżej 3 linie, dalej przewija się sam (lista NOTAM-ów nie maleje przy wielu błędach) */
+.sytop-msg { flex: none; max-height: calc(3 * 1.45em + 10px); overflow: auto; padding: 5px 10px; border: 1px solid #5a4d0a;
+  border-left: 3px solid var(--yellow); background: #141104; color: var(--yellow); font-size: 12px; line-height: 1.45; }
 .sytop-msg:empty { display: none; }
 .sytop-msg b { color: #fff; }
 
@@ -30,6 +31,7 @@
   color: var(--green-text); font: 700 12px/1.4 var(--ui); letter-spacing: .5px; text-transform: uppercase; }
 .sytop-group b { color: #fff; font-size: 13px; }
 .sytop-group i { font-style: normal; color: var(--muted); }
+.sytop-group .sytop-also { text-transform: none; letter-spacing: 0; font-weight: 400; }
 
 /* wiersz NOTAM: kolory ważności jak w AERODROME (.notam.active / .future w style.css), pasy jak lista PANDORY */
 .sytop-list .notam.sytop-item { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; margin: 0;
@@ -40,7 +42,8 @@
 .sytop-locs { display: flex; flex-wrap: wrap; gap: 0 6px; }
 .sytop-loc { font: 700 13px/1.3 var(--mono); color: var(--green-hi); text-decoration: none; }
 a.sytop-loc:hover { text-decoration: underline; }
-.sytop-item.fir .sytop-loc { color: var(--cyan); }
+/* FIR EPWW biały: cyjan w listach NOTAM znaczy "dopiero będzie" (.notam.future) */
+.sytop-loc.fir { color: #fff; }
 .sytop-main { min-width: 0; }
 .sytop-main .nhead { gap: 4px 14px; }
 .sytop-subj { color: var(--muted); font-size: 12px; }

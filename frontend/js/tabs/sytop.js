@@ -20,6 +20,7 @@ const SORT_TITLES = {
 const dm = (iso) => { const d = new Date(iso); return `${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")} ${d.toISOString().slice(11, 16)}Z`; };
 function span(ms) {
   const min = Math.round(Math.abs(ms) / 60000);
+  if (min < 1) return "<1 min";
   if (min < 60) return `${min} min`;
   if (min < 48 * 60) return `${Math.floor(min / 60)} h ${min % 60} min`;
   return `${Math.round(min / 1440)} dni`;
@@ -31,8 +32,12 @@ export function notamState(n, now = Date.now()) {
   if (s && s > now) return { cls: "future", txt: `AKTYWNY OD ${dm(n.start)} (za ${span(s - now)}) do ${endTxt}` };
   if (n.perm) return { cls: "active", txt: `AKTYWNY od ${s ? dm(n.start) : "?"} · PERM` };
   if (e) return { cls: "active", txt: `AKTYWNY DO ${endTxt} (jeszcze ${span(e - now)})` };
-  return { cls: "active", txt: s ? `AKTYWNY od ${dm(n.start)}` : "" };
+  if (s) return { cls: "active", txt: `AKTYWNY od ${dm(n.start)}` };
+  // bez B) i C) (nieznany format, uszkodzone pola): bez zielonego "aktywny", żółty jak domyślny NOTAM
+  return { cls: "", txt: "ważność nieznana (brak pól B/C)" };
 }
+// wygasł po pobraniu listy (C minęło, nie PERM): znika przy przerysowaniu co minutę, bez czekania na odświeżenie
+export const expired = (n, now = Date.now()) => !!n.end && !n.perm && Date.parse(n.end) < now;
 
 // --- kolejność i filtr
 // numer A1234/26 → "A26" + "1234": seria, rok, numer (A0999/25 przed A0001/26); bez numeru na końcu
@@ -44,7 +49,8 @@ export const SORT_FN = {
   start: (a, b) => (a.start || "").localeCompare(b.start || "") || byId(a, b),
   end: (a, b) => (a.perm - b.perm) || (a.end || "9").localeCompare(b.end || "9") || byId(a, b),
 };
-const hay = (n) => [n.id, ...(n.locations || []), n.qcode, n.subject_text, n.condition_text, n.schedule, n.text, n.raw]
+// bez pełnego tekstu NOTAM-u: każdy ma "Q) EPWW/…", więc "EPWW" pasowałoby do wszystkiego (pełny tylko bez pola E)
+const hay = (n) => [n.id, ...(n.locations || []), n.qcode, n.subject_text, n.condition_text, n.schedule, n.text || n.raw]
   .filter(Boolean).join(" ").toUpperCase();
 // filtr: każde słowo musi wystąpić (numer, lokalizacja, kod Q, treść); lokalizacja z listy wyboru osobno
 export function filterNotams(list, { q = "", loc = "" } = {}) {
@@ -56,23 +62,27 @@ export function filterNotams(list, { q = "", loc = "" } = {}) {
   });
 }
 
+// tylko własne klucze SORT_FN ("__proto__", "constructor" z adresu albo localStorage nie są kolejnością)
+export const sortOk = (s) => typeof s === "string" && Object.hasOwn(SORT_FN, s);
 // adres zakładki: [lokalizacja | ALL]/[kolejność]; wartości domyślne pomijane
 export function parseArg(arg) {
   const [l = "", s = ""] = String(arg || "").split("/");
   const loc = /^[A-Za-z]{4}$/.test(l) && l.toUpperCase() !== "ALL" ? l.toUpperCase() : "";
-  return { loc, sort: SORT_FN[s] ? s : "loc" };
+  return { loc, sort: sortOk(s) ? s : "loc" };
 }
 export const argOf = (loc, sort) => (sort === "loc" ? loc : `${loc || "ALL"}/${sort}`);
 
 const hm = (iso) => (iso ? new Date(iso).toISOString().slice(11, 16) + "Z" : "–");
 // żadna lokalizacja nie odpowiedziała (odpowiedź 200 bez danych)
 const allDown = (d) => !!d && d.locations.length > 0 && d.failed.length === d.locations.length;
-// "EPKK, EPGD (timeout); EPWR (HTTP 500)" – lokalizacje pogrupowane wg komunikatu błędu
-function failedHtml(failed) {
-  const by = {};
-  failed.forEach((f) => { (by[f.error] ||= []).push(f.icao); });
-  return Object.entries(by).map(([e, ls]) => `<b>${ls.map(esc).join(", ")}</b> (${esc(e)})`).join("; ");
+// "EPKK, EPGD – brak odpowiedzi (timeout); EPWR – HTTP 500": lokalizacje pogrupowane wg komunikatu
+function grouped(rows, label) {
+  const by = new Map();
+  rows.forEach((r) => { const k = label(r); by.set(k, [...(by.get(k) || []), r.icao]); });
+  return [...by].map(([k, ls]) => `<b>${ls.map(esc).join(", ")}</b> – ${esc(k)}`).join("; ");
 }
+const failedHtml = (failed) => grouped(failed, (f) => f.error || "błąd");
+const staleHtml = (stale) => grouped(stale, (f) => `pobrane ${hm(f.since)}`);
 const limits = (n) => (n.lower_limit || n.upper_limit ? `${n.lower_limit || "?"} – ${n.upper_limit || "?"}` : "");
 const subjectText = (n) => [n.subject_text, n.condition_text].filter(Boolean).join(" ");
 
@@ -101,22 +111,30 @@ export default {
     const list = $(".sytop-list"), search = $(".sytop-search"), sel = $(".sytop-locsel");
 
     let data = null, error = "", loading = false, seq = 0, nextAt = 0;
-    let loc = "", sort = SORT_FN[lsGet("sytop.sort")] ? lsGet("sytop.sort") : "loc";
+    let loc = "", sort = sortOk(lsGet("sytop.sort")) ? lsGet("sytop.sort") : "loc";
+    let drawnAt = 0, optHtml = "";
     const opened = new Set();   // klucze NOTAM-ów z rozwiniętym pełnym tekstem
 
     const visible = () => !!root.closest(".view.active");
     const key = (n) => n.id || n.raw;
     const nameOf = (code) => (data?.names || {})[code] || "";
 
+    const current = () => (data?.notams || []).filter((n) => !expired(n));
+    // grupa w kolejności "lokalizacja": wybrana lokalizacja zbiera wszystkie swoje NOTAM-y (także "A) EPWW EPKK")
+    const gkey = (n) => (loc && (n.locations || [n.location]).includes(loc) ? loc : n.location);
+    const gcmp = (x, y) => ((x !== FIR) - (y !== FIR)) || x.localeCompare(y);
+
     const drawOptions = () => {
-      const all = data?.notams || [];
+      const all = current();
       // liczby NOTAM-ów przy lokalizacjach tylko z danymi (przed pobraniem albo po awarii "(0)" byłoby nieprawdą)
       const count = (c) => (data && !allDown(data) ? ` (${c ? all.filter((n) => (n.locations || [n.location]).includes(c)).length : all.length})` : "");
       const codes = [...new Set(all.flatMap((n) => n.locations || [n.location]))].filter((c) => c !== FIR).sort();
       if (loc && loc !== FIR && !codes.includes(loc)) codes.push(loc);
-      sel.innerHTML = [["", `Wszystkie${count("")}`], [FIR, `${FIR} – FIR${count(FIR)}`],
+      const html = [["", `Wszystkie${count("")}`], [FIR, `${FIR} – FIR${count(FIR)}`],
         ...codes.map((c) => [c, `${c}${nameOf(c) ? " – " + nameOf(c) : ""}${count(c)}`])]
         .map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join("");
+      // bez zmian bez przebudowy (przerysowanie co minutę nie zamyka rozwiniętej listy)
+      if (html !== optHtml) { sel.innerHTML = html; optHtml = html; }
       sel.value = loc;
     };
 
@@ -124,9 +142,9 @@ export default {
       const s = notamState(n);
       const locs = (n.locations || [n.location]).map((c) => (main.has(c) && c !== FIR
         ? `<a class="sytop-loc" href="#aerodrome/${esc(c)}" title="${esc(nameOf(c) || c)} – otwórz AERODROME">${esc(c)}</a>`
-        : `<span class="sytop-loc" title="${esc(nameOf(c) || c)}">${esc(c)}</span>`)).join(" ");
+        : `<span class="sytop-loc${c === FIR ? " fir" : ""}" title="${esc(nameOf(c) || c)}">${esc(c)}</span>`)).join(" ");
       const subj = subjectText(n), lim = limits(n), k = key(n), open = opened.has(k);
-      return `<div class="notam ${s.cls} sytop-item${n.location === FIR ? " fir" : ""}${odd ? " odd" : ""}">
+      return `<div class="notam${s.cls ? " " + s.cls : ""} sytop-item${odd ? " odd" : ""}">
         <div class="sytop-side"><b class="sytop-id">${esc(n.id || "–")}</b><span class="sytop-locs">${locs}</span></div>
         <div class="sytop-main">
           <div class="nhead"><span class="valid">${esc(s.txt)}</span>
@@ -141,6 +159,7 @@ export default {
     };
 
     const drawList = () => {
+      drawnAt = Date.now();
       pane.querySelectorAll(".sytop-sort [data-sort]").forEach((b) => b.classList.toggle("primary", b.dataset.sort === sort));
       if (!data) {
         list.innerHTML = error ? `<div class="error sytop-empty">Nie udało się pobrać NOTAM-ów: ${esc(error)}</div>`
@@ -148,8 +167,9 @@ export default {
         $(".sytop-count").textContent = "";
         return;
       }
-      const all = data.notams;
-      const shown = filterNotams(all, { q: search.value, loc }).sort(SORT_FN[sort]);
+      const all = current();
+      const shown = filterNotams(all, { q: search.value, loc })
+        .sort(sort === "loc" ? (a, b) => gcmp(gkey(a), gkey(b)) || SORT_FN.id(a, b) : SORT_FN[sort]);
       const down = allDown(data);
       $(".sytop-count").textContent = down ? "– NOTAM" : shown.length === all.length ? `${all.length} NOTAM` : `${shown.length} z ${all.length} NOTAM`;
       const scroll = list.scrollTop;
@@ -167,12 +187,16 @@ export default {
       let html = "", group = null, odd = false;
       const main = new Set(data.locations);   // główne lotniska: kod lokalizacji to odnośnik do AERODROME
       for (const n of shown) {
-        if (sort === "loc" && n.location !== group) {
+        if (sort === "loc" && gkey(n) !== group) {
           if (group !== null) html += `</section>`;
-          group = n.location;
+          group = gkey(n);
           odd = false;
-          const cnt = shown.filter((x) => x.location === group).length;
-          html += `<section class="sytop-grp"><div class="sytop-group"><b>${esc(group)}</b>${nameOf(group) ? ` <span>${esc(nameOf(group))}</span>` : ""} <i>· ${cnt}</i></div>`;
+          const cnt = shown.filter((x) => gkey(x) === group).length;
+          // NOTAM z kilkoma lokalizacjami w A) stoi w grupie pierwszej z nich; tu tylko informacja, ile ich jest
+          const also = shown.filter((x) => gkey(x) !== group && (x.locations || []).includes(group));
+          const where = [...new Set(also.map(gkey))].map(esc).join(", ");
+          html += `<section class="sytop-grp"><div class="sytop-group"><b>${esc(group)}</b>${nameOf(group) ? ` <span>${esc(nameOf(group))}</span>` : ""} <i>· ${cnt}</i>${also.length
+            ? ` <i class="sytop-also" title="NOTAM-y z kilkoma lokalizacjami w polu A) stoją w grupie pierwszej z nich">+${also.length} w grupie ${where}</i>` : ""}</div>`;
         }
         html += item(n, odd, main);
         odd = !odd;
@@ -184,14 +208,19 @@ export default {
 
     const drawStatus = () => {
       const upd = $(".sytop-upd"), msg = $(".sytop-msg");
-      const down = allDown(data);
-      upd.classList.toggle("stale", !!(data && (error || down)));
+      const down = allDown(data), stale = data?.stale || [];
+      // czas pobrania z serwera NOTAM (najstarsze dane na liście; cache 10 min), a nie czas odpowiedzi PolIDS
+      const at = hm(data?.updated || data?.now);
+      upd.classList.toggle("stale", !!(data && (error || down || stale.length)));
       upd.textContent = !data ? "" : down ? `próba ${hm(data.now)} · brak danych`
-        : `aktualizacja ${hm(data.now)}${error ? " · odświeżenie nieudane" : ""}`;
-      upd.title = data && error ? `Ostatnia próba odświeżenia: ${error}` : "Czas UTC ostatniego pobrania listy";
+        : `aktualizacja ${at}${error ? " · odświeżenie nieudane" : ""}`;
+      upd.title = !data ? "" : error ? `Ostatnia próba odświeżenia: ${error}`
+        : down ? "Czas UTC ostatniej próby – serwer NOTAM PL vACC nie odpowiedział"
+          : `Czas UTC pobrania NOTAM-ów z serwera PL vACC (najstarsze dane na liście); sprawdzono ${hm(data.now)}`;
       const parts = [];
-      if (data && error) parts.push(`Lista z ${hm(data.now)} – nie udało się jej odświeżyć: ${esc(error)}`);
+      if (data && error) parts.push(`Lista z ${at} – nie udało się jej odświeżyć: ${esc(error)}`);
       if (data?.failed.length && !down) parts.push(`Brak danych z: ${failedHtml(data.failed)}. Lista bez tych lokalizacji.`);
+      if (stale.length && !down) parts.push(`Serwer NOTAM nie odpowiada – na liście starsze dane: ${staleHtml(stale)}.`);
       msg.innerHTML = parts.map((p) => `<div>${p}</div>`).join("");
     };
 
@@ -208,7 +237,7 @@ export default {
         // nic nie odpowiedziało, a mamy wcześniejszą listę: zostaje ona, z ostrzeżeniem (lepsze starsze dane niż nic)
         if (allDown(d) && data && !allDown(data)) error = d.error || "serwer NOTAM nie odpowiada";
         else { data = d; error = ""; }
-        nextAt = Date.now() + (d.failed.length ? RETRY_MS : REFRESH_MS);
+        nextAt = Date.now() + (d.failed.length || d.stale?.length ? RETRY_MS : REFRESH_MS);
       } catch (e) {
         if (my !== seq) return;
         error = e.message;
@@ -248,7 +277,14 @@ export default {
     });
 
     drawOptions();
-    const timer = setInterval(() => { if (visible() && Date.now() >= nextAt) load(); }, 30000);
+    // zaznaczony tekst w liście: bez przerysowania (kopiowanie NOTAM-u nie gubi zaznaczenia)
+    const selecting = () => { const s = window.getSelection?.(); return !!s && !s.isCollapsed && list.contains(s.anchorNode); };
+    const timer = setInterval(() => {
+      if (!visible()) return;
+      if (Date.now() >= nextAt) load();
+      // co minutę bez pobierania: odliczanie "jeszcze N min" i NOTAM-y, które właśnie wygasły
+      else if (data && !loading && Date.now() - drawnAt >= 55000 && !selecting()) { drawOptions(); drawList(); }
+    }, 30000);
     const online = () => { if (error) load(); };
     window.addEventListener(ONLINE_EVENT, online);
 
