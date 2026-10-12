@@ -2,6 +2,7 @@ import { api, atisHtml, esc, fmt, h, hhmm, positionTip, remember, vatsimBookings
 import { colorize, wxLines, windVec, hwTxt, xwTxt, kt, validTxt, pointTip } from "./meteo.js";
 import { FIR_KEYS, FIR_LABELS, aeroArg, firOf, mountAeroCard, mountFirList, obsInfo, splitArg } from "../aerolist.js";
 import { mountAwos } from "../awos.js";
+import { notamState } from "../notamstate.js";
 import { mountDman } from "../dman.js";
 import { mountOverview } from "../overview.js";
 
@@ -195,23 +196,6 @@ H = wiatr czołowy, T = w plecy, L/R = boczny z lewej/prawej, kt. Wiatr 0 ft z m
 ${esc(aw.source)} (model ${esc(aw.model)}), prognoza na ${validTxt(aw.valid)}, pobrano ${esc(aw.fetched)}.">punkt: nazwa = FAF z procedury, oś 3° = na przedłużeniu osi, 3° · H/T L/R kt</div>`;
 }
 
-// NOTAM: okres ważności względem teraz
-const dm = (iso) => { const d = new Date(iso); return `${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")} ${d.toISOString().slice(11, 16)}Z`; };
-function span(ms) {
-  const min = Math.round(Math.abs(ms) / 60000);
-  if (min < 60) return `${min} min`;
-  if (min < 48 * 60) return `${Math.floor(min / 60)} h ${min % 60} min`;
-  return `${Math.round(min / 1440)} dni`;
-}
-function notamState(n, now = Date.now()) {
-  const s = n.start ? Date.parse(n.start) : null, e = n.end ? Date.parse(n.end) : null;
-  const endTxt = n.perm ? "PERM" : e ? `${dm(n.end)}${n.est ? " EST" : ""}` : "?";
-  if (e && e < now) return { cls: "expired", txt: `WYGASŁ ${dm(n.end)}` };
-  if (s && s > now) return { cls: "future", txt: `AKTYWNY OD ${dm(n.start)} (za ${span(s - now)}) do ${endTxt}` };
-  if (n.perm) return { cls: "active", txt: `AKTYWNY od ${s ? dm(n.start) : "?"} · PERM` };
-  if (e) return { cls: "active", txt: `AKTYWNY DO ${endTxt} (jeszcze ${span(e - now)})` };
-  return { cls: "", txt: "" };
-}
 const NOTAM_SORT = {
   id: (a, b) => (a.id || "").localeCompare(b.id || ""),
   start: (a, b) => (a.start || "").localeCompare(b.start || ""),

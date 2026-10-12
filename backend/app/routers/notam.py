@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Aerodrome, NavPoint
 from ..services.http_cache import UpstreamError
-from ..services.notam import FIR, fir_notams, get_notams, notam_url, short_name
+from ..services.aerolist import display_name
+from ..services.notam import FIR, fir_notams, get_notams, notam_url
 
 router = APIRouter(prefix="/api/notam", tags=["notam"])
 
@@ -20,11 +21,12 @@ async def fir(fir: str, db: Session = Depends(get_db),
         raise HTTPException(404, f"Lista NOTAM jest dostępna tylko dla FIR {FIR}")
     data = await fir_notams(include_inactive=include_all)
     codes = sorted({c for n in data["notams"] for c in n["locations"]} | set(data["locations"]))
-    # krótkie nazwy jak w PANDORZE: navdata (icao.txt), a bez niej airports.csv bez "International Airport"
+    # krótkie nazwy jak w PANDORZE i na listach AERODROME (ta sama funkcja): navdata (icao.txt), dla części lotnisk z miastem
+    # z przodu (EPBC → WARSZAWA BABICE), a bez navdata airports.csv bez "International Airport"
     nav = {p.ident: p.name for p in db.scalars(select(NavPoint).where(
         NavPoint.source == "icao", NavPoint.kind == "AD", NavPoint.ident.in_(codes)))}
     csv = {a.icao: a.name for a in db.scalars(select(Aerodrome).where(Aerodrome.icao.in_(codes)))}
-    names = {c: n for c in codes if (n := short_name(c, nav.get(c), csv.get(c)))}
+    names = {c: n for c in codes if (n := display_name(c, nav.get(c), csv.get(c)))}
     names[FIR] = "FIR WARSZAWA"
     return {**data, "names": names}
 

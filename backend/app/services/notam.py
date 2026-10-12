@@ -6,7 +6,6 @@ fir_notams(now) – SYT OP: wszystkie NOTAM-y FIR EPWW obowiązujące teraz (sam
 import asyncio
 import re
 import time
-import unicodedata
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -381,27 +380,3 @@ async def fir_notams(now: datetime | None = None, include_inactive: bool = False
     return {"fir": FIR, "locations": locations, "now": now.isoformat(timespec="seconds"), "updated": updated,
             "source": settings.notam_server, "notams": items, "count": len(items), "inactive": inactive,
             "failed": failed, "stale": stale, "error": f"Serwer NOTAM: {error}" if failed else None}
-
-
-# --- krótkie nazwy lotnisk jak w PANDORZE ("GDANSK LECH WALESA"), a nie "Kraków John Paul II International Airport"
-_GENERIC = re.compile(r"\b(INTERNATIONAL|AIRPORT|AIRFIELD|AIRSTRIP|FIELD|MILITARY|AIR BASE)\b")
-# miasto przed nazwą z navdata, gdy navdata podaje samą dzielnicę albo patrona (EPKK "BALICE") – jak w AERODROME
-CITY = {"EPWA": "WARSZAWA", "EPMO": "WARSZAWA", "EPKK": "KRAKOW", "EPKT": "KATOWICE", "EPGD": "GDANSK",
-        "EPPO": "POZNAN", "EPWR": "WROCLAW", "EPRZ": "RZESZOW", "EPSC": "SZCZECIN", "EPZG": "ZIELONA GORA"}
-
-
-def fold(text: str | None) -> str:
-    """WIELKIE LITERY bez znaków diakrytycznych: "Łódź" → "LODZ"."""
-    s = unicodedata.normalize("NFKD", str(text or ""))
-    s = "".join(c for c in s if not unicodedata.combining(c))
-    s = s.translate(str.maketrans({"ł": "l", "Ł": "L", "–": "-", "—": "-"}))
-    return re.sub(r"\s+", " ", s.upper()).strip()
-
-
-def short_name(icao: str, nav_name: str | None, csv_name: str | None = None) -> str:
-    """Nazwa z navdata (jak w PANDORZE), dla części lotnisk z miastem z przodu ("KRAKOW BALICE"); bez navdata z
-    airports.csv bez słów ogólnych ("Pruszcz Gdański Air Base" → "PRUSZCZ GDANSKI"; tam miasto zwykle już jest)."""
-    if not (nav_name and nav_name.strip()):
-        return re.sub(r"\s+", " ", _GENERIC.sub(" ", fold(csv_name))).strip(" -/") or fold(csv_name)
-    name, city = fold(nav_name), CITY.get(icao.upper())
-    return f"{city} {name}" if city and city not in name else name

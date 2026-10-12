@@ -15,8 +15,9 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from backend.app import main  # noqa: E402
-from backend.app.config import settings  # noqa: E402
+from backend.app.config import ROOT_DIR, settings  # noqa: E402
 from backend.app.services import http_cache, notam  # noqa: E402
+from backend.app.services.aerolist import display_name  # noqa: E402
 from backend.app.services.http_cache import UpstreamError  # noqa: E402
 
 NOW = datetime(2026, 10, 12, 12, 0, tzinfo=timezone.utc)
@@ -337,13 +338,16 @@ def test_fir_notams_e_text_with_field_markers(fake_server):
 
 
 def test_short_name():
-    """Nazwy jak w PANDORZE: WIELKIE LITERY, bez "International Airport", z miastem, gdy navdata podaje dzielnicę."""
-    assert notam.short_name("EPKK", "BALICE", "Kraków John Paul II International Airport") == "KRAKOW BALICE"
-    assert notam.short_name("EPGD", "LECH WALESA") == "GDANSK LECH WALESA"
-    assert notam.short_name("EPLL", "LODZ", "Łódź Władysław Reymont Airport") == "LODZ"
-    assert notam.short_name("EPKK", None, "Kraków John Paul II International Airport") == "KRAKOW JOHN PAUL II"
-    assert notam.short_name("EPPR", "", "Pruszcz Gdański Air Base") == "PRUSZCZ GDANSKI"
-    assert notam.short_name("EPXX", None, None) == ""
+    """Nazwy jak w PANDORZE: WIELKIE LITERY, bez "International Airport", z miastem, gdy navdata podaje dzielnicę.
+    SYT OP używa tej samej funkcji co listy AERODROME (aerolist.display_name), więc lotnisko ma wszędzie jedną nazwę."""
+    assert display_name("EPKK", "BALICE", "Kraków John Paul II International Airport") == "KRAKOW BALICE"
+    assert display_name("EPGD", "LECH WALESA") == "GDANSK LECH WALESA"
+    assert display_name("EPLL", "LODZ", "Łódź Władysław Reymont Airport") == "LODZ"
+    assert display_name("EPKK", None, "Kraków John Paul II International Airport") == "KRAKOW JOHN PAUL II"
+    assert display_name("EPPR", "", "Pruszcz Gdański Air Base") == "PRUSZCZ GDANSKI"
+    assert display_name("EPXX", None, None) == ""
+    assert display_name("EPBC", "BABICE") == "WARSZAWA BABICE" and display_name("EPKS", "KRZESINY") == "POZNAN KRZESINY"
+    assert not hasattr(notam, "short_name")
 
 
 @pytest.fixture
@@ -370,6 +374,10 @@ def test_api_fir_epww(client):
     assert d["failed"] == [{"icao": "EPKK", "error": "[Errno -3] Temporary failure in name resolution"}]
     assert d["names"]["EPWW"] == "FIR WARSZAWA"
     assert all(v == v.upper() and "AIRPORT" not in v for v in d["names"].values())
+    # te same nazwy co na liście AERODROME › EPWW
+    ep = {a["icao"]: a["name"] for a in client.get("/api/aerodromes/fir/EPWW").json()}
+    shared = [c for c in d["names"] if c in ep]
+    assert shared and all(d["names"][c] == ep[c] for c in shared)
     assert "stale" in d and "updated" in d
     assert client.get("/api/notam/fir/epww").status_code == 200
     every = client.get("/api/notam/fir/EPWW?all=true").json()
@@ -419,7 +427,8 @@ console.log(JSON.stringify({
   build: [["", "loc"], ["EPKK", "loc"], ["", "end"], ["EPGD", "id"]].map(([l, k]) => s.argOf(l, k)),
   state: [s.notamState(list[0], now), s.notamState(list[1], now), s.notamState(list[2], now),
           s.notamState({start: iso(2), end: iso(5)}, now), s.notamState({start: iso(-5), end: iso(-1)}, now),
-          s.notamState({start: null, end: null, perm: false}, now)],
+          s.notamState({start: null, end: null, perm: false}, now), s.notamState({start: iso(-1), end: null}, now),
+          s.notamState({start: iso(-1), end: iso(20 / 3600)}, now), s.notamState({start: iso(-5), end: iso(-1), perm: true}, now)],
 }));
 """
 
@@ -437,7 +446,9 @@ def js(tmp_path_factory):
     d = tmp_path_factory.mktemp("sytop")
     src = ROOT_DIR / "frontend" / "js"
     (d / "api.mjs").write_text((src / "api.js").read_text("utf-8"), "utf-8")
-    (d / "sytop.mjs").write_text((src / "tabs" / "sytop.js").read_text("utf-8").replace('"../api.js"', '"./api.mjs"'), "utf-8")
+    (d / "notamstate.mjs").write_text((src / "notamstate.js").read_text("utf-8"), "utf-8")
+    (d / "sytop.mjs").write_text((src / "tabs" / "sytop.js").read_text("utf-8").replace('"../api.js"', '"./api.mjs"')
+                                 .replace('"../notamstate.js"', '"./notamstate.mjs"'), "utf-8")
     (d / "run.mjs").write_text(NODE_SCRIPT, "utf-8")
     r = subprocess.run([node, str(d / "run.mjs"), (d / "sytop.mjs").as_uri()], capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
@@ -480,6 +491,14 @@ def test_js_validity_text(js):
     assert st[4] == {"cls": "expired", "txt": "WYGASŁ 12.10 11:00Z"}
     # bez B) i C): nie "aktywny" (zielony), tylko wyraźnie nieznana ważność
     assert st[5] == {"cls": "", "txt": "ważność nieznana (brak pól B/C)"}
+    assert st[6] == {"cls": "active", "txt": "AKTYWNY od 12.10 11:00Z"}            # B) bez C)
+    assert st[7]["txt"].endswith("(jeszcze <1 min)")                                # kończy się za 20 s, nie "0 min"
+    assert st[8] == {"cls": "active", "txt": "AKTYWNY od 12.10 07:00Z · PERM"}     # PERM z datą w C) nie wygasa
+    # AERODROME › PRZEGLĄD opisuje NOTAM-y tą samą funkcją (wcześniej kopia, która się rozjechała)
+    src = (ROOT_DIR / "frontend" / "js").joinpath
+    ad = src("tabs", "aerodrome.js").read_text("utf-8")
+    assert 'import { notamState } from "../notamstate.js";' in ad and "function notamState" not in ad
+    assert "function notamState" not in src("tabs", "sytop.js").read_text("utf-8")
 
 
 def test_js_expired_between_refreshes(js):
