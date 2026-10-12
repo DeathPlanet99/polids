@@ -1,4 +1,4 @@
-"""AERODROME › AWOS: układ kolumn 1 PAS / 2 PASY i pasy kolumn bez ręcznego wyboru (awos.js, Node)."""
+"""AERODROME › AWOS: układ kolumn 1 PAS / 2 PASY, pasy kolumn bez ręcznego wyboru i ręczny wybór (awos.js, Node)."""
 import json
 import shutil
 import subprocess
@@ -33,10 +33,26 @@ const cases = {
   noWind: st({ arr: "29", dep: "29", source: "ATIS" }, epwa(null, null), {}, {}),
   empty: st({ arr: null, dep: null, source: "SUGGESTED" }, [], {}, {}),
 };
+// ręczny wybór: EPWA z ATIS 33/29 (automat 2 PASY) i z ATIS 29 (automat 1 PAS)
+const T = Date.UTC(2026, 9, 12, 16, 0), H = 3600000, split = cases.atisSplit, one = cases.atisOneCalm;
+const clicks = (s, list, m0 = {}) => { let x = m0; return list.map(([k, v]) => (x = m.manualPick(x, s, k, v, T))); };
+const dep11 = m.manualPick({}, split, "dep", "11", T);
+const splitArr15 = clicks(one, [["mode", "split"], ["arr", "15"]])[1];
+const manual = {
+  repro: clicks(split, [["mode", "one"], ["rwy", "29"], ["mode", "split"]]),
+  leaveSplit: clicks(one, [["mode", "split"], ["arr", "15"], ["mode", "one"]]),
+  dep11, depAuto: m.manualPick({}, split, "dep", "29", T), depBack: m.manualPick(dep11, split, "dep", "29", T),
+  sameMode: m.manualPick(dep11, split, "mode", "split", T + H), autoBtn: m.manualPick(splitArr15, one, null, null, T),
+  keepFresh: m.manualKeep(dep11, split, T + 11 * H), keepSug: m.manualKeep(dep11, cases.sugSplit, T),
+  keepAtis: m.manualKeep(dep11, one, T + 60000), keepAtis2: m.manualKeep(splitArr15, split, T + 60000),
+  keepOld: m.manualKeep(dep11, split, T + 12 * H), keepLegacy: m.manualKeep({ mode: "one", rwy: "29" }, split, T),
+  keepBad: m.manualKeep({ ...dep11, arr: "99", mode: "xyz", foo: 1 }, split, T),
+  keepNone: m.manualKeep({ dep: "99", base: "33/29", t: T }, split, T), keepNull: m.manualKeep(null, split, T),
+};
 console.log(JSON.stringify({
   ...Object.fromEntries(Object.entries(cases).map(([k, v]) => [k, pick(v)])),
   bare: [m.autoMode(undefined), m.autoMode({}), m.autoMode({ arr: "33" }), m.autoMode({ arr: "33", dep: "29" })],
-  nostatus: m.autoRunways(null).rwy,
+  nostatus: m.autoRunways(null).rwy, T, H, manual,
 }));
 """
 
@@ -99,3 +115,34 @@ def test_single_runway_and_no_data(awos):
     assert "jednym pasem" in k["why"]
     assert awos["empty"]["rwy"] == [None, "sugestia"] and awos["empty"]["dep"] == [None, "sugestia"]
     assert awos["nostatus"]["des"] is None
+
+
+def test_manual_pick_follows_screen(awos):
+    """Ręczny wybór: zapamiętane jest tylko to, co na ekranie; zmiana układu kasuje pasy opuszczanego układu."""
+    m, T = awos["manual"], awos["T"]
+    base = {"base": "33/29", "t": T}
+    # ATIS 33/29 (automat 2 PASY): 1 PAS, RWY 29, z powrotem 2 PASY = automat (AUTO, bez zapamiętanego RWY 29)
+    assert m["repro"] == [{"mode": "one", **base}, {"mode": "one", "rwy": "29", **base}, {}]
+    # ATIS 29 (automat 1 PAS): ręcznie 2 PASY z ARR 15, powrót do 1 PAS kasuje też ARR 15
+    one = {"base": "29/29", "t": T}
+    assert m["leaveSplit"] == [{"mode": "split", **one}, {"mode": "split", "arr": "15", **one}, {}]
+    assert m["autoBtn"] == {}
+    # pas jak w automacie to powrót do automatu; kliknięcie widocznego układu zostawia pasy i odnawia czas
+    assert m["dep11"] == {"dep": "11", **base}
+    assert m["depAuto"] == {} and m["depBack"] == {}
+    assert m["sameMode"] == {"dep": "11", "base": "33/29", "t": T + awos["H"]}
+
+
+def test_manual_keep_lapses(awos):
+    """Ręczny wybór wraca do automatu przy zmianie pasów w użyciu (ATIS / sugestia) i po 12 h; zły pas odpada."""
+    m = awos["manual"]
+    assert m["keepFresh"] == m["dep11"]
+    # te same pasy z sugestii zamiast ATIS: wybór zostaje
+    assert m["keepSug"] == m["dep11"]
+    # ATIS 33/29 -> 29 i 29 -> 33/29: wybór z poprzedniego ATIS nie przykrywa nowego
+    assert m["keepAtis"] == {} and m["keepAtis2"] == {}
+    assert m["keepOld"] == {}
+    # zapis bez pasów automatu i czasu (wersja sprzed wygasania) wraca do automatu
+    assert m["keepLegacy"] == {}
+    assert m["keepBad"] == m["dep11"]
+    assert m["keepNone"] == {} and m["keepNull"] == {}

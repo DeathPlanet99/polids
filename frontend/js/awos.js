@@ -6,7 +6,8 @@
 // odświeżamy rzadziej (WIND_REFRESH_S), a czujnik mierzy dalej co sekundę, więc okna 2 i 10 min się nie zmieniają.
 // RVR: z METAR; bez grupy RVR przy widzialności ≥ 1500 m > 2000 m, przy mniejszej symulowany z widzialności.
 // Układ kolumn: 1 PAS (TDZ / MID / END jednego kierunku) albo 2 PASY (DEP i ARR, każda z własnym pasem); automatycznie
-// 2 PASY, gdy ATIS (bez ATIS sugestia) ma różne pasy do lądowania i startu. Ręczny wybór układu i pasów pamiętamy dla lotniska.
+// 2 PASY, gdy ATIS (bez ATIS sugestia) ma różne pasy do lądowania i startu. Ręczny wybór układu i pasów pamiętamy dla lotniska
+// do zmiany pasów w użyciu z ATIS / sugestii, najdłużej 12 h.
 import { api, esc, lsGet, lsSet, vatsimAtc } from "./api.js";
 import { colorize, wxLines } from "./tabs/meteo.js";
 
@@ -339,6 +340,36 @@ function autoRunways(st) {
   return { rwy: use(x), arr: use(x), dep: y ? { des: y.designator, src: "auto", why: yWhy } : use(x) };
 }
 
+// Ręczny wybór lotniska (localStorage awos.<ICAO>): { mode: "one" | "split", rwy, arr, dep, base, t }; {} = automat.
+// base: pasy w użyciu (ATIS albo sugestia), przy których wybrano (z nich też układ automatu), t: czas ostatniego kliknięcia.
+const MAN_KEYS = ["mode", "rwy", "arr", "dep"];
+const MAN_TTL = 12 * 3600000; // ręczny wybór najdłużej 12 h
+const autoBase = (u) => `${u?.arr || "-"}/${u?.dep || "-"}`;
+
+// Ręczny wybór po kliknięciu: k = "mode" (układ) albo "rwy" / "arr" / "dep" (pas kolumny) z wartością v, bez k = AUTO.
+// Wybór taki jak automat to powrót do automatu. Zmiana układu kasuje pasy opuszczanego układu, więc zapamiętane jest
+// zawsze tylko to, co widać na ekranie.
+function manualPick(m, st, k, v, now = Date.now()) {
+  if (!k) return {};
+  const u = st?.runway_in_use, am = autoMode(u);
+  const out = Object.fromEntries(MAN_KEYS.filter((x) => m?.[x]).map((x) => [x, m[x]]));
+  if (k === "mode") {
+    if (v !== (out.mode || am)) ["rwy", "arr", "dep"].forEach((x) => delete out[x]);
+    if (v === am) delete out.mode; else out.mode = v;
+  } else if (v === autoRunways(st)[k]?.des) delete out[k];
+  else out[k] = v;
+  return Object.keys(out).length ? { ...out, base: autoBase(u), t: now } : {};
+}
+
+// Zapamiętany ręczny wybór po wczytaniu statusu: wraca do automatu ({}), gdy zmieniły się pasy w użyciu z ATIS / sugestii
+// albo minęło 12 h od kliknięcia (wybór z wczoraj nie przykrywa dzisiejszego ATIS); pas spoza listy i nieznany układ odpadają
+function manualKeep(m, st, now = Date.now()) {
+  if (!m || m.base !== autoBase(st?.runway_in_use) || !(now - m.t < MAN_TTL)) return {};
+  const ok = (k, v) => (k === "mode" ? MODES.some(([x]) => x === v) : (st?.runways || []).some((r) => r.designator === v));
+  const out = Object.fromEntries(MAN_KEYS.filter((k) => ok(k, m[k])).map((k) => [k, m[k]]));
+  return Object.keys(out).length ? { ...out, base: m.base, t: m.t } : {};
+}
+
 const colHtml = (c) => `<div class="aw-col" data-k="${c.k}">
   <div class="aw-h"><span>${c.title}</span><span class="rwy"></span></div>
   <div class="aw-rsel"></div>
@@ -398,7 +429,7 @@ export function mountAwos(el, icao) {
       <div class="aw-windwrap"><div class="aw-winds"></div><div class="aw-wbar">
         <span class="aw-mode">${MODES.map(([m, l, tip]) => `<button data-mode="${m}" title="${tip}">${l}</button>`).join("")}</span>
         <button class="aw-auto" title="Automat: układ i pasy z ATIS (bez ATIS z sugestii systemu), 2 PASY przy różnych pasach do lądowania i startu.
-Kliknij, żeby skasować ręczny wybór układu i pasów dla ${esc(icao)}.">AUTO</button><span class="aw-man" hidden>RĘCZNIE</span><div class="aw-simnote" title="VATSIM nie ma czujników wiatru ani RVR. Symulowany czujnik mierzy wiatr co 1 s, ekran odświeża się co ${WIND_REFRESH_S} s: INST = ostatni pomiar, 2 MIN = średnia z pomiarów z 2 min, 10 MIN MAX = największy pomiar z 10 min.
+Kliknij, żeby skasować ręczny wybór układu i pasów dla ${esc(icao)}; sam wygasa przy zmianie pasów w użyciu albo po 12 h.">AUTO</button><span class="aw-man" hidden>RĘCZNIE</span><div class="aw-simnote" title="VATSIM nie ma czujników wiatru ani RVR. Symulowany czujnik mierzy wiatr co 1 s, ekran odświeża się co ${WIND_REFRESH_S} s: INST = ostatni pomiar, 2 MIN = średnia z pomiarów z 2 min, 10 MIN MAX = największy pomiar z 10 min.
 RVR: z METAR; gdy METAR nie podaje RVR dla pasa: przy widzialności ≥ 1500 m (9999, CAVOK) >2000 M, przy mniejszej RVR symulowany z widzialności (SYM). VIS, chmury i temperatura są z METAR."><b>SYM</b> ${SYM} · INST co ${WIND_REFRESH_S} s, średnia 2 min i maks. 10 min z pomiarów co 1 s</div></div></div>
       <div class="aw-atis"></div>
       <div class="aw-ovl" hidden><div class="aw-h"><span class="t"></span><button class="aw-x" title="Zamknij (Esc)">ZAMKNIJ ✕</button></div><div class="aw-ovl-body"></div></div>
@@ -416,7 +447,7 @@ RVR: z METAR; gdy METAR nie podaje RVR dla pasa: przy widzialności ≥ 1500 m (
   let st = null, stations = [], metarRaw, modeKey = "", field = null, sensors = new Map(), cols = [], auto = {}, ovl = null, notams = null;
   let dead = false, loading = 0, lastLoad = 0, loadErr = "", lastStep = 0, lastTick = 0, lastMin = -1, rvrSims = new Map();
   const letters = {}, changed = {};
-  // ręczny wybór dla lotniska, zapamiętany w przeglądarce: { mode: "one" | "split", rwy, arr, dep }; brak klucza = automat
+  // ręczny wybór dla lotniska, zapamiętany w przeglądarce (manualPick / manualKeep); {} = automat
   const lsKey = `awos.${icao}`;
   let manual = {};
   try { const v = JSON.parse(lsGet(lsKey)); if (v && typeof v === "object" && !Array.isArray(v)) manual = v; } catch { /* brak albo zepsuta wartość */ }
@@ -460,23 +491,25 @@ RVR: z METAR; gdy METAR nie podaje RVR dla pasa: przy widzialności ≥ 1500 m (
     buildCols(modeKey === "split" ? COLS_SPLIT : COLS_ONE);
   };
 
-  // przełącznik 1 PAS / 2 PASY: zapalony układ na ekranie, podkreślony układ automatu; AUTO zapalone, gdy układ
-  // i pasy widocznych kolumn są z ATIS / sugestii, inaczej obok napis RĘCZNIE
+  // przełącznik 1 PAS / 2 PASY: zapalony układ na ekranie, podkreślony układ automatu; AUTO zapalone, gdy nic nie jest
+  // zapamiętane ręcznie (zapamiętany bywa tylko wybór widocznego układu), inaczej obok napis RĘCZNIE
   const drawMode = () => {
-    const am = autoMode(st?.runway_in_use), man = !!manual.mode || cols.some((c) => manual[c.sel]);
+    const u = st?.runway_in_use, am = autoMode(u), man = MAN_KEYS.some((k) => manual[k]);
     root.querySelectorAll(".aw-mode button").forEach((b) => {
       const use = !!st && b.dataset.mode === am;
       b.classList.toggle("active", b.dataset.mode === modeKey);
       b.classList.toggle("use", use);
-      b.title = MODES.find(([m]) => m === b.dataset.mode)[2] + (use ? `\nUkład automatu (${st.runway_in_use?.source === "ATIS" ? "ATIS" : "sugestia systemu"})` : "");
+      b.title = MODES.find(([m]) => m === b.dataset.mode)[2] + (use ? `\nUkład automatu (${u?.source === "ATIS" ? "ATIS" : "sugestia systemu"})` : "");
     });
     $(".aw-auto").classList.toggle("active", !!st && !man);
     $(".aw-man").hidden = !man;
-    $(".aw-man").title = `Układ albo pas wybrany ręcznie, zapamiętany dla ${icao} w tej przeglądarce. AUTO wraca do automatu`
-      + ` (teraz ${am === "split" ? "2 PASY" : "1 PAS"} z ${st?.runway_in_use?.source === "ATIS" ? "ATIS" : "sugestii systemu"}).`;
+    $(".aw-man").title = man ? `Układ albo pas wybrany ręcznie przy pasach w użyciu ARR ${u?.arr || "–"} / DEP ${u?.dep || "–"}`
+      + ` (${u?.source === "ATIS" ? "ATIS" : "sugestia systemu"}), zapamiętany dla ${icao} w tej przeglądarce.\nWraca do automatu`
+      + ` (teraz ${am === "split" ? "2 PASY" : "1 PAS"}) po kliknięciu AUTO, przy zmianie tych pasów albo o`
+      + ` ${new Date(manual.t + MAN_TTL).toISOString().slice(11, 16)}Z (12 h od wyboru).` : "";
   };
 
-  // części kolumny zależne od METAR i wyboru pasa (odświeżane co minutę albo po kliknięciu pasa)
+  // części kolumny zależne od METAR i wyboru pasa (po każdym wczytaniu statusu i po kliknięciu pasa, układu albo AUTO)
   const drawColStatic = (c) => {
     const des = selOf(c), p = st?.parsed, def = auto[c.sel] || {}, man = !!manual[c.sel];
     c.el.querySelector(".rwy").innerHTML = des ? `RWY <b>${esc(des)}</b> <span class="src${man ? " man" : ""}"
@@ -667,10 +700,9 @@ RVR: z METAR; gdy METAR nie podaje RVR dla pasa: przy widzialności ≥ 1500 m (
       letters[x.callsign] = x.letter;
     });
     auto = autoRunways(st);
-    // ręczny wybór, którego nie da się pokazać (pasa nie ma już na liście, nieznany układ), wraca do automatu
-    const ok = { mode: (v) => MODES.some(([m]) => m === v), rwy: rwyOf, arr: rwyOf, dep: rwyOf };
-    const bad = Object.keys(manual).filter((k) => !Object.hasOwn(ok, k) || !ok[k](manual[k]));
-    if (bad.length) { bad.forEach((k) => delete manual[k]); saveManual(); }
+    // ręczny wybór po zmianie pasów w użyciu, po 12 h albo gdy nie da się go pokazać (pasa nie ma na liście) wraca do automatu
+    const keep = manualKeep(manual, st);
+    if (Object.keys(keep).length !== Object.keys(manual).length) { manual = keep; saveManual(); }
     layout();
     if (st.metar !== metarRaw) { metarRaw = st.metar; reseed(); }
     draw();
@@ -688,10 +720,8 @@ RVR: z METAR; gdy METAR nie podaje RVR dla pasa: przy widzialności ≥ 1500 m (
     const mb = e.target.closest("button[data-mode]");
     if (mb || e.target.closest(".aw-auto")) {
       if (!st) return;
-      // układ taki jak automat to powrót do automatu (jak przy wyborze pasa); AUTO kasuje też ręczne pasy
-      if (!mb) manual = {};
-      else if (mb.dataset.mode === autoMode(st.runway_in_use)) delete manual.mode;
-      else manual.mode = mb.dataset.mode;
+      // AUTO kasuje cały ręczny wybór; inny układ kasuje pasy opuszczanego układu
+      manual = mb ? manualPick(manual, st, "mode", mb.dataset.mode) : {};
       saveManual();
       redraw();
       return;
@@ -700,8 +730,7 @@ RVR: z METAR; gdy METAR nie podaje RVR dla pasa: przy widzialności ≥ 1500 m (
     if (rb) {
       const c = cols.find((x) => x.k === rb.closest(".aw-col")?.dataset.k);
       if (!c) return;
-      if (rb.dataset.rwy === auto[c.sel]?.des) delete manual[c.sel];
-      else manual[c.sel] = rb.dataset.rwy;
+      manual = manualPick(manual, st, c.sel, rb.dataset.rwy);
       saveManual();
       drawMode();
       cols.filter((x) => x.sel === c.sel).forEach((x) => { drawColStatic(x); drawColLive(x); });
@@ -751,6 +780,6 @@ RVR: z METAR; gdy METAR nie podaje RVR dla pasa: przy widzialności ≥ 1500 m (
   };
 }
 
-// do testów symulacji wiatru i RVR oraz układu i pasów kolumn (node)
+// do testów symulacji wiatru i RVR oraz układu, pasów kolumn i ręcznego wyboru (node)
 export const awosSim = { windBasis, WindField, Sensor, metarAge, RvrRunway, rvrFor, rvrCode, rvrSlot, rwyNorm, rvrText, atisLines,
-  autoMode, autoRunways };
+  autoMode, autoRunways, manualPick, manualKeep };
