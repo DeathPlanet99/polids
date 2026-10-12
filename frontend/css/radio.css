@@ -55,7 +55,7 @@
 .rb-tmag path { stroke: rgba(62, 199, 224, .55); stroke-width: 1; stroke-dasharray: 4 3; }
 .rb-ctrg path { stroke: rgba(242, 210, 27, .7); stroke-width: 1; }
 .rb-fisg path { stroke: rgba(176, 140, 255, .45); stroke-width: 1; stroke-dasharray: 1 3; }
-.rb-marks .rb-lead { stroke: #7b847b; stroke-width: .8; }
+.rb-marks .rb-lead { stroke: #9aa59a; stroke-width: 1; }
 .rb-dot { fill: #c3cdc3; }
 .rb-dot.app { fill: var(--cyan); }
 .rb-dot.twr { fill: var(--yellow); }
@@ -94,33 +94,50 @@
 .rb-lbl .rb-atl .rb-code { font-size: max(8px, calc(var(--rb-f) - 4px)); }
 .rb-lbl:hover, .rb-box:hover { border-color: #fff; }
 
-/* --- stosy sąsiadów: nagłówek FIR, poziomy o tym samym zakresie (górna i dolna granica FL po lewej) */
-.rb-nb { pointer-events: auto; min-width: 0; padding: 1px 4px 3px; background: rgba(0, 0, 0, .86); border: 1px solid #1a221a; border-radius: 2px; }
+/* --- stosy sąsiadów (kafelki VACS): nagłówek FIR, ADVISORY, gdy nikt nie obsługuje sektorów przy granicy, pasma kafelków
+   o tym samym zakresie; każda granica pionowa (FL) raz, na osi między pasmami (liczba w lewym marginesie --rb-ax i linia) */
+.rb-nb { --rb-ax: calc(var(--rb-f) * 1.8 + 2px); pointer-events: auto; min-width: 0; padding: 1px 4px 3px; background: rgba(0, 0, 0, .86);
+  border: 1px solid #1a221a; border-radius: 2px; }
+.rb-nb.flat { --rb-ax: 0px; }
 .rb-nbh { font: 400 max(9px, calc(var(--rb-f) - 3px))/1.3 var(--mono); color: var(--muted); white-space: nowrap; cursor: help; }
 .rb-nbh b { font-size: calc(var(--rb-f) - 1px); color: var(--yellow); }
-.rb-lv { display: flex; align-items: stretch; gap: 3px; margin-top: 2px; }
-.rb-fl { flex: none; display: flex; flex-direction: column; justify-content: space-between; min-width: 3ch;
-  font: 400 max(9px, calc(var(--rb-f) - 3px))/1 var(--mono); color: #a0a8a0; text-align: right; cursor: help; }
-.rb-fl i { font-style: normal; }
-.rb-bxs { display: flex; flex-wrap: wrap; gap: 2px; font: 700 var(--rb-f) var(--mono); }
+.rb-unicom { margin: 1px 0 1px var(--rb-ax); font: 700 calc(var(--rb-f) - 1px)/1.25 var(--mono); color: #c3cdc3; white-space: nowrap; }
+.rb-bd { display: flex; align-items: center; gap: 3px; margin-top: 2px; font: 400 max(9px, calc(var(--rb-f) - 3px))/1 var(--mono);
+  color: #a0a8a0; cursor: help; }
+.rb-bd i { flex: none; width: calc(var(--rb-ax) - 3px); font-style: normal; text-align: right; }
+.rb-bd::after { content: ""; flex: 1; border-top: 1px solid #2f3a2f; }
+/* nowy ciąg pasm (EDUU SPE po OSE12/HVL12): krótka kreska, pod nią zakres pasma (+315) zamiast granicy pod nim */
+.rb-sep { width: 34%; margin: 6px 0 1px calc(var(--rb-ax) + 4px); border-top: 2px solid #3d4a3d; }
+.rb-bd.rb-re i { width: auto; min-width: calc(var(--rb-ax) - 3px); color: #c3cdc3; }
+.rb-bxs { display: flex; flex-wrap: wrap; gap: 2px; margin: 2px 0 0 var(--rb-ax); font: 700 var(--rb-f) var(--mono); }
 /* boczna kolumna: jedno pole w linii (wąsko, mapa zostaje duża); u góry i u dołu do czterech obok siebie */
 .rb-col .rb-bxs { flex-direction: column; align-items: stretch; }
 .rb-top .rb-bxs, .rb-bot .rb-bxs { max-width: calc(32ch + 50px); }
 .rb-box { min-width: calc(7ch + 10px); }
 .rb-none { font: 11px var(--mono); color: #5c665c; padding: 2px 0; }
 
-/* --- tytuł podglądu (warstwa, zakres) i przekrój LOW */
+/* --- tytuł podglądu (warstwa, zakres) i suwak wysokości LOW */
 .rb-title { position: absolute; z-index: 2; display: flex; align-items: center; gap: 6px; padding: 1px 4px; font: 11px var(--mono);
   color: var(--muted); white-space: nowrap; background: rgba(0, 0, 0, .7); }
 .rb-title b { font-size: 13px; color: #fff; letter-spacing: 1px; }
 /* LOW i HIGH: w rogu wolnego pola przy środkowej kolumnie (miejsce ustawia radio.js), MID: lewy górny róg */
 .rb-low .rb-title { right: 4px; top: 3px; }
 .rb-high .rb-title, .rb-midmap .rb-title { left: 4px; top: 3px; }
-.rb-cut { display: inline-flex; align-items: center; gap: 3px; color: var(--green-text); }
-.rb-cut button { width: 18px; height: 17px; padding: 0; background: #0d110d; border: 1px solid #2f3a2f; border-radius: 2px; color: #c3cdc3;
-  font: 10px var(--mono); cursor: pointer; }
-.rb-cut button:hover:not(:disabled) { border-color: var(--green-hi); color: #fff; }
-.rb-cut button:disabled { opacity: .3; cursor: default; }
+/* suwak: zielony uchwyt na ciemnym torze, kreski pod torem = granice wycinków ACC (tam zmieniają się kształty) */
+.rb-lvl { position: relative; display: inline-flex; align-items: center; width: clamp(96px, 8.5vw, 170px); height: 18px; }
+.rb-cut { width: 100%; height: 18px; margin: 0; padding: 0; background: transparent; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.rb-cut::-webkit-slider-runnable-track { height: 4px; background: #0d110d; border: 1px solid #2f3a2f; border-radius: 2px; }
+.rb-cut::-webkit-slider-thumb { width: 9px; height: 14px; margin-top: -6px; background: #45a832; border: 1px solid #1f5a16; border-radius: 1px;
+  -webkit-appearance: none; appearance: none; }
+.rb-cut::-moz-range-track { height: 4px; background: #0d110d; border: 1px solid #2f3a2f; border-radius: 2px; }
+.rb-cut::-moz-range-thumb { width: 9px; height: 14px; background: #45a832; border: 1px solid #1f5a16; border-radius: 1px; }
+.rb-cut:hover::-webkit-slider-thumb { background: #52bd3c; }
+.rb-cut:hover::-moz-range-thumb { background: #52bd3c; }
+.rb-cut:focus { outline: none; }
+.rb-cut:focus-visible { outline: 1px solid var(--green-hi); outline-offset: 1px; }
+.rb-ticks { position: absolute; left: 5px; right: 5px; bottom: 0; height: 4px; pointer-events: none; }
+.rb-ticks i { position: absolute; top: 0; width: 1px; height: 4px; background: #5c665c; }
+.rb-cutv { min-width: 5ch; font: 700 12px var(--mono); color: var(--green-text); }
 
 /* --- środkowa kolumna: przyciski warstw (LOW MID HIGH w jednym rzędzie), stan sieci, legenda, podgląd MID */
 .rb-mid { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
