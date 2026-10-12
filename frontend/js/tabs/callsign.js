@@ -5,7 +5,7 @@ const CATEGORY = { CARGO: "CARGO", MIL: "MILITARY" };
 export default {
   mount(root) {
     let prefix = "";
-    letterMenu(root, (l) => { prefix = l; load(); });
+    const letters = letterMenu(root, (l) => { prefix = l; load(); });
     const pane = h(`<div class="pane">
       <div class="toolbar">
         <input type="search" class="q" placeholder="Szukaj: kod ICAO, callsign, operator, kraj…" size="46" autofocus>
@@ -34,6 +34,10 @@ export default {
     q.addEventListener("input", debounce(load));
     pane.querySelector(".cat").addEventListener("change", load);
     load();
-    return { activate: () => q.focus() };
+    // #callsign/A: litera z adresu (← i Wstecz), "" = wszystkie; przycisk menu (arg undefined) zostawia bieżącą
+    return { activate: (arg) => {
+      if (arg !== undefined && /^[A-Z]?$/.test(arg) && arg !== prefix) { prefix = arg; letters.set(arg); load(); }
+      q.focus();
+    } };
   },
 };

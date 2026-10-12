@@ -60,7 +60,7 @@ export default {
     root.append(pane);
     pane.querySelector(".about-tiles").addEventListener("click", (e) => {
       const b = e.target.closest("[data-open]");
-      if (b) location.hash = b.dataset.open;
+      if (b) ctx.open(b.dataset.open);
     });
     const load = async () => {
       const st = await api("/api/status").catch(() => ({ counts: {} }));

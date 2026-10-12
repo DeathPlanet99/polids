@@ -1,4 +1,5 @@
-import { api, esc } from "./api.js";
+import { api, esc, hashOf, navPath, parseHash, selectNavPath, setRouter } from "./api.js";
+import home from "./tabs/home.js";
 import meteo from "./tabs/meteo.js";
 import { adciv, admil, advfr } from "./tabs/aip.js";
 import about from "./tabs/about.js";
@@ -12,6 +13,10 @@ import inop from "./tabs/inop.js";
 import docs from "./tabs/docs.js";
 import phraseology from "./tabs/phraseology.js";
 import checklist from "./tabs/checklist.js";
+import sytop from "./tabs/sytop.js";
+import aup from "./tabs/aup.js";
+import strip from "./tabs/strip.js";
+import other from "./tabs/other.js";
 import admin from "./tabs/admin.js";
 
 // Leaflet po polsku, raz dla wszystkich map (RADIO, METEO › QNH, MAP itd.), zanim którakolwiek się zbuduje:
@@ -24,35 +29,102 @@ if (window.L) {
   }
 }
 
-const TABS = { about, radio, meteo, aerodrome, adciv, admil, advfr, callsign, aircraft, map, inop, docs, phraseology, checklist, emergency, admin };
+const TABS = { home, about, radio, meteo, aerodrome, adciv, admil, advfr, callsign, aircraft, map, inop, docs, phraseology, checklist,
+  sytop, aup, strip, other, emergency, admin };
 const views = document.getElementById("views");
+const back = document.getElementById("nav-back");
 const mounted = {};
-const ctx = { config: null, open };
+const ctx = { config: null, open: (tab, arg) => open(tab, arg, true) };
 
-function open(tab, arg) {
-  if (!TABS[tab]) tab = "about";
-  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
-  views.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
-  if (!mounted[tab]) {
-    const el = document.createElement("section");
-    el.className = "view";
-    views.append(el);
-    mounted[tab] = { el, api: TABS[tab].mount(el, ctx) || {} };
-  }
-  mounted[tab].el.classList.add("active");
-  mounted[tab].api.activate?.(arg);
-  const hash = "#" + tab + (arg ? "/" + arg : "");
-  if (location.hash !== hash) history.replaceState(null, "", hash);
+// --- Historia ekranów (przycisk ← i Wstecz przeglądarki). Każdy wpis historii tej sesji ma stan {n: głębokość};
+// n = 0 to pierwszy ekran po uruchomieniu (HOME), więc ← nigdy nie wychodzi z aplikacji (np. do strony logowania).
+let depth = 0;           // n bieżącego wpisu
+let current = null;      // zakładka na ekranie
+let shown = "";          // location.hash ekranu na ekranie
+let activating = null;   // {tab, arg?} w trakcie mount()/activate(): remember() tej zakładki uzupełnia adres
+const lastArg = {};      // ostatni arg każdej zakładki (powrót przyciskiem menu = ten sam stan, ten sam adres)
+const sameHash = (a, b) => { const x = parseHash(a), y = parseHash(b); return x.tab === y.tab && x.arg === y.arg; };
+
+function write(tab, arg, push) {
+  const hash = hashOf(tab, arg);
+  lastArg[tab] = arg;
+  if (push && !sameHash(hash, location.hash)) history.pushState({ n: ++depth }, "", hash);
+  else history.replaceState({ n: depth }, "", hash);
+  shown = location.hash;
+  back.disabled = depth <= 0;
 }
 
+// arg: undefined = przycisk menu (zakładka zostaje w swoim stanie), napis = stan z adresu ("" = domyślny).
+// Zakładka z activate(arg) sama czyta arg; bez activate() arg to ścieżka podzakładek (subtabs w api.js).
+function open(tab, arg, push = false) {
+  if (!TABS[tab]) { tab = "home"; arg = undefined; }
+  document.querySelectorAll("#tabs button[data-tab]").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  views.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+  current = tab;
+  const me = { tab };
+  activating = me;
+  try {
+    if (!mounted[tab]) {
+      const el = document.createElement("section");
+      el.className = "view";
+      el.dataset.tab = tab;
+      views.append(el);
+      mounted[tab] = { el, api: {} };
+      mounted[tab].api = TABS[tab].mount(el, ctx) || {};
+    }
+    const m = mounted[tab];
+    m.el.classList.add("active");
+    if (m.api.activate) m.api.activate(arg);
+    else if (arg !== undefined) selectNavPath(m.el, arg);
+  } catch (e) {
+    console.error(e);
+  } finally {
+    if (activating === me) activating = null;
+  }
+  if (current !== tab) return;   // activate() przeniósł od razu do innej zakładki: adres zapisało tamto open()
+  const m = mounted[tab];
+  const a = !m.api.activate ? navPath(m.el) || (arg ?? lastArg[tab]) : me.arg ?? arg ?? lastArg[tab];
+  write(tab, a || "", push);
+}
+
+function remember(tab, arg, { replace = false } = {}) {
+  arg = arg === null || arg === undefined ? "" : String(arg);
+  if (activating) {
+    if (activating.tab === tab) activating.arg = arg;
+    return;
+  }
+  if (tab === current) write(tab, arg, !replace);
+}
+setRouter({ open: (tab, arg) => open(tab, arg, true), remember });
+
+// Wstecz / Dalej przeglądarki, ← w menu, link <a href="#..."> i location.hash = "..." (nowy wpis bez stanu)
+function fromLocation() {
+  const n = history.state?.n;
+  if (typeof n === "number") depth = n;
+  else if (!sameHash(location.hash, shown)) history.replaceState({ n: ++depth }, "", location.href);
+  else history.replaceState({ n: depth }, "", location.href);   // ten sam adres: przeglądarka podmieniła wpis
+  if (sameHash(location.hash, shown)) { back.disabled = depth <= 0; return; }
+  const { tab, arg } = parseHash(location.hash);
+  open(tab, arg);
+}
+
+let ready = false;   // menu działa po wczytaniu konfiguracji i otwarciu HOME
 document.getElementById("tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
-  if (b) open(b.dataset.tab);
+  if (b && ready) open(b.dataset.tab, undefined, true);
 });
-
-window.addEventListener("hashchange", () => {
-  const [tab, arg] = location.hash.slice(1).split("/");
-  if (tab) open(tab, arg);
+back.addEventListener("click", () => { if (history.state?.n > 0) history.back(); });
+// linki wewnątrz aplikacji (logo, odnośniki w treści) przez navigate: krok do cofnięcia i bez przewijania strony;
+// sam "#" (martwy link) nie zmienia adresu
+document.addEventListener("click", (e) => {
+  const a = e.target.closest?.('a[href^="#"]');
+  if (!a || e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || a.target) return;
+  const href = a.getAttribute("href");
+  if (href === "#") return e.preventDefault();
+  const { tab, arg } = parseHash(href);
+  if (!TABS[tab]) return;
+  e.preventDefault();
+  if (ready) open(tab, href.includes("/") ? arg : undefined, true);
 });
 
 function tick() {
@@ -72,8 +144,12 @@ tick();
     console.error(e);
   }
   await showUser();
-  // po uruchomieniu zawsze strona startowa "?" (ABOUT), niezależnie od adresu zapamiętanego w przeglądarce
-  open("about");
+  // po uruchomieniu zawsze HOME ("?"), niezależnie od adresu zapamiętanego w przeglądarce; to pierwszy wpis historii (n = 0)
+  depth = 0;
+  open("home");
+  ready = true;
+  window.addEventListener("popstate", fromLocation);
+  window.addEventListener("hashchange", fromLocation);
 })();
 
 // zalogowany użytkownik pod zegarem
