@@ -165,11 +165,14 @@ table.data td.num { text-align: right; font-family: var(--mono); }
    najwyżej do najdłuższej w panelu (--nm-w z aerodrome.js), więc kto stoi w kolumnie tuż za nią; gdy kto nie mieści się
    w wierszu, schodzi do drugiej linijki pod znak (nigdy ucięty, bez przewijania w poziomie) */
 .radio-row .pos-txt { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 1px 8px; }
+/* mały odstęp od prawej krawędzi (paska przewijania), żeby kto nie przylegał do brzegu panelu */
+.freqs .radio-row { padding-right: 6px; }
 /* ramka "-" (rezerwacja spoza listy stanowisk) tak szeroka jak częstotliwość: znaki i kolumna kto równo pod sobą */
 .freqs .radio-row .freq { flex: none; min-width: calc(7ch + 16px); text-align: center; }
 .freqs .radio-row .cs { width: 11ch; flex: none; }
 .freqs .radio-row .nm { flex: 1 1 0; }
-.freqs .pos-txt .nm { max-width: calc(var(--nm-w) + 1px); }
+/* nazwa stacji najmniej 6 znaków: zanim skurczy się do resztki ("K", "|"), kto schodzi do drugiej linijki */
+.freqs .pos-txt .nm { max-width: calc(var(--nm-w) + 1px); min-width: min(6ch, var(--nm-w)); }
 .radio-row .nm { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 /* imię i nazwisko dłuższe niż cały panel zawija się w sobie, nie wychodzi za krawędź */
 .radio-row .who { color: var(--green-hi); font-size: 12px; overflow-wrap: anywhere; }
