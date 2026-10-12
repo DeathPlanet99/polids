@@ -2,12 +2,13 @@
 // FIR EPWW i stosami sąsiadów (ESAA, EDWW, EDUU, EDMM, LKAA), w środku przyciski warstw i mały podgląd MID, po prawej
 // duży podgląd HIGH ze stosami UMKK, EYVL, UMMV, UKLV, LZBB. Na podglądach: ID sektora (litera warstwy + litera sektora,
 // np. LB) i częstotliwość stanowiska, które teraz go obsługuje wg kolejności przejmowania (ownership.json); bez nikogo
-// online przygaszona częstotliwość stanowiska sektora. Dane: GET /api/radio/board co 30 s (geometria raz na sesję).
-import { api, esc, h, hhmm, lsGet, lsSet, navigate, remember } from "../api.js";
+// online przygaszona częstotliwość stanowiska sektora. Dane: GET /api/radio/board co 30 s (geometria raz, potem tylko po
+// zmianie wersji danych `ver`, np. po imporcie nowego pliku .ese).
+import { api, esc, h, lsGet, lsSet, navigate, remember } from "../api.js";
 import { labelPoint } from "../coverage.js";
 import { displayName, loadDisplayNames, posName } from "../posname.js";
-import { DEFAULT_CUT, DEFAULT_LAYERS, LAYERS, LAYER_IDS, argOf, bboxOf, byShort, cutBand, cutBounds, cutOf, flNum, flText,
-  levelLines, parseArg, pathOf, placeLabels, projection, ringsOf, sliceAt } from "../radioboard.js";
+import { DEFAULT_CUT, DEFAULT_LAYERS, EPWW_BBOX, LAYERS, LAYER_IDS, argOf, bboxOf, bboxOrDefault, byShort, controllersOn, cutBand,
+  cutBounds, cutOf, flNum, flText, levelLines, parseArg, pathOf, placeLabels, projection, ringsOf, sliceAt, utcHhmm } from "../radioboard.js";
 
 const LS_LAYERS = "radio.layers", LS_CUT = "radio.cut";
 const REFRESH_MS = 30000;
@@ -20,6 +21,8 @@ const MAPS = [
 // miejsce stosu sąsiada w panelu: strona mapy z /api/radio/board (at) → obszar siatki panelu
 const AREA = { n: "top", s: "bot", nw: "col", w: "col", sw: "col", ne: "col", e: "col", se: "col" };
 const COL_ORDER = { nw: 0, w: 1, sw: 2, ne: 0, e: 1, se: 2 };
+// etykiety warstw APP/TWR/FIS: krótkie ID bez rodzaju (kolor paska z lewej mówi, co to jest): WA S APP → WA S
+const shortId = (id) => String(id).replace(/ (?:APP|DEP|TWR|FIS)$/, "");
 
 function readLayers() {
   try {
@@ -45,9 +48,9 @@ export default {
       <div class="rb-atis" aria-label="ATIS"></div>
       <div class="rb-grid">
         ${MAPS.map((m) => m.key === "MID" ? `<div class="rb-mid">
-            <div class="rb-btns">${LAYERS.map((l) => `<button type="button" data-ly="${l.id}" title="${esc(l.tip)}">${esc(l.label)}</button>`).join("")}</div>
+            <div class="rb-btns">${LAYERS.map((l) => `<button type="button" data-ly="${l.id}" title="${esc(l.tip)}" aria-pressed="false">${esc(l.label)}</button>`).join("")}</div>
             <div class="rb-status"></div>
-            <div class="rb-legend"><span><i class="rb-sw on"></i>obsadzony</span><span><i class="rb-sw off"></i>nikt (nominalna)</span></div>
+            <div class="rb-legend"><span><i class="rb-sw on"></i>obsadzony</span><span><i class="rb-sw off"></i>nikt (nominalna)</span><span><i class="rb-sw cov"></i>↑ przejmuje inne (TWR)</span></div>
             ${panelHtml(m)}
           </div>` : panelHtml(m)).join("")}
       </div>
@@ -58,7 +61,7 @@ export default {
     const tip = $(".rb-tip");
 
     let layers = readLayers(), cut = readCut();
-    let d = null, geo = null, err = "", border = null, timer = null, loading = false, lastLoad = 0;
+    let d = null, geo = null, geoVer = "", err = "", border = null, noBorder = false, timer = null, loading = false, lastLoad = 0;
     const maps = Object.fromEntries(MAPS.map((m) => {
       const p = el.querySelector(`.rb-panel[data-map="${m.key}"]`);
       return [m.key, { ...m, el: p, svg: p.querySelector("svg"), lbls: p.querySelector(".rb-lbls"), free: p.querySelector(".rb-free") }];
@@ -70,7 +73,7 @@ export default {
     const freqOf = (cs) => on(cs)?.frequency || d?.pos?.[cs]?.frequency || "";
     const who = (cs) => {
       const o = on(cs);
-      return o ? `${o.callsign} ${o.frequency} – ${o.name || "?"} (CID ${o.cid ?? "?"})${o.logon_time ? `, od ${hhmm(o.logon_time)}` : ""}` : "";
+      return o ? `${o.callsign} ${o.frequency} – ${o.name || "?"} (CID ${o.cid ?? "?"})${o.logon_time ? `, od ${utcHhmm(o.logon_time)}` : ""}` : "";
     };
     const posLine = (cs) => `${cs}${d?.pos?.[cs]?.name ? ` · ${d.pos[cs].name}` : ""} ${d?.pos?.[cs]?.frequency || ""}`.trim();
     const chainText = (ch) => ch.map(nm).join(" › ");
@@ -80,6 +83,19 @@ export default {
       : [{ fq: d?.pos?.[nominal]?.frequency || "—", by: "" }]);
     const nowText = (owners, nominal) => (owners.length ? owners.map((o) => `Teraz: ${who(o) || o}`).join("\n")
       : `Teraz nikt – częstotliwość nominalna ${nm(nominal)} ${d?.pos?.[nominal]?.frequency || ""}`.trim());
+
+    // etykieta podglądu w trzech odmianach: pełna (ID nad częstotliwością), skrócona (ID i częstotliwość w jednej linii)
+    // i samo ID; mniejsze, gdy pełna nie mieści się przy swoim punkcie (szczegóły zawsze w dymku)
+    function lblHtml(lb, v = 0) {
+      const attrs = `${lb.k ? ` data-k="${esc(lb.k)}"` : ""}${lb.icao ? ` data-icao="${esc(lb.icao)}" tabindex="0" role="button"` : ""} data-rt="${esc(lb.rt)}"`;
+      const cls = `rb-lbl ${lb.cls} ${lb.state}${v ? " cmp" : ""}`;
+      if (v === 2) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.cid)}</b></div>`;
+      const fq = lb.ls[0]?.fq ? `<span class="rb-fq">${esc(lb.ls[0].fq)}</span>` : "";
+      if (v === 1) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.cid)}</b>${fq}</div>`;
+      const more = lb.more ? `<i class="rb-more">+${lb.more}</i>` : "";
+      return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.id)}</b>${lb.ls.filter((l) => l.fq || l.by).map((l) => `<span class="rb-ln">${l.by ? `<i class="rb-by">${esc(l.by)}</i>` : ""}`
+        + `${l.fq ? `<span class="rb-fq">${esc(l.fq)}</span>` : ""}</span>`).join("")}${more}${lb.extra || ""}</div>`;
+    }
 
     function boxHtml({ cls, id, nominal, owners, rt, k = "", extra = "", short = false }) {
       const ls = lines(nominal, owners, short);
@@ -136,40 +152,71 @@ export default {
       return [`Sektor ${s.letter} · ${s.layer}${ly?.label ? ` ${ly.label}` : ""}`, `Stanowisko sektora: ${posLine(s.nominal)}`,
         nowText(s.owner ? [s.owner] : [], s.nominal), `Kolejność: ${chainText(s.chain)}`].join("\n");
     };
-    const groupTip = (g, title, extra = []) => [title, `Stanowisko: ${posLine(g.nominal)}`,
-      g.owners.length || !g.topdown ? nowText(g.owners, g.nominal) : `Teraz top-down: ${who(g.topdown) || g.topdown}`, ...extra,
+    const groupTip = (g, title, extra = [], now = null) => [title, `Stanowisko: ${posLine(g.nominal)}`,
+      now || (g.owners.length || !g.topdown ? nowText(g.owners, g.nominal) : `Teraz top-down: ${who(g.topdown) || g.topdown}`), ...extra,
       `Kolejność: ${chainText(g.chains[0] || [])}`].join("\n");
 
+    // etykiety podglądu: {lb (model etykiety), at: [lat, lon], prio, dot?, alts?}; APP, TWR i FIS tylko na LOW
     function labelsFor(m, accs) {
-      const out = [];  // {html, at: [lat, lon], prio}
+      const out = [];
       if (layers.has(m.layer)) {
         const byLetter = new Map();
         accs.forEach((s) => { const b = byLetter.get(s.letter); if (!b || areaOf(s.geometry) > areaOf(b.geometry)) byLetter.set(s.letter, s); });
         d.sectors.filter((s) => s.layer === m.key && byLetter.has(s.letter)).forEach((s) => {
           const sl = byLetter.get(s.letter);
           const at = labelPoint({ type: "Feature", geometry: sl.geometry, properties: { fir: "EPWW", name: sl.name } })?.at;
-          if (at) out.push({ at, prio: 0, html: boxHtml({ cls: "rb-lbl acc", id: s.id, nominal: s.nominal, owners: s.owner ? [s.owner] : [], rt: accTip(s), k: s.letter }) });
+          const owners = s.owner ? [s.owner] : [];
+          if (at) out.push({ at, prio: 0, max: 70, lb: { cls: "acc", state: owners.length ? "on" : "off", id: s.id, cid: s.id, k: s.letter,
+            ls: lines(s.nominal, owners), rt: accTip(s) } });
         });
       }
       if (m.key !== "LOW") return out;  // APP, TWR i FIS to przestrzeń dolna: na podglądzie LOW
+      const local = (g) => ({ ls: lines(g.nominal, g.owners), more: Math.max(0, g.owners.length - 2) });
       if (layers.has("app")) {
-        d.tma.forEach((g) => g.at && out.push({ at: g.at, prio: 1, dot: "app", html: boxHtml({ cls: "rb-lbl app", id: nm(g.nominal), nominal: g.nominal, owners: g.owners,
-          rt: groupTip(g, `${g.id} (${g.lo ? flText(g.lo) : "GND"}–${flText(g.hi)})`, g.apps.length > 1 ? [`APP: ${g.apps.map((c) => `${nm(c)} ${d.pos[c]?.frequency || ""}`).join(", ")}`] : []) }) }));
+        // ta sama częstotliwość w kilku TMA (WA APP w TMA Warszawa, Łódź i Radom; PO N APP w TMA Poznań N i Zielona Góra):
+        // z częstotliwością tylko w TMA "swojego" lotniska (albo w pierwszej), w pozostałych sama nazwa, reszta w dymku
+        const tma = d.tma.filter((g) => g.at);
+        const station = (g, i) => (g.owners.length ? g.owners[i] : g.nominal);
+        const keeper = new Map();  // znak → id TMA, w której etykieta ma jego częstotliwość
+        tma.forEach((g) => { const cs = station(g, 0); if (cs && cs.slice(0, 4) === g.icao && !keeper.has(cs)) keeper.set(cs, g.id); });
+        tma.forEach((g) => {
+          const { ls, more } = local(g);
+          ls.forEach((l, i) => {
+            const cs = station(g, i);
+            if (!cs) return;
+            if (!keeper.has(cs)) keeper.set(cs, g.id);
+            if (keeper.get(cs) !== g.id) l.fq = "";
+          });
+          const id = nm(g.nominal);
+          out.push({ at: g.at, prio: g.owners.length ? 1 : 1.5, dot: "app", lb: { cls: "app", state: g.owners.length ? "on" : "off", id, cid: shortId(id), ls, more,
+            rt: groupTip(g, `${g.id} (${g.lo ? flText(g.lo) : "GND"}–${flText(g.hi)})`, g.apps.length > 1 ? [`APP: ${g.apps.map((c) => `${nm(c)} ${d.pos[c]?.frequency || ""}`).join(", ")}`] : []) } });
+        });
       }
       const twra = layers.has("twra");
       if (twra || layers.has("twr")) {
         d.twr.forEach((g) => {
           if (!g.at) return;
+          // TWR: częstotliwość wieży (jasna, gdy wieża online); wieżę przejmuje inne stanowisko (np. APP) → ↑APP, dymek mówi kto
+          const tw = g.owners.find((o) => /_TWR$/.test(o)), cover = tw ? null : g.owners[0];
+          const ls = [tw ? { fq: freqOf(tw), by: tw === g.nominal ? "" : nm(tw) }
+            : { fq: d.pos[g.nominal]?.frequency || "—", by: cover ? `↑${byShort(nm(cover))}` : "" }];
           const a = g.atis ? on(g.atis) : null;
           const atl = twra && g.atis ? `<span class="rb-ln rb-atl${a ? " on" : ""}"><i class="rb-by">ATIS</i><span class="rb-fq">${esc(freqOf(g.atis))}</span>${a?.atis_code ? `<b class="rb-code">${esc(a.atis_code)}</b>` : ""}</span>` : "";
           const extra = g.atis ? [`ATIS: ${posLine(g.atis)}${a ? ` – online${a.atis_code ? `, informacja ${a.atis_code}` : ""}` : " – offline"}`] : [];
-          out.push({ at: g.at, prio: 2, dot: "twr", html: boxHtml({ cls: "rb-lbl twr", id: nm(g.nominal), nominal: g.nominal, owners: g.owners,
-            rt: groupTip(g, `${g.id} · ${g.icao}`, [...extra, "Kliknij: AERODROME"]), k: g.icao, extra: atl }), icao: g.icao });
+          const id = nm(g.nominal);
+          out.push({ at: g.at, prio: tw ? 2 : 2.5, dot: "twr", lb: { cls: "twr", state: tw ? "on" : cover ? "cov" : "off", id, cid: shortId(id), ls, extra: atl,
+            icao: g.icao, k: g.icao, rt: groupTip(g, `${g.id} · ${g.icao}`, [...extra, "Kliknij: AERODROME"],
+              cover ? `Wieża offline – przejmuje ${g.owners.map((o) => who(o) || o).join(", ")}` : null) } });
         });
       }
       if (layers.has("fis")) {
-        d.fis.forEach((g) => g.at && out.push({ at: g.at, prio: 3, dot: "fis", html: boxHtml({ cls: "rb-lbl fis", id: nm(g.nominal), nominal: g.nominal, owners: g.owners,
-          rt: groupTip(g, `${g.id} (do ${flText(g.hi)})`) }) }));
+        d.fis.forEach((g) => {
+          if (!g.at) return;
+          const { ls, more } = local(g);
+          const id = nm(g.nominal);
+          out.push({ at: g.at, prio: g.owners.length ? 3 : 3.5, dot: "fis", lb: { cls: "fis", state: g.owners.length ? "on" : "off", id, cid: shortId(id), ls, more,
+            rt: groupTip(g, `${g.id} (do ${flText(g.hi)})`) } });
+        });
       }
       return out;
     }
@@ -178,7 +225,7 @@ export default {
       const p = m.el, W = p.clientWidth, H = p.clientHeight;
       if (!geo || !d || W < 40 || H < 40) return;
       const pr = p.getBoundingClientRect(), fr = m.free.getBoundingClientRect();
-      const { P, box } = projection(border, { x: fr.left - pr.left, y: fr.top - pr.top, w: fr.width, h: fr.height }, 0.03,
+      const { P } = projection(border, { x: fr.left - pr.left, y: fr.top - pr.top, w: fr.width, h: fr.height }, 0.03,
         m.key === "MID" ? "bottom" : "middle");
       const ft = m.key === "LOW" ? cut * 100 : LEVEL_FT[m.key];
       const accs = sliceAt(geo.acc, ft);
@@ -195,32 +242,38 @@ export default {
         + (low && (layers.has("twr") || layers.has("twra")) ? g("rb-ctrg", geo.ctr) : "")
         + `<g class="rb-accg">${accs.map((s) => `<path data-k="${esc(s.letter)}" class="${staffed.has(s.letter) ? "st" : ""}" d="${pathOf(s.geometry, P)}"/>`).join("")}</g>`
         + `<path class="rb-border" d="${pathOf(geo.border, P)}"/>`;
-      // etykiety: wstawiamy, mierzymy, rozsuwamy (ważniejsze zostają na miejscu)
+      renderTitle(m, { top: fr.top - pr.top, left: fr.left - pr.left, right: pr.right - fr.right });
+      // etykiety: wstawiamy wszystkie odmiany, mierzymy, układamy (ważniejsze pierwsze), zostawiamy wybraną odmianę
       const items = labelsFor(m, accs).sort((a, b) => a.prio - b.prio);
-      m.lbls.innerHTML = items.map((it) => it.html).join("");
+      const nv = (it) => (it.prio > 0 ? 3 : 1);
+      m.lbls.innerHTML = items.map((it) => Array.from({ length: nv(it) }, (_, v) => lblHtml(it.lb, v)).join("")).join("");
       const els = [...m.lbls.children];
-      const sizes = els.map((e) => [e.offsetWidth, e.offsetHeight]);
+      let ei = 0;
+      const vars = items.map((it) => els.slice(ei, (ei += nv(it))));
+      const sz = (e) => ({ w: e.offsetWidth, h: e.offsetHeight });
       const pts = items.map((it) => P([it.at[1], it.at[0]]));
-      // etykiety mogą wyjść trochę poza FIR (MID: w całym panelu, nad mapą jest miejsce)
-      const bx0 = Math.max(2, box.x - 30), by0 = Math.max(2, box.y - 20);
-      const bounds = m.key === "MID" ? { x: 2, y: 2, w: W - 4, h: H - 4 }
-        : { x: bx0, y: by0, w: Math.min(W - 2, box.x + box.w + 30) - bx0, h: Math.min(H - 2, box.y + box.h + 20) - by0 };
-      const moves = placeLabels(items.map((it, i) => ({ x: pts[i][0], y: pts[i][1], w: sizes[i][0], h: sizes[i][1] })), bounds);
-      // przesunięta etykieta: cienka linia do jej punktu; lotniska (TWR) i TMA (APP) z kropką w punkcie
+      // przeszkody: stosy sąsiadów i tytuł podglądu (współrzędne w panelu)
+      const rel = (e) => { const r = e.getBoundingClientRect(); return { x0: r.left - pr.left - 2, y0: r.top - pr.top - 2, x1: r.right - pr.left + 2, y1: r.bottom - pr.top + 2 }; };
+      const obstacles = [...p.querySelectorAll(".rb-nb, .rb-title")].filter((e) => e.offsetWidth && e.offsetHeight).map(rel);
+      const moves = placeLabels(items.map((it, i) => {
+        const [full, ...alts] = vars[i].map(sz);
+        return { x: pts[i][0], y: pts[i][1], ...full, alts, max: it.max };
+      }), { x: 2, y: 2, w: W - 4, h: H - 4 }, { obstacles });
+      // przesunięta etykieta: cienka linia do jej punktu; lotniska (TWR), TMA (APP) i FIS z kropką w punkcie
       let marks = "";
-      els.forEach((e, i) => {
-        const [w, hh] = sizes[i], [x, y] = pts[i], { dx, dy } = moves[i];
+      items.forEach((it, i) => {
+        const { dx, dy, v } = moves[i];
+        vars[i].forEach((e, j) => { if (j !== v) e.remove(); });
+        const e = vars[i][v], w = e.offsetWidth, hh = e.offsetHeight, [x, y] = pts[i];
         e.style.left = `${Math.round(x + dx - w / 2)}px`;
         e.style.top = `${Math.round(y + dy - hh / 2)}px`;
-        if (items[i].icao) e.dataset.icao = items[i].icao;
-        if (items[i].dot) marks += `<circle class="rb-dot ${items[i].dot}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.2"/>`;
+        if (it.dot) marks += `<circle class="rb-dot ${it.dot}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.2"/>`;
         if (Math.abs(dx) > w / 2 + 2 || Math.abs(dy) > hh / 2 + 2) {
           const ex = Math.max(x + dx - w / 2, Math.min(x, x + dx + w / 2)), ey = Math.max(y + dy - hh / 2, Math.min(y, y + dy + hh / 2));
           marks += `<path class="rb-lead" d="M${x.toFixed(1)},${y.toFixed(1)}L${ex.toFixed(1)},${ey.toFixed(1)}"/>`;
         }
       });
       if (marks) m.svg.insertAdjacentHTML("beforeend", `<g class="rb-marks">${marks}</g>`);
-      renderTitle(m, { top: fr.top - pr.top, left: fr.left - pr.left, right: pr.right - fr.right });
     }
     // tytuł w górnym rogu wolnego pola (bez stosów sąsiadów) od strony środkowej kolumny
     function renderTitle(m, free) {
@@ -239,28 +292,35 @@ export default {
       t.innerHTML = html;
     }
     function renderButtons() {
-      el.querySelectorAll(".rb-btns button[data-ly]").forEach((b) => b.classList.toggle("on", layers.has(b.dataset.ly)));
+      el.querySelectorAll(".rb-btns button[data-ly]").forEach((b) => {
+        b.classList.toggle("on", layers.has(b.dataset.ly));
+        b.setAttribute("aria-pressed", String(layers.has(b.dataset.ly)));
+      });
       el.classList.toggle("noatis", !layers.has("atis"));
     }
     function renderStatus() {
       const s = $(".rb-status");
-      const n = d ? Object.keys(d.online || {}).filter((cs) => !/_ATIS$/.test(cs)).length : 0;
+      const n = d ? controllersOn(d.online) : 0;
       const net = d?.net;
       s.innerHTML = !d ? (err ? `<span class="error">${esc(err)}</span>` : "Wczytywanie…")
-        : `${net?.ok ? `VATSIM ${esc(hhmm(net.updated))} · ${n} na tablicy` : `<span class="error">${esc(net?.error || "VATSIM: brak danych")}</span>`}`
+        : `${net?.ok ? `VATSIM ${esc(utcHhmm(net.updated))} · ${n} na tablicy` : `<span class="error">${esc(net?.error || "VATSIM: brak danych")}</span>`}`
+          + (noBorder ? ` <span class="error">Brak granicy FIR EPWW (VATSpy): podglądy bez obrysu FIR, stosy sąsiadów mogą być puste.</span>` : "")
           + (err ? ` <span class="error">${esc(err)}</span>` : "");
       s.title = d?.source ? `Kolejność przejmowania: ${d.source}` : "";
     }
     let raf = 0;
+    // jeden błąd (np. dziwne dane) nie zatrzymuje reszty strony
+    const safe = (f, ...a) => { try { f(...a); } catch (e) { console.error("RADIO", e); } };
     function renderAll() {
       cancelAnimationFrame(raf);
       raf = 0;
-      renderButtons();
-      renderStatus();
-      if (!d) return;
-      renderAtis();
-      renderStacks();
-      Object.values(maps).forEach(renderMap);
+      safe(renderButtons);
+      if (d) {
+        safe(renderAtis);
+        safe(renderStacks);
+        Object.values(maps).forEach((m) => safe(renderMap, m));
+      }
+      safe(renderStatus);
     }
     const later = () => { if (!raf) raf = requestAnimationFrame(renderAll); };
 
@@ -270,10 +330,17 @@ export default {
       if (loading) return;
       loading = true;
       try {
-        const r = await api(`/api/radio/board${geo ? "" : "?geo=1"}`);
+        // geometria raz, potem tylko gdy zmieni się wersja danych (np. po imporcie nowego pliku .ese)
+        const r = await api(`/api/radio/board${geo && geoVer ? `?have=${encodeURIComponent(geoVer)}` : "?geo=1"}`);
         if (r.geo) {
           geo = r.geo;
-          border = bboxOf(geo.border);
+          geoVer = r.ver || "";
+          const b = bboxOrDefault(bboxOf(geo.border));
+          noBorder = !b;
+          border = b || EPWW_BBOX;
+        } else if (geo && r.ver !== geoVer) {
+          geoVer = "";  // nowa wersja danych bez geometrii w odpowiedzi: pobierzemy ją zaraz (?geo=1)
+          setTimeout(load, 0);
         }
         d = r;
         err = "";
@@ -286,6 +353,9 @@ export default {
       renderAll();
     }
     const tick = () => { if (visible()) load(); };
+    // powrót do karty przeglądarki: dane mogą mieć do 30 s – odświeżamy od razu
+    const onVis = () => { if (visible() && Date.now() - lastLoad > REFRESH_MS) load(); };
+    document.addEventListener("visibilitychange", onVis);
     loadDisplayNames().then(() => { if (d) later(); });
     load();
     timer = setInterval(tick, REFRESH_MS);
@@ -331,6 +401,11 @@ export default {
       const a = e.target.closest(".rb-at[data-icao], .rb-lbl.twr[data-icao]");
       if (a) navigate("aerodrome", a.dataset.icao);
     });
+    // etykieta TWR z klawiatury (tabindex, role=button): Enter albo spacja
+    el.addEventListener("keydown", (e) => {
+      const a = e.target.closest?.(".rb-lbl.twr[data-icao]");
+      if (a && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); navigate("aerodrome", a.dataset.icao); }
+    });
 
     // --- dymki (jeden pływający, przycięty do okna) i podświetlenie sektora pod etykietą
     let tipFor = null;
@@ -366,7 +441,7 @@ export default {
         if (Date.now() - lastLoad > REFRESH_MS) load();
         else later();
       },
-      destroy() { clearInterval(timer); ro.disconnect(); },
+      destroy() { clearInterval(timer); ro.disconnect(); document.removeEventListener("visibilitychange", onVis); },
     };
   },
 };

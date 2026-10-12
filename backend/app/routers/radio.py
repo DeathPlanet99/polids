@@ -1,13 +1,16 @@
+import hashlib
 import json
 import logging
+import threading
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from ..config import settings
 from ..database import get_db
-from ..models import Aerodrome, AtcPosition, NavPoint, NbSector, Sector
+from ..models import Aerodrome, AtcPosition, ImportLog, NavPoint, NbSector, Sector
 from ..services import radioboard
 from ..services.http_cache import UpstreamError
 from ..services.neighbours import covered_firs, nb_owners, nb_sectors, owners_of
@@ -147,6 +150,7 @@ def sectors(db: Session = Depends(get_db)):
 
 # --- RADIO jako jedna strona (PANDORA): GET /api/radio/board
 _BOARD: dict = {}
+_BOARD_LOCK = threading.Lock()
 # tło podglądów: granice FIR-ów z VATSpy w tej ramce (lon min, lat min, lon max, lat max)
 BOARD_FRAME = (4.0, 44.0, 34.0, 61.0)
 
@@ -160,16 +164,47 @@ def _in_frame(geom: dict) -> bool:
         and max(p[1] for p in pts) > y0
 
 
+def _file_stamp(path) -> tuple:
+    try:
+        st = path.stat()
+        return st.st_mtime_ns, st.st_size
+    except OSError:
+        return None, None
+
+
+def _board_stamp(db: Session, positions: dict) -> tuple:
+    """Stan danych tablicy (ok. 2 ms): import plików (ImportLog), zawartość tabel sektorów (liczba, granice pionowe,
+    długość list OWNER i geometrii – import kasuje tabelę i wstawia ją od nowa z tymi samymi id), stanowiska,
+    ownership.json i granice VATSpy. Zmiana czegokolwiek = część stała liczona od nowa i nowa wersja geometrii."""
+    def tbl(*cols):  # liczba wierszy i sumy kolumn jednej tabeli
+        return tuple(db.execute(select(func.count(), *[func.total(c) for c in cols])).one())
+
+    return (
+        tbl(ImportLog.mtime), db.scalar(select(func.max(ImportLog.mtime))),
+        tbl(Sector.id, Sector.lower_ft, Sector.upper_ft, func.length(Sector.owners), func.length(Sector.geometry)),
+        tbl(NbSector.id, NbSector.lower_ft, NbSector.upper_ft, func.length(NbSector.owners), func.length(NbSector.geometry)),
+        tbl(func.length(AtcPosition.callsign) + func.length(AtcPosition.position_id)),
+        db.scalar(select(func.count(Aerodrome.icao))), len(positions),
+        _file_stamp(settings.seed_dir / "ownership.json"), _file_stamp(settings.seed_dir / "vatspy_firs.geojson"))
+
+
 def _board_static(db: Session, positions: dict) -> dict:
-    """Część tablicy niezależna od sieci; liczona od nowa po zmianie bazy (import) albo ownership.json."""
-    own_path = settings.seed_dir / "ownership.json"
-    st = own_path.stat()
-    stamp = (db.scalar(select(func.count(Sector.id))), db.scalar(select(func.max(Sector.id))),
-             db.scalar(select(func.count(NbSector.id))), db.scalar(select(func.max(NbSector.id))),
-             len(positions), st.st_mtime_ns, st.st_size)
+    """Część tablicy niezależna od sieci; liczona od nowa po zmianie danych (import) albo ownership.json.
+    Zimne liczenie trwa ok. 1 s – endpoint woła tę funkcję w wątku (run_in_threadpool), żeby nie blokować serwera."""
+    stamp = _board_stamp(db, positions)
     if _BOARD.get("stamp") == stamp:
         return _BOARD["data"]
-    own = seed_json(own_path)
+    with _BOARD_LOCK:  # dwa pierwsze zapytania naraz: liczy jedno, drugie czeka na wynik
+        if _BOARD.get("stamp") == stamp:
+            return _BOARD["data"]
+        data = _build_static(db, positions)
+        data["ver"] = hashlib.sha1(repr(stamp).encode()).hexdigest()[:12]
+        _BOARD.update(stamp=stamp, data=data)
+        return data
+
+
+def _build_static(db: Session, positions: dict) -> dict:
+    own = seed_json(settings.seed_dir / "ownership.json")
     by_id = {p.position_id: p.callsign for p in db.scalars(select(AtcPosition))}
     covered = covered_firs(db)
     epww, nb = [], []
@@ -188,36 +223,41 @@ def _board_static(db: Session, positions: dict) -> dict:
     # same FIR-y (bez sektorów VATSpy typu ESMM-7), żeby tło było lekkie
     frame = [{"id": f["properties"]["id"], "geometry": f["geometry"]} for f in firs.get("features", [])
              if "-" not in f["properties"]["id"] and f["properties"]["id"] != "EPWW" and _in_frame(f["geometry"])]
-    data = radioboard.build_static(own=own, epww_slices=epww, nb_slices=nb, positions=positions, coords=coords,
+    return radioboard.build_static(own=own, epww_slices=epww, nb_slices=nb, positions=positions, coords=coords,
                                    border_geom=border, firs_geo=frame)
-    _BOARD.update(stamp=stamp, data=data)
-    return data
+
+
+def _board_data(db: Session) -> tuple[list[dict], dict, dict, set]:
+    merged = all_positions(db)
+    positions = {p["callsign"]: p for p in merged}
+    return merged, positions, _board_static(db, positions), nb_owners(db)
 
 
 @router.get("/board")
-async def board(geo: bool = False, db: Session = Depends(get_db)):
+async def board(geo: bool = False, have: str = "", db: Session = Depends(get_db)):
     """Wszystko dla strony RADIO w jednym zapytaniu: sektory ACC EPWW (LOW/MID/HIGH) z właścicielem wg kolejności
     przejmowania (ownership.json), TMA/APP, CTR/TWR, FIS, ATIS polskich lotnisk i stosy stanowisk sąsiadów przy
     granicy (ESAA, EDWW, EDUU, EDMM, LKAA po lewej; UMKK, EYVL, UMMV, UKLV, LZBB po prawej) z granicami pionowymi.
     owner/owners = pierwsze stanowisko online z kolejności (null/[] = nikt, pokazujemy częstotliwość nominalną).
-    `geo=1`: także geometria podglądów (granica EPWW, FIR-y w tle, wycinki ACC, TMA, CTR, FIS) – raz na sesję.
+    `ver`: wersja danych z importu. `geo=1` albo `have=<ver>` inne niż bieżąca: także geometria podglądów (granica
+    EPWW, FIR-y w tle, wycinki ACC, TMA, CTR, FIS) – strona trzyma ją, dopóki `ver` się nie zmieni (np. po imporcie).
     Błąd VATSIM nie psuje tablicy: `net.ok=false` i komunikat, wszystkie częstotliwości nominalne."""
-    merged = all_positions(db)
-    positions = {p["callsign"]: p for p in merged}
-    static = _board_static(db, positions)
+    # pozycje i część stała: praca CPU i bazy (zimna ok. 1 s) w wątku, żeby nie wstrzymać innych zapytań
+    merged, positions, static, prefer = await run_in_threadpool(_board_data, db)
     net = {"ok": True, "error": None, "updated": None}
     online, feed_atis = {}, []
     try:
         data = await vatsim_api.get_feed()
         ctrls = data.get("controllers", []) + data.get("atis", [])
         stations = [Station(p["callsign"], p["prefix"], p["frequency"] or "") for p in merged]
-        online = match_positions(ctrls, stations, nb_owners(db))
+        online = match_positions(ctrls, stations, prefer)
         feed_atis = data.get("atis", [])
         net["updated"] = data.get("general", {}).get("update_timestamp")
     except (UpstreamError, ValueError) as exc:
         net.update(ok=False, error=f"VATSIM data feed niedostępny: {exc}")
     out = radioboard.board(static, online, positions, feed_atis)
     out["net"] = net
-    if geo:
+    out["ver"] = static["ver"]
+    if geo or (have and have != static["ver"]):
         out["geo"] = static["geo"]
     return out

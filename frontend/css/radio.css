@@ -42,10 +42,15 @@
 .rb-svg path { fill: none; stroke-linejoin: round; }
 .rb-firs path { stroke: #1d261d; stroke-width: 1; }
 .rb-land { fill: #060906; }
-.rb-midmap .rb-land { fill: #121612; }   /* MID: szary podgląd jak w PANDORZE */
+.rb-midmap .rb-land { fill: #2c312e; }   /* MID: szary podgląd jak w PANDORZE */
+.rb-midmap .rb-accg path { stroke: #8d968f; }
+.rb-midmap .rb-accg path.st { fill: rgba(95, 210, 58, .1); }
+.rb-midmap .rb-border { stroke: #c9d0c9; }
 .rb-accg path { stroke: #435243; stroke-width: 1; }
 .rb-accg path.st { fill: rgba(95, 210, 58, .07); }
-.rb-accg path.hl { stroke: #fff; stroke-width: 2; fill: rgba(255, 255, 255, .06); }
+/* sektor pod etykietą: jaśniejszy (obsadzony zostaje zielony, tylko mocniej) */
+.rb-accg path.hl { stroke: #fff; stroke-width: 2; fill: rgba(255, 255, 255, .13); }
+.rb-accg path.st.hl { fill: rgba(95, 210, 58, .24); }
 .rb-border { stroke: #a9b3a9; stroke-width: 1.4; }
 .rb-tmag path { stroke: rgba(62, 199, 224, .55); stroke-width: 1; stroke-dasharray: 4 3; }
 .rb-ctrg path { stroke: rgba(242, 210, 27, .7); stroke-width: 1; }
@@ -62,31 +67,40 @@
 .rb-lbl, .rb-box { display: inline-grid; justify-items: end; align-content: start; padding: 0 4px 1px; background: #030503;
   border: 1px solid #222a22; border-radius: 2px; white-space: nowrap; line-height: 1.05; cursor: help; }
 .rb-lbl { position: absolute; left: 0; top: 0; pointer-events: auto; }
-.rb-id { font: 400 calc(var(--rb-f) - 4px)/1.15 var(--mono); color: #7b847b; letter-spacing: .2px; }
+/* ID sektora i liczby FL nie mniejsze niż 9 px (8 px na etykietach APP/TWR/FIS), także na 1366×768 */
+.rb-id { font: 400 max(9px, calc(var(--rb-f) - 3px))/1.15 var(--mono); color: #7b847b; letter-spacing: .2px; }
 .rb-ln { display: flex; align-items: baseline; gap: 4px; }
 .rb-fq { font: 700 var(--rb-f)/1.12 var(--mono); color: #5c665c; }
-.rb-by { font: 700 calc(var(--rb-f) - 3px)/1 var(--mono); font-style: normal; color: var(--green-text); }
-.rb-more { font: 700 calc(var(--rb-f) - 4px) var(--mono); font-style: normal; color: var(--green-text); }
+.rb-by { font: 700 max(8px, calc(var(--rb-f) - 3px))/1 var(--mono); font-style: normal; color: var(--green-text); }
+.rb-more { font: 700 max(8px, calc(var(--rb-f) - 4px)) var(--mono); font-style: normal; color: var(--green-text); }
 .rb-lbl.on, .rb-box.on { background: #071305; border-color: var(--green-hi); }
 .rb-lbl.on .rb-fq, .rb-box.on .rb-fq { color: #fff; }
 .rb-lbl.on .rb-id, .rb-box.on .rb-id { color: #b9e8a6; }
 /* APP, TWR i FIS mniejsze niż sektory ACC (na podglądzie LOW bywa ich kilkadziesiąt) */
 .rb-lbl.app, .rb-lbl.twr, .rb-lbl.fis { --rb-f: clamp(10px, .7vw, 13px); }
+.rb-lbl.app .rb-id, .rb-lbl.twr .rb-id, .rb-lbl.fis .rb-id { font-size: max(8px, calc(var(--rb-f) - 3px)); }
+/* skrócona etykieta (brak miejsca przy punkcie): ID i częstotliwość w jednej linii albo samo ID */
+.rb-lbl.cmp { display: inline-flex; align-items: baseline; gap: 4px; padding: 0 3px; }
+.rb-lbl.cmp .rb-id { font-size: max(9px, calc(var(--rb-f) - 2px)); }
+/* wieża offline, którą przejmuje inne stanowisko (np. APP): częstotliwość wieży, ↑APP, kto – w dymku */
+.rb-lbl.cov { border-color: #2f6a24; border-style: dashed; }
+.rb-lbl.cov .rb-fq { color: #8a948a; }
+.rb-lbl.twr:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
 .rb-lbl.app { border-left: 3px solid var(--cyan); }
 .rb-lbl.twr { border-left: 3px solid var(--yellow); cursor: pointer; }
 .rb-lbl.fis { border-left: 3px solid #b08cff; }
 .rb-lbl .rb-atl .rb-by { color: #7b847b; }
 .rb-lbl .rb-atl.on .rb-by { color: var(--green-hi); }
-.rb-lbl .rb-atl .rb-code { font-size: calc(var(--rb-f) - 4px); }
+.rb-lbl .rb-atl .rb-code { font-size: max(8px, calc(var(--rb-f) - 4px)); }
 .rb-lbl:hover, .rb-box:hover { border-color: #fff; }
 
 /* --- stosy sąsiadów: nagłówek FIR, poziomy o tym samym zakresie (górna i dolna granica FL po lewej) */
 .rb-nb { pointer-events: auto; min-width: 0; padding: 1px 4px 3px; background: rgba(0, 0, 0, .86); border: 1px solid #1a221a; border-radius: 2px; }
-.rb-nbh { font: 400 calc(var(--rb-f) - 3px)/1.3 var(--mono); color: var(--muted); white-space: nowrap; cursor: help; }
+.rb-nbh { font: 400 max(9px, calc(var(--rb-f) - 3px))/1.3 var(--mono); color: var(--muted); white-space: nowrap; cursor: help; }
 .rb-nbh b { font-size: calc(var(--rb-f) - 1px); color: var(--yellow); }
 .rb-lv { display: flex; align-items: stretch; gap: 3px; margin-top: 2px; }
 .rb-fl { flex: none; display: flex; flex-direction: column; justify-content: space-between; min-width: 3ch;
-  font: 400 calc(var(--rb-f) - 4px)/1 var(--mono); color: #a0a8a0; text-align: right; cursor: help; }
+  font: 400 max(9px, calc(var(--rb-f) - 3px))/1 var(--mono); color: #a0a8a0; text-align: right; cursor: help; }
 .rb-fl i { font-style: normal; }
 .rb-bxs { display: flex; flex-wrap: wrap; gap: 2px; font: 700 var(--rb-f) var(--mono); }
 /* boczna kolumna: jedno pole w linii (wąsko, mapa zostaje duża); u góry i u dołu do czterech obok siebie */
@@ -124,6 +138,7 @@
 .rb-legend span { display: inline-flex; align-items: center; gap: 4px; }
 .rb-sw { display: inline-block; width: 11px; height: 9px; border: 1px solid #222a22; background: #030503; }
 .rb-sw.on { border-color: var(--green-hi); background: #071305; }
+.rb-sw.cov { border: 1px dashed #2f6a24; }
 .rb-midmap { flex: none; aspect-ratio: .9; max-height: 55%; --rb-f: clamp(10px, .68vw, 13px); }
 
 /* --- dymek (jeden, przy kursorze) */

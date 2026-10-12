@@ -7,10 +7,10 @@ export const LAYERS = [
   { id: "low", label: "LOW", tip: "Sektory ACC na lewym podglądzie: LOW" },
   { id: "mid", label: "MID", tip: "Sektory ACC na małym podglądzie: MID" },
   { id: "high", label: "HIGH", tip: "Sektory ACC na prawym podglądzie: HIGH" },
-  { id: "app", label: "APP", tip: "TMA i częstotliwości APP" },
-  { id: "twr", label: "TWR", tip: "CTR lotnisk i częstotliwości TWR" },
-  { id: "twra", label: "TWR/ATIS", tip: "CTR lotnisk: TWR i ATIS lotniska" },
-  { id: "fis", label: "FIS", tip: "Rejony FIS i częstotliwości Warszawa Information" },
+  { id: "app", label: "APP", tip: "TMA i częstotliwości APP (na podglądzie LOW)" },
+  { id: "twr", label: "TWR", tip: "CTR lotnisk i częstotliwości TWR (na podglądzie LOW)" },
+  { id: "twra", label: "TWR/ATIS", tip: "CTR lotnisk: TWR i ATIS lotniska (na podglądzie LOW)" },
+  { id: "fis", label: "FIS", tip: "Rejony FIS i częstotliwości Warszawa Information (na podglądzie LOW)" },
 ];
 export const LAYER_IDS = LAYERS.map((l) => l.id);
 export const DEFAULT_LAYERS = ["atis", "low", "mid", "high"];
@@ -69,6 +69,19 @@ export function bboxOf(g) {
   ringsOf(g).forEach((r) => r.forEach(([x, y]) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }));
   return [x0, y0, x1, y1];
 }
+// ramka FIR EPWW, gdy brak granicy z VATSpy (bbox bez punktów: ±Infinity)
+export const EPWW_BBOX = [14.1, 49.0, 24.2, 55.0];
+export const bboxOrDefault = (b) => (b && b.length === 4 && b.every(Number.isFinite) && b[2] > b[0] && b[3] > b[1] ? b : null);
+// czas z VATSIM (np. "2026-10-12T12:00:43.0000000Z": 7 cyfr ułamka) jako "HH:MMZ"; nieczytelny → "–"
+export function utcHhmm(iso) {
+  const t = Date.parse(String(iso || "").replace(/(\.\d{3})\d+/, "$1"));
+  return Number.isNaN(t) ? "–" : new Date(t).toISOString().slice(11, 16) + "Z";
+}
+// liczba kontrolerów na tablicy: online = stanowisko → kontroler; ten sam kontroler pod znakiem sąsiada (alias_of)
+// i ATIS-y nie liczą się osobno
+export const controllersOn = (online) => new Set(Object.entries(online || {})
+  .filter(([cs, o]) => !/_ATIS$/.test(cs) && !/_ATIS$/.test(String(o?.callsign || "")))
+  .map(([cs, o]) => String(o?.callsign || cs))).size;
 // Rzut równoodległościowy (długość × cos 52°) dopasowany do prostokąta rect {x, y, w, h}: bbox [lon0, lat0, lon1, lat1]
 // mieści się w nim w całości, wyśrodkowany w poziomie. Wynik: P([lon, lat]) → [x, y] w pikselach panelu.
 // valign: "middle" (domyślnie) albo "bottom" (mały podgląd MID przy dolnej krawędzi, jak w PANDORZE).
@@ -86,34 +99,62 @@ export function pathOf(g, P) {
   return ringsOf(g).map((r) => r.length > 2 ? "M" + r.map((c) => P(c).map((v) => v.toFixed(1)).join(",")).join("L") + "Z" : "").join("");
 }
 
-// Etykiety bez nakładania się: items [{x, y, w, h}] (x, y = środek, punkt zakotwiczenia), w kolejności priorytetu
-// (najpierw ważniejsze). Każda dostaje przesunięcie {dx, dy}: kandydaci na pierścieniach coraz dalej od punktu
-// (12 kierunków), pierwszy bez kolizji z już ułożonymi i w obrębie bounds {x, y, w, h}; gdy żaden nie pasuje,
-// ten z najmniejszym nałożeniem. Daleko przesunięte etykiety dostają w radio.js linię do swojego punktu.
-export function placeLabels(items, bounds, gap = 2, rings = 4) {
-  const placed = [], out = [];
+// Etykiety bez nakładania się. items [{x, y, w, h, alts?: [{w, h}], max?: px}] w kolejności priorytetu (najpierw
+// ważniejsze); x, y = punkt zakotwiczenia, w, h = rozmiar pełnej etykiety, alts = mniejsze odmiany (skrócona, samo ID).
+// Kandydaci leżą na pierścieniach coraz dalej od punktu (coraz więcej kierunków); wygrywa pierwszy bez kolizji
+// z już ułożonymi etykietami i przeszkodami (obstacles: stosy sąsiadów, tytuł podglądu; {x0, y0, x1, y1}) i w obrębie
+// bounds {x, y, w, h}. Pełna etykieta może odejść od punktu najwyżej o `near` px (krawędź etykiety od punktu),
+// mniejsza odmiana o `max` px (domyślnie `far`); gdy nic nie pasuje, najmniejsza odmiana w miejscu najmniejszego
+// nałożenia. Wynik: [{dx, dy, v, hit}] – przesunięcie środka, numer odmiany (0 = pełna) i czy coś zasłania.
+export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26, far = 90, rings = 14 } = {}) {
+  const placed = obstacles.map((o) => ({ ...o })), out = [];
   const over = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+  const rectAt = (it, s, dx, dy) => ({ x0: it.x + dx - s.w / 2 - gap / 2, y0: it.y + dy - s.h / 2 - gap / 2,
+    x1: it.x + dx + s.w / 2 + gap / 2, y1: it.y + dy + s.h / 2 + gap / 2 });
+  const outside = (r) => (bounds ? Math.max(0, bounds.x - r.x0) + Math.max(0, r.x1 - (bounds.x + bounds.w))
+    + Math.max(0, bounds.y - r.y0) + Math.max(0, r.y1 - (bounds.y + bounds.h)) : 0);
+  // odległość punktu zakotwiczenia od etykiety (0 = punkt pod etykietą)
+  const reach = (s, dx, dy) => Math.hypot(Math.max(0, Math.abs(dx) - s.w / 2), Math.max(0, Math.abs(dy) - s.h / 2));
   items.forEach((it) => {
-    const { w, h } = it;
-    const cands = [[0, 0]];
-    for (let k = 1; k <= rings; k++) {
-      for (let a = 0; a < 12; a++) {
-        const t = (a * Math.PI) / 6;
-        cands.push([Math.round(Math.cos(t) * k * (w * 0.55 + gap)), Math.round(Math.sin(t) * k * (h + gap))]);
+    const sizes = [{ w: it.w, h: it.h }, ...(it.alts || [])];
+    let pick = null;
+    sizes.forEach((s, v) => {
+      if (pick) return;
+      const limit = v === 0 && sizes.length > 1 ? near : (it.max ?? far);
+      const sx = s.w * 0.3 + gap, sy = s.h * 0.55 + gap;
+      for (let k = 0; k <= rings && !pick; k++) {
+        const n = k ? 8 * k : 1;
+        let any = false;
+        for (let a = 0; a < n; a++) {
+          const t = (a * 2 * Math.PI) / n;
+          const dx = Math.round(Math.cos(t) * k * sx), dy = Math.round(Math.sin(t) * k * sy);
+          if (reach(s, dx, dy) > limit) continue;
+          any = true;
+          const r = rectAt(it, s, dx, dy);
+          if (!outside(r) && !placed.some((p) => over(r, p) > 0)) { pick = { dx, dy, v, r, hit: false }; break; }
+        }
+        if (!any && k > 1) break;  // cały pierścień poza zasięgiem
+      }
+    });
+    if (!pick) {
+      // nic wolnego: najmniejsza odmiana tam, gdzie zasłania najmniej
+      const v = sizes.length - 1, s = sizes[v];
+      const sx = s.w * 0.3 + gap, sy = s.h * 0.55 + gap;
+      let best = Infinity;
+      for (let k = 0; k <= rings; k++) {
+        const n = k ? 8 * k : 1;
+        for (let a = 0; a < n; a++) {
+          const t = (a * 2 * Math.PI) / n;
+          const dx = Math.round(Math.cos(t) * k * sx), dy = Math.round(Math.sin(t) * k * sy);
+          if (reach(s, dx, dy) > (it.max ?? far)) continue;
+          const r = rectAt(it, s, dx, dy);
+          const cost = placed.reduce((acc, p) => acc + over(r, p), 0) + outside(r) * s.h * 4 + Math.hypot(dx, dy) * 0.05;
+          if (cost < best) { best = cost; pick = { dx, dy, v, r, hit: true }; }
+        }
       }
     }
-    let best = null, bestCost = Infinity;
-    for (const [dx, dy] of cands) {
-      const r = { x0: it.x + dx - w / 2 - gap / 2, y0: it.y + dy - h / 2 - gap / 2, x1: it.x + dx + w / 2 + gap / 2, y1: it.y + dy + h / 2 + gap / 2 };
-      const outside = bounds ? Math.max(0, bounds.x - r.x0) + Math.max(0, r.x1 - (bounds.x + bounds.w))
-        + Math.max(0, bounds.y - r.y0) + Math.max(0, r.y1 - (bounds.y + bounds.h)) : 0;
-      const hit = placed.reduce((a, p) => a + over(r, p), 0);
-      const cost = hit + outside * h * 4 + Math.hypot(dx, dy) * 0.05;
-      if (cost < bestCost) { bestCost = cost; best = { dx, dy, r }; }
-      if (!hit && !outside) break;  // kandydaci od najbliższego: pierwszy wolny wygrywa
-    }
-    placed.push(best.r);
-    out.push({ dx: best.dx, dy: best.dy });
+    placed.push(pick.r);
+    out.push({ dx: pick.dx, dy: pick.dy, v: pick.v, hit: pick.hit });
   });
   return out;
 }

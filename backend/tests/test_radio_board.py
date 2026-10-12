@@ -140,6 +140,42 @@ def test_board_geo(client):
     assert len(json.dumps(g)) < 400_000  # raz na sesję, ale bez przesady
 
 
+def test_board_version_and_reimport(client):
+    """Import kasuje tabelę sektorów i wstawia ją od nowa (te same id): część stała i geometria muszą się odświeżyć,
+    a strona dostaje nową wersję (`ver`) i nową geometrię przy `have=<stara wersja>`."""
+    from sqlalchemy import delete, select
+
+    from backend.app.database import SessionLocal
+    from backend.app.models import Sector
+
+    d1 = client.get("/api/radio/board").json()
+    ver = d1["ver"]
+    assert ver and "geo" not in d1
+    assert "geo" not in client.get(f"/api/radio/board?have={ver}").json()  # ta sama wersja: bez geometrii
+    with SessionLocal() as db:
+        cols = [c.name for c in Sector.__table__.columns if c.name != "id"]
+        rows = [{c: getattr(s, c) for c in cols} for s in db.scalars(select(Sector).order_by(Sector.id))]
+        target = next(r for r in rows if r["fir"] == "EPWW" and r["name"].startswith("EPWWB"))
+        old_geom = target["geometry"]
+        try:
+            db.execute(delete(Sector))
+            for r in rows:
+                db.add(Sector(**{**r, "geometry": '{"type":"Polygon","coordinates":[[[16,52],[17,52],[17,53],[16,52]]]}'
+                                 if r is target else r["geometry"]}))
+            db.commit()
+            d2 = client.get(f"/api/radio/board?have={ver}").json()
+            assert d2["ver"] != ver and "geo" in d2
+            geo_b = [a["geometry"] for a in d2["geo"]["acc"] if a["name"] == target["name"]]
+            assert geo_b and geo_b[0]["coordinates"][0][0][0] == [16, 52]
+        finally:
+            db.execute(delete(Sector))
+            for r in rows:
+                db.add(Sector(**r))
+            db.commit()
+    d3 = client.get(f"/api/radio/board?have={d2['ver']}").json()
+    assert d3["ver"] == ver and "geo" in d3 and old_geom
+
+
 def test_board_upstream_error(client, monkeypatch):
     async def broken():
         raise UpstreamError("timeout")
@@ -225,6 +261,18 @@ let overlaps = 0;
 rects.forEach((a, i) => rects.slice(i + 1).forEach((b) => {
   if (a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]) overlaps++;
 }));
+// przeszkody (stosy sąsiadów, tytuł) i mniejsze odmiany etykiet, gdy pełna nie mieści się przy punkcie
+const obst = { x0: 0, y0: 0, x1: 90, y1: 400 };
+const crowd = Array.from({ length: 20 }, (_, i) => ({ x: 120 + (i % 4) * 3, y: 150 + Math.floor(i / 4) * 3, w: 70, h: 24,
+  alts: [{ w: 50, h: 12 }, { w: 16, h: 10 }] }));
+const cm = rb.placeLabels(crowd, { x: 0, y: 0, w: 400, h: 400 }, { obstacles: [obst] });
+const crects = crowd.map((it, i) => {
+  const s = cm[i].v ? it.alts[cm[i].v - 1] : it;
+  return { x0: it.x + cm[i].dx - s.w / 2, y0: it.y + cm[i].dy - s.h / 2, x1: it.x + cm[i].dx + s.w / 2, y1: it.y + cm[i].dy + s.h / 2 };
+});
+const hit = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+let crowdOverlaps = 0;
+crects.forEach((a, i) => crects.slice(i + 1).forEach((b) => { if (hit(a, b)) crowdOverlaps++; }));
 const pj = rb.projection([14, 49, 24, 55], { x: 10, y: 20, w: 300, h: 300 });
 console.log(JSON.stringify({
   ids: rb.LAYER_IDS, defaults: rb.DEFAULT_LAYERS, cut: rb.DEFAULT_CUT,
@@ -237,6 +285,12 @@ console.log(JSON.stringify({
   cutOf: [rb.cutOf(bounds, 0), rb.cutOf(bounds, 2)],
   sliceAt: rb.sliceAt([{ lo: 0, hi: 100 }, { lo: 100, hi: 200 }], 100),
   overlaps, first: moves[0],
+  crowd: { overlaps: crowdOverlaps, onObstacle: crects.filter((r) => hit(r, obst)).length, hits: cm.filter((m) => m.hit).length,
+    variants: [...new Set(cm.map((m) => m.v))].sort(), first: cm[0] },
+  hhmm: ["2026-10-12T12:00:43.0000000Z", "2026-10-12T09:05:00Z", "not a date", null].map(rb.utcHhmm),
+  counted: rb.controllersOn({ EPWW_N_CTR: { callsign: "EPWW_N_CTR" }, EKDK_UN_CTR: { callsign: "EKDK_CTR", alias_of: "EKDK_CTR" },
+    EKDK_CTR: { callsign: "EKDK_CTR" }, EPWA_ATIS: { callsign: "EPWA_ATIS" }, EPWA_APP: { callsign: "EPWA_APP" } }),
+  bboxes: [rb.bboxOrDefault(rb.bboxOf({ type: "MultiPolygon", coordinates: [] })), rb.bboxOrDefault([14, 49, 24, 55]), rb.EPWW_BBOX],
   levels: rb.levelLines([{ lo: 1, hi: 5, c: "a" }, { lo: 1, hi: 5, c: "b" }, { lo: 0, hi: 5, c: "c" }]).map((l) => l.rows.map((r) => r.c)),
   short: ["EDWW FLG", "ESMM 6", "LKAA", "", null].map(rb.byShort),
   proj: { a: pj.P([14, 55]), b: pj.P([24, 49]), box: pj.box },
@@ -282,7 +336,15 @@ def test_js_cut_bands(js):
 
 
 def test_js_layout_helpers(js):
-    assert js["overlaps"] == 0 and js["first"] == {"dx": 0, "dy": 0}  # pierwsza (najważniejsza) zostaje w miejscu
+    # pierwsza (najważniejsza) zostaje w miejscu
+    assert js["overlaps"] == 0 and js["first"] == {"dx": 0, "dy": 0, "v": 0, "hit": False}
+    # tłok: bez nakładania się i bez wchodzenia na przeszkody (stosy sąsiadów, tytuł); część etykiet w mniejszej odmianie
+    c = js["crowd"]
+    assert c["overlaps"] == 0 and c["onObstacle"] == 0 and c["hits"] == 0, c
+    assert c["first"]["v"] == 0 and len(c["variants"]) > 1
+    assert js["hhmm"] == ["12:00Z", "09:05Z", "–", "–"]  # 7 cyfr ułamka z VATSIM, zły czas nie psuje strony
+    assert js["counted"] == 3  # alias_of (EKDK) liczony raz, ATIS nie
+    assert js["bboxes"][0] is None and js["bboxes"][1] == [14, 49, 24, 55] and len(js["bboxes"][2]) == 4
     assert js["levels"] == [["a", "b"], ["c"]]
     assert js["short"] == ["FLG", "6", "LKAA", "", ""]
     a, b, box = js["proj"]["a"], js["proj"]["b"], js["proj"]["box"]
