@@ -157,7 +157,7 @@ Klik: szczegóły · dwuklik: mapa`;
           <text x="${cx}" y="${num(mid + 4)}" text-anchor="middle">${esc(t.f.s.callsign)}</text></g>`;
         return;
       }
-      s += `<path class="am-lead" style="--fc:${t.color}" d="M${LW} ${num(y0)}H${num(Math.max(LW + 8, tip - 18))}L${num(tip - 6)} ${num(mid)}H${tip}"/>`;
+      s += `<path class="am-lead" style="--fc:${t.color}" d="M${LW} ${num(y0)}h6L${num(tip - 8)} ${num(mid)}H${tip}"/>`;
       const bar = delayMin >= 0.5 ? Math.min(tagW * 0.35, 6 + delayMin * 8) : 16;
       s += `<g class="am-tag${sel ? " sel" : ""}" data-k="${esc(k)}" style="--fc:${t.color}"><title>${esc(title)}</title>
         <path class="bg" d="M${tip} ${num(mid)}L${x0} ${num(yT)}H${x1}V${num(yT + h)}H${x0}Z"/>

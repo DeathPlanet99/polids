@@ -60,7 +60,7 @@
 .dm-svg .lead { stroke: #c4c4c4; stroke-width: 1; fill: none; }
 .dm-svg .lead.arr { stroke: #d8ad2c; }
 .dm-svg .more { fill: #9a9a9a; font-size: 10px; }
-.dm-svg .empty { fill: #6c6c6c; font-size: 12px; }
+.dm-svg .empty { fill: #6c6c6c; font-size: 11px; }
 .dm-tag { cursor: pointer; }
 .dm-tag .bg { fill: #3a3a3a; }
 .dm-tag:hover .bg { fill: #4a4a4a; }

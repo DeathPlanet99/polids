@@ -77,7 +77,7 @@ function tagsSvg(list, g, { axisX, x0, x1, right, sel, empty }) {
       ${svgText(x1 - 4, top + 12.5, t.time, "tm" + (t.est ? " est" : ""), "end")}</g>`;
   });
   if (later) s += `<g class="more"><title>${esc(`${later} później niż za ${g.span} min (zmień zakres przyciskami 10'–60')`)}</title>${svgText(right ? x0 + 2 : x1 - 2, 9, `▲ ${later}`, "more", right ? "start" : "end")}</g>`;
-  if (!shown.length) s += svgText((x0 + x1) / 2, g.y(g.span * 0.45), empty, "empty", "middle");
+  if (!shown.length) s += svgText((x0 + x1) / 2, g.y(g.span * 30), empty, "empty", "middle");
   return s;
 }
 
@@ -188,7 +188,7 @@ export function mountDman(el, icao, { onUpdate } = {}) {
     const A = arrs().map((s) => ({ s, rel: eldtRel(s, now) }));
     A.sort(sorter("arr", (x) => x.rel));
     fillList("arr", A.map(({ s, rel }) => `<div class="dm-row arr${s.state !== "air" ? " plan" : ""}${st.sel === keyOf(s) ? " sel" : ""}" data-k="${esc(keyOf(s))}" title="${esc(arrTitle(s, rel))}">
-      <span class="c">${esc(s.callsign)}</span><span class="m">${STAND}</span><span class="t${s.eldt_source === "vIFF" ? "" : " pos"}">${hm(s.eldt)}</span></div>`),
+      <span class="c">${esc(s.callsign)}</span><span class="m">${STAND}</span><span class="t${s.eldt_source === "vIFF" ? "" : " est"}">${hm(s.eldt)}</span></div>`),
     data.network_error ? "Brak danych z sieci VATSIM" : "Brak przylotów");
     sortBtns("dep", "TSAT");
     sortBtns("arr", "ETA");
@@ -200,9 +200,8 @@ export function mountDman(el, icao, { onUpdate } = {}) {
     if (!l1 || !l2) return;
     const tx = depTimes;
     // drabina TSAT: oś po lewej, etykiety na prawo (callsign, stanowisko, TSAT)
-    {
+    if (l1.clientWidth >= 40 && l1.clientHeight >= 60) {
       const W = l1.clientWidth, H = l1.clientHeight;
-      if (W < 40 || H < 60) return;
       const g = geom(H, st.span.dep);
       const list = deps().filter((s) => s.state !== "air" && !s.viff?.atot).map((s) => {
         const t = tx(s, now, taxiDefault());
@@ -217,9 +216,8 @@ export function mountDman(el, icao, { onUpdate } = {}) {
         + tagsSvg(list, g, { axisX, x0: axisX + 22, x1: Math.min(W - 6, axisX + 22 + 250), right: true, sel: st.sel, empty: "Brak odlotów w tym oknie" });
     }
     // drabiny TTOT (na lewo od wspólnej osi) i ELDT (na prawo, żółte)
-    {
+    if (l2.clientWidth >= 80 && l2.clientHeight >= 60) {
       const W = l2.clientWidth, H = l2.clientHeight;
-      if (W < 80 || H < 60) return;
       const g = geom(H, st.span.arr);
       const axisX = Math.round(W * 0.53);
       const dl = deps().map((s) => {
