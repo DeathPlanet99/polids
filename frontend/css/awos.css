@@ -49,8 +49,19 @@
   border: 1px solid var(--line); font: 13px var(--mono); color: var(--bad); }
 .aw-none b { font: 700 12px var(--ui); letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
 .aw-simnote b { color: var(--yellow); letter-spacing: 1px; margin-right: 4px; }
-.aw-simnote { flex: none; font: 11px var(--ui); color: var(--muted); border: 1px solid #4a4220; background: #12100a; padding: 2px 8px;
+.aw-simnote { flex: 1 1 auto; min-width: 0; font: 11px var(--ui); color: var(--muted); border: 1px solid #4a4220; background: #12100a; padding: 2px 8px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* pod kolumnami wiatru: układ 1 PAS / 2 PASY i AUTO (zielone przyciski jak PANDORA), napis RĘCZNIE, uwaga SYM.
+   Zapalony = na ekranie; podkreślony układ = wybór automatu (z ATIS albo sugestii) */
+.aw-wbar { flex: none; display: flex; gap: 6px; align-items: center; min-width: 0; }
+.aw-mode { flex: none; display: inline-flex; gap: 2px; }
+.aw-mode button, .aw-auto { flex: none; min-width: 64px; padding: 1px 10px; background: linear-gradient(#45a832, #2f8a22); border: 1px solid #1f5a16;
+  border-radius: 2px; color: #f4fff0; font: 700 12px/18px var(--ui); letter-spacing: .5px; cursor: pointer; white-space: nowrap; }
+.aw-mode button:hover, .aw-auto:hover { background: linear-gradient(#52bd3c, #36992a); }
+.aw-mode button.active, .aw-auto.active { background: linear-gradient(#8cff5a, #5fd23a); color: #0b2a06; }
+.aw-mode button.use { box-shadow: inset 0 -2px 0 #f4fff0; }
+.aw-mode button.use.active { box-shadow: inset 0 -2px 0 #0b2a06; }
+.aw-man { flex: none; font: 700 11px/16px var(--ui); letter-spacing: 1px; color: #000; background: var(--yellow); padding: 1px 6px; cursor: help; }
 .aw-col, .aw-atiscol { flex: 1 1 0; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); }
 .aw-h { flex: none; display: flex; justify-content: space-between; align-items: center; gap: 8px; height: 24px; padding: 0 8px;
   background: var(--panel-2); border-bottom: 1px solid var(--line); font: 700 11px var(--ui); letter-spacing: 1.5px; text-transform: uppercase; color: var(--green-text); white-space: nowrap; }
@@ -58,6 +69,7 @@
 .aw-h .rwy { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .aw-h .rwy b { font: 700 14px var(--mono); color: var(--green-hi); letter-spacing: 0; }
 .aw-h .src { font-size: 9px; letter-spacing: 1px; }
+.aw-h .src.man { color: var(--yellow); }
 .aw-rsel { flex: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
 .aw-rsel .aw-pair { display: inline-flex; }
 .aw-rsel button { min-width: 38px; padding: 2px 6px; background: #0b0d0b; border: 1px solid var(--line); margin-left: -1px; color: var(--muted);

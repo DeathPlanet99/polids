@@ -1,6 +1,6 @@
 // AERODROME: listy lotnisk FIR-ów (podzakładki EPWW … UKLV) i karta lotniska zagranicznego.
 // Lista jak w PANDORZE: u góry wyszukiwarka z klawiatury z przyciskami WYŚWIETL i WYCZYŚĆ, niżej wiersze
-// "ICAO NAZWA" w kilku kolumnach, przewijane w swoim okienku. Backend: GET /api/aerodromes/fir/{klucz}
+// "ICAO NAZWA" w jednej kolumnie, w pasach, przewijane w swoim okienku. Backend: GET /api/aerodromes/fir/{klucz}
 // (services/aerolist.py) i GET /api/aerodromes/{icao}/card (METAR, TAF, stanowiska ze stanem VATSIM).
 import { api, atisHtml, debounce, esc, hhmm, vatsimAtc } from "./api.js";
 import { colorize, wxLines } from "./tabs/meteo.js";
@@ -110,25 +110,11 @@ export function firList(key) {
 // czy kod jest na którejś z wczytanych list (bez czekania na resztę)
 export const onLoadedList = (icao) => Object.values(lists).some((c) => c.data?.some((a) => a.icao === icao));
 
-// kolumny listy po co najmniej 300 px
-const COL_MIN = 300;
-
-// Układ wierszy: N kolumn czytanych z góry na dół. Lista, która nie mieści się w okienku, dzieli się na bloki
-// wysokości okienka (N kolumn × tyle wierszy, ile się mieści) ułożone jeden pod drugim, więc kolejność czytania
-// (kolumna po kolumnie, potem blok niżej) jest zgodna z przewijaniem. Krótka lista: kolumny wyrównane, po co
-// najmniej 8 wierszy. Zwraca dla każdego widocznego wiersza {row, col, block, r} (row, col od 0).
-export function blockLayout(n, maxCols, fitRows) {
-  // mieści się: najmniej kolumn, przy których żadna nie wychodzi poza okienko, ale nie krótszych niż 8 wierszy
-  const cols = Math.max(1, n <= maxCols * fitRows ? Math.min(maxCols, Math.max(Math.ceil(n / 8), Math.ceil(n / fitRows))) : maxCols);
-  const per = cols * Math.max(1, fitRows), out = [];
-  let base = 0;
-  for (let b = 0; b * per < n; b++) {
-    const m = Math.min(per, n - b * per), rows = Math.ceil(m / cols);
-    for (let j = 0; j < m; j++) out.push({ row: base + (j % rows), col: Math.floor(j / rows), block: b, r: j % rows });
-    base += rows;
-  }
-  return { cols, cells: out };
-}
+// Wybór klawiszem na liście n widocznych wierszy: i = numer wybranego (-1: nic), d = o ile (↑ ↓ o jeden, PgUp PgDn
+// o ekran). Bez wyboru pierwszy wiersz, dalej nie poza listę; pusta lista: -1.
+export const stepSel = (i, n, d) => (n ? Math.max(0, Math.min(n - 1, i < 0 ? 0 : i + d)) : -1);
+// PgUp PgDn: o tyle wierszy, ile mieści okienko wysokości h przy wierszu rowH, bez jednego (ostatni zostaje na ekranie)
+export const pageRows = (h, rowH) => (rowH > 0 ? Math.max(1, Math.floor(h / rowH) - 1) : 1);
 
 // Na ekranie: karta przeglądarki widoczna i element w pokazanej zakładce (ukryta zakładka ma display: none). Listy i karta
 // odświeżają się tylko wtedy; po powrocie (focus/resume, widoczna karta przeglądarki) od razu, jeśli dane są starsze niż okres.
@@ -148,55 +134,49 @@ export function mountFirList(el, key, state, { onOpen, onChange }) {
       <span class="alist-n hint"></span>
       <span style="flex:1"></span>
       <span class="alist-legend hint" title="Plakietki przy lotnisku: kontrola online (DEL, GND, TWR, ATIS, APP), jak na MAP.
-Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnisko miasta przed mniejszymi), ↑ ↓ = wybór, Esc = WYCZYŚĆ.">${FAC.map(([k, l]) =>
+Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnisko miasta przed mniejszymi), ↑ ↓ = wybór, PgUp PgDn = wybór o ekran, Esc = WYCZYŚĆ.">${FAC.map(([k, l]) =>
         `<span class="ab ab-${k.toLowerCase()}">${l}</span>`).join("")} online · ↑↓ Enter Esc</span>
     </div>
-    <div class="alist-box"><div class="alist-msg hint">Ładowanie listy lotnisk…</div><div class="alist-cols"></div></div>
+    <div class="alist-box"><div class="alist-msg hint">Ładowanie listy lotnisk…</div><div class="alist-rows"></div></div>
   </div>`;
   const $ = (s) => el.querySelector(s);
-  const input = $(".alist-q"), box = $(".alist-box"), cols = $(".alist-cols"), msg = $(".alist-msg");
-  // items: {i, icao, name, rank, keys, el, tier}; vis: widoczne po filtrze, w kolejności czytania
-  let items = [], byIcao = new Map(), vis = [], data = null, sel = null, destroyed = false, atcTimer = null, dirty = true, atcAt = 0;
+  const input = $(".alist-q"), box = $(".alist-box"), rows = $(".alist-rows"), msg = $(".alist-msg");
+  // items: {i, icao, name, rank, keys, el, tier}; vis: widoczne po filtrze, z góry na dół; pending: zapamiętane
+  // przewinięcie, które czeka, aż okienko będzie na ekranie (lista wczytana w ukrytej zakładce ma wysokość 0);
+  // queried: przy ostatnim filtrze w polu był tekst
+  let items = [], byIcao = new Map(), vis = [], data = null, sel = null, destroyed = false, atcTimer = null, atcAt = 0, pending = null,
+    queried = false;
 
-  const select = (it, scroll = true) => {
+  // wiersz w okienku listy (bez przewijania strony): "near" (strzałki) tyle, żeby było widać go z jednym wierszem
+  // zapasu nad i pod nim; "center" (wyszukanie, powrót do listy) na środek, jeśli jest poza okienkiem.
+  // offsetTop liczy się od okienka tylko dzięki position: relative na .alist-box (aerolist.css)
+  const reveal = (it, how) => {
+    const H = box.clientHeight, top = it.el.offsetTop, h = it.el.offsetHeight;
+    if (!H) return;
+    if (how === "center") {
+      if (top < box.scrollTop || top + h > box.scrollTop + H) box.scrollTop = top - (H - h) / 2;
+    } else if (top - h < box.scrollTop) box.scrollTop = top - h;
+    else if (top + 2 * h > box.scrollTop + H) box.scrollTop = top + 2 * h - H;
+  };
+  const select = (it, how = "near") => {
     sel?.el.classList.remove("sel");
     sel = it || null;
     if (!sel) return;
     sel.el.classList.add("sel");
-    if (scroll) sel.el.scrollIntoView({ block: "nearest" });
+    if (how) reveal(sel, how);
   };
 
-  // rozmieszczenie widocznych wierszy (blockLayout); w ukrytej zakładce (szerokość 0) czeka do pokazania
-  const layout = () => {
-    if (!data) return;
-    const W = box.clientWidth, H = box.clientHeight;
-    if (!W || !H) { dirty = true; return; }
-    dirty = false;
-    cols.style.gridAutoRows = "auto";
-    const first = vis[0]?.el;
-    const rowH = (first && first.getBoundingClientRect().height) || 26;
-    const fit = Math.max(1, Math.floor(H / rowH));
-    const { cols: n, cells } = blockLayout(vis.length, Math.max(1, Math.floor(W / COL_MIN)), fit);
-    cols.style.gridTemplateColumns = `repeat(${n}, minmax(0, 1fr))`;
-    // kilka bloków: wiersze rozciągnięte tak, żeby blok miał dokładnie wysokość okienka (przewinięcie o ekran = blok)
-    if (cells.some((c) => c.block > 0)) cols.style.gridAutoRows = `${H / fit}px`;
-    vis.forEach((it, j) => {
-      const c = cells[j];
-      it.el.style.gridArea = `${c.row + 1} / ${c.col + 1}`;
-      it.el.classList.toggle("odd", c.r % 2 === 1);        // pasy w poprzek kolumn, jak wiersze w PANDORZE
-      it.el.classList.toggle("cn", c.col > 0);            // linia między kolumnami
-      it.el.classList.toggle("blk", c.block > 0 && c.r === 0);   // linia nad kolejnym blokiem
-    });
-  };
-
-  const filter = ({ keepSel = false } = {}) => {
+  const filter = () => {
     if (!data) return;
     const forms = queryForms(input.value);
     vis = [];
     for (const it of items) {
       it.tier = forms.length ? matchTier(it, forms) : 0;
-      it.el.hidden = it.tier === Infinity;
-      if (!it.el.hidden) vis.push(it);
+      const hide = it.tier === Infinity;
+      if (it.el.hidden !== hide) it.el.hidden = hide;
+      if (hide) continue;
+      it.el.classList.toggle("odd", vis.length % 2 === 1);   // pasy jak w PANDORZE, po widocznych wierszach
+      vis.push(it);
     }
     $(".alist-n").textContent = forms.length ? `${vis.length} z ${data.length}` : `${data.length} ${lotnisk(data.length)}`;
     msg.hidden = vis.length > 0;
@@ -205,8 +185,18 @@ Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnis
       msg.innerHTML = `Brak lotniska pasującego do „${esc(input.value.trim())}” w ${esc(key)}.`
         + (isIcao(q) ? ` Enter albo WYŚWIETL otworzy <b>${esc(q)}</b>.` : "");
     }
-    layout();
-    if (!(keepSel && sel && !sel.el.hidden)) select(forms.length ? bestMatch(vis, forms) : null);
+    select(forms.length ? bestMatch(vis, forms) : null, "center");
+    // pole skasowane do końca (Backspace, wycięcie): jak Esc, lista od góry i bez wyboru
+    if (queried && !forms.length) box.scrollTop = 0;
+    queried = forms.length > 0;
+  };
+
+  // zapamiętane przewinięcie (albo wybrany wiersz) po wczytaniu listy, gdy okienko jest już na ekranie
+  const restore = () => {
+    if (!pending || !box.clientHeight) return;
+    box.scrollTop = pending.scroll;
+    if (pending.it) reveal(pending.it, "center");
+    pending = null;
   };
 
   const open = () => {
@@ -227,20 +217,22 @@ Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnis
   const changed = debounce(() => { if (!destroyed) onChange?.(save()); }, 400);
   input.addEventListener("input", () => { filter(); changed(); });
   box.addEventListener("scroll", changed, { passive: true });
+  // PgUp PgDn o ekran: wysokość wiersza z aerolist.css (--alist-row-h, ta sama ustala height .alist-row)
+  const page = () => pageRows(box.clientHeight, parseFloat(getComputedStyle(box).getPropertyValue("--alist-row-h")));
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); open(); return; }
     if (e.key === "Escape") { e.preventDefault(); clear(); return; }
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      if (!vis.length) return;
-      const i = vis.indexOf(sel);
-      select(vis[e.key === "ArrowDown" ? (i < 0 ? 0 : Math.min(vis.length - 1, i + 1)) : Math.max(0, i - 1)]);
-      changed();
-    }
+    if (!["ArrowDown", "ArrowUp", "PageDown", "PageUp"].includes(e.key)) return;
+    e.preventDefault();
+    const d = e.key.startsWith("Page") ? page() : 1;
+    const j = stepSel(vis.indexOf(sel), vis.length, e.key.endsWith("Down") ? d : -d);
+    if (j < 0) return;
+    select(vis[j]);
+    changed();
   });
   $(".alist-go").addEventListener("click", open);
   $(".alist-clear").addEventListener("click", clear);
-  cols.addEventListener("click", (e) => {
+  rows.addEventListener("click", (e) => {
     const it = byIcao.get(e.target.closest(".alist-row")?.dataset.icao);
     if (it) { select(it, false); onOpen(it.icao); }
   });
@@ -253,8 +245,8 @@ Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnis
     input.focus();
   };
   document.addEventListener("keydown", onKey);
-  // zmiana rozmiaru okienka (okno przeglądarki, pokazanie ukrytej zakładki): kolumny i bloki od nowa
-  const ro = new ResizeObserver(() => layout());
+  // pokazanie ukrytej zakładki (okienko dostaje wysokość): zapamiętane przewinięcie
+  const ro = new ResizeObserver(restore);
   ro.observe(box);
 
   // kontrola online: plakietki D/G/T/A/APP przy lotniskach (ten sam cache co MAP, co 30 s, tylko gdy lista jest na ekranie)
@@ -278,15 +270,17 @@ Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnis
   firList(key).then((d) => {
     if (destroyed) return;
     data = d;
-    cols.innerHTML = d.map((a) => `<div class="alist-row" data-icao="${esc(a.icao)}" title="${esc(a.icao)} ${esc(a.name)}${a.kind ? " · " + esc(a.kind) : ""}">
+    rows.innerHTML = d.map((a) => `<div class="alist-row" data-icao="${esc(a.icao)}" title="${esc(a.icao)} ${esc(a.name)}${a.kind ? " · " + esc(a.kind) : ""}">
       <b>${esc(a.icao)}</b><span class="alist-nm">${esc(a.name || "–")}</span>${a.kind ? `<i class="alist-kind">${esc(a.kind)}</i>` : ""}<span class="alist-atc"></span></div>`).join("");
-    items = d.map((a, i) => ({ i, icao: a.icao, name: a.name, rank: a.rank ?? 2, keys: searchKeys(a.name, a.alias), el: cols.children[i] }));
+    // kolumna nazw na najdłuższą nazwę tej listy: MIL i plakietki stanowisk równo pod sobą, blisko nazwy
+    rows.style.setProperty("--nmw", `${Math.max(8, ...d.map((a) => (a.name || "").length))}ch`);
+    items = d.map((a, i) => ({ i, icao: a.icao, name: a.name, rank: a.rank ?? 2, keys: searchKeys(a.name, a.alias), el: rows.children[i] }));
     byIcao = new Map(items.map((it) => [it.icao, it]));
     filter();
     const back = state.sel && byIcao.get(state.sel);
     if (back && !back.el.hidden) select(back, false);
-    box.scrollTop = state.scroll || 0;
-    if (back && !back.el.hidden && !state.scroll) back.el.scrollIntoView({ block: "nearest" });
+    pending = { scroll: state.scroll || 0, it: back && !back.el.hidden && !state.scroll ? back : null };
+    restore();
     drawAtc();
     atcTimer = setInterval(drawAtc, ATC_MS);
   }).catch((e) => {
@@ -299,7 +293,7 @@ Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnis
   document.addEventListener("visibilitychange", atcDue);
 
   return {
-    focus: () => { if (dirty) layout(); input.focus(); input.select(); atcDue(); },
+    focus: () => { restore(); input.focus(); input.select(); atcDue(); },
     save,
     destroy: () => {
       destroyed = true;
@@ -339,11 +333,11 @@ function positionsTable(ps, unknown) {
   return `<table class="data acard-pos"><thead><tr><th>Typ</th><th>Stanowisko</th><th>Częst.</th><th>Stan</th></tr></thead><tbody>
     ${ps.map((p) => {
       const on = p.online;
-      const logged = on && on.callsign && on.callsign !== p.callsign ? ` jako ${esc(on.callsign)}` : "";
+      const logged = on && on.callsign && on.callsign !== p.callsign ? ` jako&nbsp;${esc(on.callsign)}` : "";
       const freq = (on && on.frequency) || p.frequency;
-      // bez danych z sieci VATSIM stan jest nieznany: nie "offline"
+      // bez danych z sieci VATSIM stan jest nieznany: nie "offline"; "od 16:34Z" i "jako X" z twardą spacją (nie rozrywa ich zawijanie)
       const state = unknown ? `<span class="acard-unk">brak danych</span>` : !on ? "offline"
-        : `<b>${esc(on.name || "?")}</b> · od ${esc(hhmm(on.logon_time))}${logged}${p.type === "ATIS" && on.atis_code ? ` · <b class="acard-letter">${esc(on.atis_code)}</b>` : ""}`;
+        : `<b>${esc(on.name || "?")}</b> · od&nbsp;${esc(hhmm(on.logon_time))}${logged}${p.type === "ATIS" && on.atis_code ? ` · <b class="acard-letter">${esc(on.atis_code)}</b>` : ""}`;
       return `<tr class="${on ? "on" : "off"}"><td><span class="ab ab-${esc(p.type.toLowerCase())}">${esc(TYPE_LABEL[p.type] || p.type)}</span></td>
         <td class="acard-cs">${esc(p.callsign)}${p.name ? `<span class="acard-pn">${esc(p.name)}</span>` : ""}</td>
         <td><span class="freq ${on ? "on" : ""}">${esc(freq || "–")}</span></td><td class="acard-st">${state}</td></tr>`;
@@ -413,7 +407,7 @@ export function mountAeroCard(el, icao, { onInfo, onMissing } = {}) {
     const atis = d.positions.filter((p) => p.type === "ATIS" && p.online);
     $(".acard-atis-h").textContent = `ATIS ${atis.map((p) => p.online.atis_code || "").filter(Boolean).join(" / ")}`;
     $(".acard-atis").innerHTML = atis.length ? atis.map((p) => `<div class="acard-atis-one">
-        <div class="hint">${esc(p.online.callsign || p.callsign)} ${esc(p.online.frequency || p.frequency)} · ${esc(p.online.name || "?")} · od ${esc(hhmm(p.online.logon_time))}</div>
+        <div class="hint">${esc(p.online.callsign || p.callsign)} ${esc(p.online.frequency || p.frequency)} · ${esc(p.online.name || "?")} · od&nbsp;${esc(hhmm(p.online.logon_time))}</div>
         <div class="mono atis-text">${atisHtml(p.online.text_atis) || '<span class="hint">bez tekstu</span>'}</div></div>`).join("")
       : `<span class="hint">${net ? "Brak danych z sieci VATSIM (błąd powyżej)." : "ATIS nie jest teraz nadawany w sieci VATSIM."}</span>`;
     $(".acard-upd").textContent = `VATSIM ${d.updated ? hhmm(d.updated) : "–"}`;

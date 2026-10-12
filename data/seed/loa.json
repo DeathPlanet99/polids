@@ -1,5 +1,5 @@
 {
- "_zrodlo": "Listy porozumienia (LOA) VATSIM między FIR Warszawa (PL vACC) a sąsiadami: vACC Germany (Bremen ACC, Karlsruhe UAC, EDMM), VACC-CZ, VACC Slovakia, vACC Ukraine, vACC Lithuania, VATSIM Scandinavia. PDF-y w data/docs/LOA (zakładka DOCS). Wyciąg ręczny z PDF-ów (08.10.2026): tabele przekazań przepisane wiersz po wierszu, zasady skrócone po polsku; w razie wątpliwości obowiązuje PDF.",
+ "_zrodlo": "Listy porozumienia (LOA) VATSIM między FIR Warszawa (PL vACC) a sąsiadami: vACC Germany (Bremen ACC, Karlsruhe UAC, EDMM), VACC-CZ, VACC Slovakia, vACC Ukraine, vACC Lithuania, VATSIM Scandinavia. PDF-y w data/docs/LOA (OTHER › DOCS). Wyciąg ręczny z PDF-ów (08.10.2026): tabele przekazań przepisane wiersz po wierszu, zasady skrócone po polsku; w razie wątpliwości obowiązuje PDF.",
  "_uwaga": "firs: klucz = zakładka sąsiada w RADIO. positions: side NB = sąsiad, EP = Polska; puste callsign/frequency = LOA ich nie podaje. transfers: dir out = EPWW → sąsiad, in = sąsiad → EPWW; traffic ARR/DEP = przylot/odlot (ICAO jak w LOA); level jak w LOA (w LKAA i UKLV dopisano przedrostek FL); from/to = sektor przekazujący/odbierający (puste, gdy LOA nie podaje).",
  "firs": {
   "EDWW": {

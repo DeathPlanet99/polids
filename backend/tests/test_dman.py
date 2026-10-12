@@ -251,7 +251,7 @@ def client(monkeypatch):
         if path == "/ifps/depAirport":
             return [{"callsign": "GATE1", "arrival": "EDDF", "eobt": "1210", "taxi": 12, "cdmData": {"tsat": "121500"}}]
         if path == "/etfms/getCadAirport":
-            return {"isCdm": True}
+            return {"isCdm": params["icao"] == "EPWA"}
         if path == "/etfms/getCadAirports":
             return [{"icao": "EPWA", "rate": 34, "taxiTime": 15, "isCdm": True}]
         if path == "/ifps/callsign":
@@ -292,6 +292,8 @@ def test_strips_endpoint_dman(client):
     assert (arr["ATADEP"]["eldt"], arr["ATADEP"]["eldt_source"]) == (client.eta, "vIFF")
     assert arr["LANDED"]["eldt"] is None and arr["INB2"]["eldt_source"] == "POS"
     assert client.get("/api/aerodromes/XXXX/strips?dman=1").status_code == 404
+    # A-CDM z vIFF (isCdm): EPWA tak (drabiny TSAT i TTOT), EPKK nie (EOBT i ETOT)
+    assert d["cdm"] is True and client.get("/api/aerodromes/EPKK/strips?dman=1").json()["cdm"] is False
 
 
 def test_strips_dman_not_slower_when_viff_down(client, monkeypatch):
@@ -355,6 +357,18 @@ const t4 = core.depTimes({ viff: { tsat: "1150", ctot: "1220" }, state: "ground"
 const t5 = core.depTimes({ viff: { tsat: "1150", atot: "1158" }, state: "air" }, now);
 out.dep = [t1, t2, t3, t4, t5].map((t) => [t.tsatSrc, t.tsat, t.ttotSrc, t.ttot, t.late]);
 out.etot = [t1, t2, t3, t5].map((t) => [t.etotBase, t.etot, t.offBlock]);
+// lotnisko bez A-CDM: EOBT i ETOT (TOBT, TSAT i TTOT z vIFF nie przesuwają etykiet), slot na CTOT tylko, gdy CTOT jest
+// później niż ETOT, po starcie ATOT
+const n1 = core.depTimes({ eobt: "1230", viff: { tsat: "1150", tobt: "1145", ttot: "1205", ctot: "1235" }, state: "ground", groundspeed: 0 }, now, 10, false);
+const n2 = core.depTimes({ eobt: "1150", viff: { aobt: "1155", ctot: "1220" }, state: "ground", groundspeed: 6 }, now, 10, false);
+const n3 = core.depTimes({ eobt: "1140", viff: { aobt: "1142", atot: "1155", ctot: "1150" }, state: "air" }, now, 10, false);
+const n4 = core.depTimes({ eobt: null, viff: { tobt: "1210" }, state: "ground" }, now, 10, false);
+const n5 = core.depTimes({ eobt: "1230", viff: { ctot: "1250" }, state: "ground" }, now, 10, false);
+const n6 = core.depTimes({ eobt: "1230", viff: { ctot: "1240" }, state: "ground" }, now, 10, false);
+const n7 = core.depTimes({ eobt: "1140", viff: { ctot: "1150" }, state: "air" }, now, 10, false);
+const n8 = core.depTimes({ eobt: null, viff: { ctot: "1215" }, state: "ground" }, now, 10, false);
+out.nocdm = [n1, n2, n3, n4, n5, n6, n7, n8].map((t) => [t.tsatSrc, t.tsat, t.ttotSrc, t.ttot, t.etotBase, t.late]);
+out.labels = [core.depLabels(true), core.depLabels(false), core.depLabels(null), core.depLabels(undefined)];
 // za dużo etykiet na wysokość: odpadają najpóźniejsze
 out.over = [...core.overflow([{ t: 5, h: 10 }, { t: 1, h: 10 }, { t: 3, h: 10 }], 21, 1)];
 out.overNone = core.overflow([{ t: 5, h: 10 }, { t: 1, h: 10 }], 21, 1).size;
@@ -416,6 +430,22 @@ def test_time_helpers_and_departure_times(js):
     assert t5[2:4] == ["ATOT", -120]
 
 
+def test_departure_times_without_cdm(js):
+    # bez A-CDM drabiny EOBT i ETOT: TOBT/TSAT/TTOT z vIFF nie przesuwają etykiet, nigdy "spóźniony" (to pojęcie TSAT);
+    # lot na ziemi ze slotem stoi na CTOT, gdy CTOT jest później niż ETOT (ttotSrc "CTOT" = brązowy callsign)
+    n1, n2, n3, n4, n5, n6, n7, n8 = js["nocdm"]
+    assert n1 == ["EOBT", 1800, "ETOT", 1800 + 600, "EOBT", False]   # CTOT 12:35 przed ETOT 12:40: zostaje ETOT
+    assert n2 == ["EOBT", -600, "CTOT", 1200, "AOBT", False]          # po AOBT: ETOT 12:05 = AOBT + kołowanie, CTOT 12:20 później
+    assert n3[2:4] == ["ATOT", -300]                                  # po starcie: rzeczywisty start, nie CTOT
+    assert n4 == [None, None, None, None, None, False]                # bez EOBT nie ma czego pokazać (TOBT pominięty)
+    assert n5[2:4] == ["CTOT", 3000]                                  # CTOT 12:50 później niż ETOT 12:40
+    assert n6[2:4] == ["ETOT", 2400]                                  # CTOT równy ETOT: ETOT
+    assert n7[2:4] == [None, None]                                    # w powietrzu bez ATOT: ani CTOT, ani ETOT
+    assert n8[2:4] == ["CTOT", 900]                                   # bez EOBT (brak ETOT) slot to jedyny czas startu
+    assert js["labels"] == [{"obt": "TSAT", "tot": "TTOT"}, {"obt": "EOBT", "tot": "ETOT"},
+                            {"obt": "", "tot": ""}, {"obt": "", "tot": ""}]
+
+
 def test_etot_and_overflow(js):
     # ETOT = (AOBT albo TSAT/TOBT/EOBT) + kołowanie: ta sama wartość w tabeli i na drabinie TTOT
     assert js["etot"] == [["TSAT", 0, False], ["AOBT", 60, True], ["EOBT", 1800 + 720, False], ["TSAT", 0, True]]
@@ -450,5 +480,23 @@ def test_strip_tab_and_ruch_wiring():
     assert "DMAN/AMAN ›" in ad
     # nieznany typ samolotu: "–", nie "null"
     assert 'R("AC TYPE", acType(s))' in dm and 'R("AC TYPE", s.aircraft' not in dm
+    # lotnisko bez A-CDM: nazwy drabin, kolumny i sortowania z depLabels(data.cdm), czasy z depTimes(…, cdm)
+    assert "depLabels(cdm())" in dm and "depTimes(s, now, taxiDefault(), cdm())" in dm
+    assert ">${L.obt}</text>" in dm and ">${L.tot}</text>" in dm and 'sortBtns("dep", lbl().obt)' in dm
+    assert ">TSAT</text>" not in dm and ">TTOT</text>" not in dm and 'sortBtns("dep", "TSAT")' not in dm
+    # przed pierwszymi danymi A-CDM nieznane: nazwy puste, przycisk czasu odlotów ukryty, dymki zakresów od razu
+    assert "const cdm = () => (data ? !!data.cdm : null)" in dm and 'b.style.visibility = name ? "" : "hidden"' in dm
+    assert 'data-sort="t">${lbl().obt}' not in dm and "sortAll();\n    renderSpans();\n  };" in dm
+    assert 'L.obt || "odlotów"' in dm and "if (!data) return;   // sortowanie" in dm
+    # brązowy callsign = etykieta na CTOT (także bez A-CDM, gdy CTOT później niż ETOT; po starcie ATOT, nie brązowa)
+    assert 'csCls: t.ttotSrc === "CTOT" ? "ctot"' in dm and "!!s.viff?.ctot" not in dm
+    # bez A-CDM bez pustych wierszy TOBT/TSAT/TTOT w szczegółach lotu; CTOT zawsze widoczny
+    assert 'opt(v.tsat, "TSAT"' in dm and 'opt(v.ttot, "TTOT"' in dm and 'R("CTOT", hm(v.ctot)' in dm
+    # bez A-CDM wyróżniony wiersz, na którym stoi etykieta drabiny ETOT (ATOT, CTOT albo ETOT), nie zawsze ETOT
+    assert 'const lad = (k) => !c && t.ttotSrc === k;' in dm
+    assert 'R("ATOT", hm(v.atot), lad("ATOT") ? "hl"' in dm and '(c ? v.ctot : lad("CTOT")) ? "hl"' in dm
+    assert '!c ? (lad("ETOT") ? "hl" : "")' in dm and '"to samo co etykieta na drabinie ETOT"})' not in dm
+    # przepustowość odlotów: "vIFF A-CDM" tylko na lotnisku z A-CDM
+    assert 'cdm() ? "vIFF A-CDM" : ' in dm and "/h (vIFF A-CDM)." not in dm
     for css in ("dman.css", "strips.css"):
         assert f"css/{css}" in (FRONTEND / "index.html").read_text("utf-8")

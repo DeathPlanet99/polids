@@ -13,9 +13,10 @@ FRONTEND = ROOT_DIR / "frontend"
 INDEX = (FRONTEND / "index.html").read_text("utf-8")
 APP = (FRONTEND / "js" / "app.js").read_text("utf-8")
 
-MENU = ["home", "radio", "meteo", "aerodrome", "adciv", "admil", "advfr", "callsign", "aircraft", "map", "inop", "docs",
+# INOP pod AD VFR, DOCS w OTHER (runda 11)
+MENU = ["home", "radio", "meteo", "aerodrome", "adciv", "admil", "advfr", "inop", "callsign", "aircraft", "map",
         "phraseology", "checklist", "sytop", "aup", "strip", "other", "about", "emergency", "admin"]
-LABELS = ["?", "RADIO", "METEO", "AERODROME", "AD CIV", "AD MIL", "AD VFR", "CALLSIGN", "AIRCRAFT", "MAP", "INOP", "DOCS",
+LABELS = ["?", "RADIO", "METEO", "AERODROME", "AD CIV", "AD MIL", "AD VFR", "INOP", "CALLSIGN", "AIRCRAFT", "MAP",
           "PHRASEOLOGY", "CHECKLIST", "SYT OP", "AUP", "STRIP", "OTHER", "ABOUT", "EMERGENCY", "ADMIN"]
 
 
@@ -48,6 +49,26 @@ def test_every_tab_has_module():
     assert 'open("home");' in APP and 'open("about");' not in APP
 
 
+def test_docs_moved_to_other():
+    """DOCS nie ma już w menu: to pierwsza podzakładka OTHER (#other/docs/<plik>); stare adresy #docs i #docs/<plik>
+    app.js przekierowuje na OTHER › DOCS (link #docs bez arg zostawia otwarty dokument), a DOCS › LOA w RADIO
+    otwiera PDF w OTHER."""
+    assert not (FRONTEND / "js" / "tabs" / "docs.js").exists() and "docs" not in MENU
+    assert 'const MOVED = { docs: (arg) => ["other", arg === undefined ? undefined : arg ? "docs/" + arg : "docs"] };' in APP
+    assert "if (Object.hasOwn(MOVED, tab)) [tab, arg] = MOVED[tab](arg);" in APP
+    other = (FRONTEND / "js" / "tabs" / "other.js").read_text("utf-8")
+    assert 'import { mountDocs } from "../docs.js";' in other and "soon(" not in other
+    subs = re.findall(r'\{ id: "([^"]+)", label: "([^"]+)"', other)
+    assert subs[0] == ("docs", "DOCS")
+    assert 'remember("other", argOf())' in other and "activate(arg)" in other and "SUBS" not in other
+    docs = (FRONTEND / "js" / "docs.js").read_text("utf-8")
+    assert "export function mountDocs(" in docs and "remember(" not in docs and "frameGo(" in docs
+    # plik spoza listy (wpisany ręcznie, stary odnośnik) = pierwszy dokument, nigdy pusty podgląd
+    assert "docs.find((x) => argOf(x.url) === arg) || docs[0];" in docs
+    radio = (FRONTEND / "js" / "tabs" / "radio.js").read_text("utf-8")
+    assert 'navigate("other", "docs/" + doc.dataset.docs)' in radio and 'navigate("docs"' not in radio
+
+
 def test_all_css_linked():
     """Każdy arkusz z frontend/css jest podpięty w index.html (zakładki rundy 10 dopisują style bez zmian index.html)."""
     linked = re.findall(r'href="/static/css/([^"]+\.css)"', INDEX)
@@ -60,9 +81,10 @@ def test_all_css_linked():
 NODE_SCRIPT = r"""
 const api = await import(process.argv[2]);
 const home = await import(process.argv[3]);
+const moved = await import(process.argv[4]);
 const hashes = ["#aerodrome/fir/ED", "#aerodrome/EPWA", "#meteo", "#home", "", "#", "#docs/LOA/LOA%20EPWW%20EDMM%20(AIRAC%202602).pdf",
   "#map/%E2%82%AC%", "#checklist/a/a2"];
-const roundtrip = [["aerodrome", "fir/ED"], ["map", "LOT 3 #1 100%"], ["docs", "LOA/LOA EPWW ESAA Szwecja (v2.3, 19.02.2026).pdf"],
+const roundtrip = [["aerodrome", "fir/ED"], ["map", "LOT 3 #1 100%"], ["other", "docs/LOA/LOA EPWW ESAA Szwecja (v2.3, 19.02.2026).pdf"],
   ["meteo", ""], ["aircraft", "maker/airbus"]];
 console.log(JSON.stringify({
   parsed: hashes.map((h) => api.parseHash(h)),
@@ -72,6 +94,8 @@ console.log(JSON.stringify({
     { user: { cid: 7, name: "<b>X</b>" } }].map(home.greeting),
   // bez routera (app.js) navigate i remember nic nie robią
   noop: [api.navigate("meteo", "qnh"), api.remember("meteo", "qnh"), api.stash("aerodrome", { q: "BER" }), api.stashed("aerodrome")],
+  // stare adresy #docs: przycisk/link bez arg, "#docs", "#docs/<plik>" (undefined w JSON = null)
+  moved: [undefined, "", "LOA/LOA EPWW EDMM (AIRAC 2602).pdf"].map((a) => moved.MOVED.docs(a)),
 }));
 """
 
@@ -84,9 +108,12 @@ def js(tmp_path_factory):
     d = tmp_path_factory.mktemp("js")
     (d / "api.mjs").write_text((FRONTEND / "js" / "api.js").read_text("utf-8"), "utf-8")
     (d / "home.mjs").write_text((FRONTEND / "js" / "tabs" / "home.js").read_text("utf-8").replace('"../api.js"', '"./api.mjs"'), "utf-8")
+    # MOVED z app.js (całego app.js Node nie wczyta: DOM)
+    moved = re.search(r"^const MOVED = .*;$", APP, re.M).group(0)
+    (d / "moved.mjs").write_text("export " + moved + "\n", "utf-8")
     script = d / "run.mjs"
     script.write_text(NODE_SCRIPT, "utf-8")
-    r = subprocess.run([node, str(script), (d / "api.mjs").as_uri(), (d / "home.mjs").as_uri()],
+    r = subprocess.run([node, str(script), (d / "api.mjs").as_uri(), (d / "home.mjs").as_uri(), (d / "moved.mjs").as_uri()],
                        capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
@@ -105,8 +132,13 @@ def test_hash_roundtrip(js):
     assert js["built"][0] == "#aerodrome/fir/ED" and js["built"][3] == "#meteo" and js["built"][4] == "#aircraft/maker/airbus"
     assert "#" not in js["built"][1][1:] and " " not in js["built"][2]
     # adres zbudowany przez hashOf, przepuszczony przez przeglądarkowy URL, wraca jako ten sam arg
-    assert [x["arg"] for x in js["back"]] == ["fir/ED", "LOT 3 #1 100%", "LOA/LOA EPWW ESAA Szwecja (v2.3, 19.02.2026).pdf",
+    assert [x["arg"] for x in js["back"]] == ["fir/ED", "LOT 3 #1 100%", "docs/LOA/LOA EPWW ESAA Szwecja (v2.3, 19.02.2026).pdf",
                                               "", "maker/airbus"]
+
+
+def test_moved_docs(js):
+    # bez arg OTHER zostaje w swoim stanie (otwarty dokument), "" = pierwszy dokument, plik = ten PDF
+    assert js["moved"] == [["other", None], ["other", "docs"], ["other", "docs/LOA/LOA EPWW EDMM (AIRAC 2602).pdf"]]
 
 
 def test_home_greeting(js):

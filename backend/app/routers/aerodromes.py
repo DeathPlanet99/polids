@@ -20,7 +20,7 @@ from ..services.positions import all_positions
 from ..services.metar import parse_metar, qfe_from_qnh
 from ..services.procedures import procedures, strip_board
 from ..services.runways import equipment_for, runway_config, runway_heading, select_runways, wind_components
-from ..services.vatsim import airport_traffic, controller_info, get_feed, parse_atis
+from ..services.vatsim import airport_traffic, atis_in_use, controller_info, get_feed, parse_atis
 from ..services.weather import get_metars, get_tafs
 from ..services.sun import sun_times
 
@@ -157,9 +157,11 @@ async def status(icao: str, db: Session = Depends(get_db)):
         mine = [c for c in stations if c.get("callsign", "").startswith(ad.icao + "_")]
         atc = [controller_info(c) for c in mine if not c["callsign"].endswith("_ATIS")]
         designators = [r["designator"] for r in rwys]
+        atis_parsed = []
         for c in sorted((c for c in mine if c["callsign"].endswith("_ATIS")), key=lambda c: c["callsign"]):
             info = parse_atis(c.get("text_atis"), designators, c.get("atis_code"))
             kind = "dep" if "_D_ATIS" in c["callsign"] else "arr" if "_A_ATIS" in c["callsign"] else "both"
+            atis_parsed.append((kind, info))
             if atis is None:
                 atis = {"callsign": c["callsign"], "letter": info["letter"], "arr": None, "dep": None,
                         "frequency": c.get("frequency"), "lines": c.get("text_atis") or []}
@@ -167,10 +169,8 @@ async def status(icao: str, db: Session = Depends(get_db)):
                 atis["callsign"] += " / " + c["callsign"]
                 atis["letter"] = " / ".join(x for x in (atis["letter"], info["letter"]) if x)
                 atis["lines"] = atis["lines"] + (c.get("text_atis") or [])
-            if kind in ("arr", "both") and info["arr"]:
-                atis["arr"] = atis["arr"] or info["arr"]
-            if kind in ("dep", "both") and info["dep"]:
-                atis["dep"] = atis["dep"] or info["dep"]
+        if atis:
+            atis.update(atis_in_use(atis_parsed))
     except (UpstreamError, ValueError) as exc:
         net_error = f"VATSIM: {exc}"
     if atis and (atis["arr"] or atis["dep"]):
@@ -185,6 +185,8 @@ async def status(icao: str, db: Session = Depends(get_db)):
         "metar": metar, "parsed": parsed.to_dict() if parsed else None, "taf": taf,
         "qfe": qfe, "runways": rwys, "lvp": lvp, "sun": sun_times(ad.lat, ad.lon),
         "preferred": pref, "runway_in_use": in_use, "atis": atis, "atc_online": atc, "network_error": net_error,
+        # typowy rozdział pasów lotniska z runway_config.json (AWOS › 2 PASY, gdy ATIS podaje jeden pas)
+        "runway_config": {"arr": cfg.get("arr"), "dep": cfg.get("dep")},
         # zgodność wstecz
         "suggested_runway": pref["arr"], "suggestion_reason": pref["reason"],
         "errors": errors,
