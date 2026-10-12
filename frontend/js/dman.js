@@ -1,6 +1,7 @@
 // AERODROME › RUCH: DMAN/AMAN na wzór ekranu z EPWA (lista odlotów wg TSAT, drabina TSAT, szczegóły lotu, drabiny TTOT
 // i ELDT, lista przylotów wg ETA) oraz okno AMAN (aman.js). Paski EFES są w zakładce STRIP (strips.js).
-// Lotnisko bez A-CDM (data.cdm false): wszędzie EOBT zamiast TSAT i ETOT zamiast TTOT (depLabels, depTimes w dmancore.js).
+// Lotnisko bez A-CDM (data.cdm false): wszędzie EOBT zamiast TSAT i ETOT zamiast TTOT (depLabels, depTimes w dmancore.js);
+// zanim pierwsza odpowiedź powie, czy lotnisko ma A-CDM, nazwy tych czasów są puste.
 // mountDman(el, icao, { onUpdate, view, onView }) → { resume(), setView(v), destroy() } (jak mountStrips plus widok).
 // Widok "dman" (DMAN/AMAN) albo "aman": opts.view wybiera go z adresu (#aerodrome/EPWA/aman), inaczej ostatnio używany
 // (lsGet). onView(v, { replace }) zgłasza widok gospodarzowi, który zapisuje go w adresie: kliknięcie przycisku widoku
@@ -27,6 +28,7 @@ const SRC_TXT = {
 // lotnisko bez A-CDM: EOBT i ETOT to właściwe wartości drabin, nie zastępstwo za TSAT i TTOT
 const SRC_NOCDM = {
   EOBT: "EOBT z vIFF albo z planu lotu (lotnisko bez A-CDM)", ETOT: "ETOT = off-block (AOBT albo EOBT) + czas kołowania",
+  CTOT: "CTOT (slot ATFM) z vIFF, później niż ETOT",
 };
 
 const dash = (v) => (v === null || v === undefined || v === "" ? "–" : String(v));
@@ -145,8 +147,8 @@ export function mountDman(el, icao, { onUpdate, view, onView } = {}) {
   const arrs = () => (data ? [...data.arrivals.filter((s) => !(s.state === "ground" && !s.away)), ...data.planned.filter((s) => s.kind === "arr")] : []);
   const eldtRel = (s, now) => (s.eldt_s === null || s.eldt_s === undefined ? null : data.now_ts + s.eldt_s - now / 1000);
   const taxiDefault = () => data?.cad?.taxi || 10;
-  // A-CDM lotniska: TSAT i TTOT, bez niego (także przed pierwszymi danymi) EOBT i ETOT
-  const cdm = () => !!data?.cdm;
+  // A-CDM lotniska: TSAT i TTOT, bez niego EOBT i ETOT; przed pierwszymi danymi null (nazwy puste, depLabels)
+  const cdm = () => (data ? !!data.cdm : null);
   const lbl = () => depLabels(cdm());
   const times = (s, now) => depTimes(s, now, taxiDefault(), cdm());
   const srcTxt = (k) => (!cdm() && SRC_NOCDM[k]) || SRC_TXT[k];
@@ -155,7 +157,7 @@ export function mountDman(el, icao, { onUpdate, view, onView } = {}) {
   const buildA = () => {
     body.innerHTML = `<div class="dm-a">
       <section class="dm-list dm-deps"><div class="dm-rows"><div class="dm-in"></div></div>
-        <div class="dm-foot" data-g="dep"><button data-sort="cs">CSGN</button><button data-sort="t">${lbl().obt}</button></div></section>
+        <div class="dm-foot" data-g="dep"><button data-sort="cs">CSGN</button><button data-sort="t"></button></div></section>
       <section class="dm-lad dm-l1"><svg class="dm-svg"></svg></section>
       <section class="dm-mid">
         <table class="dm-info"></table>
@@ -172,6 +174,8 @@ export function mountDman(el, icao, { onUpdate, view, onView } = {}) {
         <div class="dm-foot" data-g="arr"><button data-sort="cs">CSGN</button><button data-sort="t">ETA</button></div></section>
     </div>`;
     firstList = { dep: true, arr: true };
+    sortAll();
+    renderSpans();
   };
 
   const sortBtns = (g, label) => {
@@ -181,10 +185,13 @@ export function mountDman(el, icao, { onUpdate, view, onView } = {}) {
       const on = b.dataset.sort === by;
       b.classList.toggle("on", on);
       const name = b.dataset.sort === "cs" ? "CSGN" : label;
-      b.textContent = on ? `${a} ${name} ${a}` : name;
+      b.textContent = on && name ? `${a} ${name} ${a}` : name;
       b.title = on ? `Sortowanie ${name}; ponowne kliknięcie odwraca kolejność (▲: późniejsze u góry, jak na drabinie)` : `Sortuj wg ${name}`;
+      b.style.visibility = name ? "" : "hidden";
     });
   };
+  // przed pierwszymi danymi przycisk czasu odlotów jest ukryty (jeszcze nie wiadomo: TSAT czy EOBT)
+  const sortAll = () => { sortBtns("dep", lbl().obt); sortBtns("arr", "ETA"); };
   // lista w kolumnie: ▲ = późniejsze u góry (jak drabina), wtedy przyklejona do dołu; ▼ odwrotnie
   const fillList = (g, rows, emptyTxt) => {
     const box = $(`.dm-${g === "dep" ? "deps" : "arrs"} .dm-rows`);
@@ -217,6 +224,8 @@ export function mountDman(el, icao, { onUpdate, view, onView } = {}) {
     s.entry_fix ? `Wejście: ${s.entry_fix.fix}${s.proc ? " · STAR " + s.proc.name : ""}` : "", "Klik: szczegóły · dwuklik: mapa"].filter(Boolean).join("\n");
 
   const renderLists = (now) => {
+    sortAll();
+    if (!data) return;   // sortowanie kliknięte przed pierwszymi danymi: same przyciski
     const L = lbl();
     const D = deps().filter((s) => s.state !== "air" && !s.viff?.atot).map((s) => ({ s, t: times(s, now) }));
     D.sort(sorter("dep", (x) => x.t.tsat));
@@ -228,8 +237,6 @@ export function mountDman(el, icao, { onUpdate, view, onView } = {}) {
     fillList("arr", A.map(({ s, rel }) => `<div class="dm-row arr${s.state !== "air" ? " plan" : ""}${st.sel === keyOf(s) ? " sel" : ""}" data-k="${esc(keyOf(s))}" title="${esc(arrTitle(s, rel))}">
       <span class="c">${esc(s.callsign)}</span><span class="m">${STAND}</span><span class="t${s.eldt_source === "vIFF" ? "" : " est"}">${hm(s.eldt)}</span></div>`),
     data.network_error ? "Brak danych z sieci VATSIM" : "Brak przylotów");
-    sortBtns("dep", L.obt);
-    sortBtns("arr", "ETA");
   };
 
   const renderLadders = (now) => {
@@ -254,17 +261,16 @@ export function mountDman(el, icao, { onUpdate, view, onView } = {}) {
         + base + labels
         + tagsSvg(list, g, { axisX, x0: tx0, x1: Math.min(W - 6, tx0 + 250), right: true, sel: st.sel, empty: "Brak odlotów w tym oknie" });
     }
-    // drabiny TTOT (bez A-CDM ETOT; na lewo od wspólnej osi) i ELDT (na prawo, żółte). Slot: callsign na brązowym tle
-    // (A-CDM: etykieta na CTOT, gdy brak TTOT; bez A-CDM etykieta zostaje na ETOT, CTOT w dymku i szczegółach)
+    // drabiny TTOT (bez A-CDM ETOT; na lewo od wspólnej osi) i ELDT (na prawo, żółte). Callsign na brązowym tle: etykieta
+    // stoi na CTOT (A-CDM: brak TTOT; bez A-CDM: CTOT później niż ETOT); po starcie etykieta na ATOT, nigdy brązowa
     if (l2.clientWidth >= 80 && l2.clientHeight >= 60) {
       const W = l2.clientWidth, H = l2.clientHeight;
       const g = geom(H, st.span.arr);
       const axisX = Math.round(W * 0.53);
       const dl = deps().map((s) => {
         const t = times(s, now);
-        const slot = cdm() ? t.ttotSrc === "CTOT" : !!s.viff?.ctot;
         return { key: keyOf(s), rel: t.ttot, cs: s.callsign, mid: s.aircraft || "–", time: hmAt(now, t.ttot), est: t.ttotSrc !== "ATOT" && t.ttotSrc !== L.tot,
-          cls: ["dep", s.planned ? "plan" : "", t.offBlock ? "off" : ""], csCls: slot ? "ctot" : "", title: depTitle(s, t) };
+          cls: ["dep", s.planned ? "plan" : "", t.offBlock ? "off" : ""], csCls: t.ttotSrc === "CTOT" ? "ctot" : "", title: depTitle(s, t) };
       }).filter((t) => t.rel !== null);
       const al = arrs().map((s) => {
         const rel = eldtRel(s, now);
@@ -315,8 +321,14 @@ export function mountDman(el, icao, { onUpdate, view, onView } = {}) {
       const r = (x) => relSec(x, now);
       const t = times(s, now);
       const c = cdm();
-      // bez A-CDM wyróżnione EOBT i ETOT; TOBT, TSAT, VAR TAXI TIME i TTOT tylko, gdy vIFF je podaje (bez pustych wierszy)
+      // bez A-CDM wyróżnione EOBT i ten z wierszy ATOT, CTOT, ETOT, na którym stoi etykieta drabiny ETOT (depTimes);
+      // TOBT, TSAT, VAR TAXI TIME i TTOT tylko, gdy vIFF je podaje (bez pustych wierszy i bez wyróżnienia)
       const opt = (on, ...a) => (c || on ? R(...a) : "");
+      const lad = (k) => !c && t.ttotSrc === k;
+      const LAD = "to samo co etykieta na drabinie ETOT";
+      const reg = v.regulation ? `Regulacja ${v.regulation}${v.delay ? `, opóźnienie ${v.delay} min` : ""}` : "";
+      const ctotTip = [reg, lad("CTOT") ? `później niż ETOT: ${LAD}`
+        : lad("ETOT") && v.ctot ? "nie później niż ETOT: etykieta drabiny ETOT stoi na ETOT" : ""];
       const taxiSrc = v.taxi ? "Czas kołowania lotu z vIFF" : data.cad?.taxi ? `Domyślny czas kołowania lotniska z vIFF${c ? " (A-CDM)" : ""}`
         : "Brak czasu kołowania w vIFF: przyjęte 10 min";
       const vtt = v.ttot && v.tsat ? Math.round((r(v.ttot) - r(v.tsat)) / 60) : null;
@@ -330,13 +342,14 @@ export function mountDman(el, icao, { onUpdate, view, onView } = {}) {
         + R("SCHED DEP", hm(s.deptime), "", "Godzina odlotu z planu lotu VATSIM") + R("SOBT", hm(s.deptime), "", "Plan lotu VATSIM (deptime)")
         + R("EOBT", hm(s.eobt), c ? "" : "hl", s.eobt_source === "vIFF" ? "EOBT z vIFF (IFPS)" : "EOBT z planu lotu VATSIM")
         + opt(v.tobt, "TOBT", hm(v.tobt)) + R("ACT RDY TIME", v.ready ? "REA" : "", "", "vIFF podaje tylko znacznik REA (gotowy), bez godziny")
-        + opt(v.tsat, "TSAT", hm(v.tsat), "hl") + R("AOBT", hm(v.aobt))
+        + opt(v.tsat, "TSAT", hm(v.tsat), c ? "hl" : "") + R("AOBT", hm(v.aobt))
         + R("EST TAXI OUT", `${t.taxi} min`, v.taxi || data.cad?.taxi ? "" : "est", taxiSrc)
         + opt(vtt !== null, "VAR TAXI TIME", vtt !== null ? `${vtt} min` : "", "", "TTOT − TSAT")
-        + R("CTOT", hm(v.ctot), v.ctot ? "hl" : "", v.regulation ? `Regulacja ${v.regulation}${v.delay ? `, opóźnienie ${v.delay} min` : ""}` : "")
-        + R("ETOT", t.etot !== null ? hmAt(now, t.etot) : "", !c ? "hl" : t.etotBase === "TSAT" || t.etotBase === "AOBT" ? "" : "est",
-          t.etot !== null ? `ETOT = ${t.etotBase} + kołowanie ${t.taxi} min (${c ? "to samo co etykieta ETOT na drabinie TTOT, gdy brak TTOT i CTOT" : "to samo co etykieta na drabinie ETOT"})` : "")
-        + opt(v.ttot, "TTOT", hm(v.ttot), "hl") + R("ATOT", hm(v.atot))
+        + R("CTOT", hm(v.ctot), (c ? v.ctot : lad("CTOT")) ? "hl" : "", ctotTip.filter(Boolean).join("; "))
+        + R("ETOT", t.etot !== null ? hmAt(now, t.etot) : "", !c ? (lad("ETOT") ? "hl" : "") : t.etotBase === "TSAT" || t.etotBase === "AOBT" ? "" : "est",
+          t.etot !== null ? `ETOT = ${t.etotBase} + kołowanie ${t.taxi} min (${c ? "to samo co etykieta ETOT na drabinie TTOT, gdy brak TTOT i CTOT"
+            : lad("ETOT") ? LAD : `${LAD}, gdy brak ATOT i późniejszego CTOT`})` : "")
+        + opt(v.ttot, "TTOT", hm(v.ttot), c ? "hl" : "") + R("ATOT", hm(v.atot), lad("ATOT") ? "hl" : "", lad("ATOT") ? `Rzeczywisty start (vIFF): ${LAD}` : "")
         + R("RWY DEP", s.runway, "hl", s.runway_source === "CDM" ? "Pas z wtyczki CDM (vIFF)" : RWY_SRC[s.runway_source] || "");
     }
     tbl.innerHTML = rows;
@@ -350,7 +363,8 @@ export function mountDman(el, icao, { onUpdate, view, onView } = {}) {
     const u = data.runway_in_use || {};
     const src = u.source === "ATIS" ? `z ATIS ${data.atis?.letter || ""}`.trim() : RWY_SRC.SUGGESTED;
     const rate = data.cad?.rate;
-    box.innerHTML = `<div class="dm-rwy dep" title="${esc(`Pas startowy w użyciu (${src}).${rate ? ` R${rate}: przepustowość odlotów ${rate}/h (vIFF A-CDM).` : ""}`)}"><i>DEP</i><b>${esc(dash(u.dep))}</b>${rate ? `<small>R${esc(rate)}</small>` : ""}</div>
+    const rateTxt = rate ? ` R${rate}: przepustowość odlotów ${rate}/h (${cdm() ? "vIFF A-CDM" : "ustawienia lotniska w vIFF, lotnisko bez A-CDM"}).` : "";
+    box.innerHTML = `<div class="dm-rwy dep" title="${esc(`Pas startowy w użyciu (${src}).${rateTxt}`)}"><i>DEP</i><b>${esc(dash(u.dep))}</b>${rate ? `<small>R${esc(rate)}</small>` : ""}</div>
       <div class="dm-rwy arr" title="${esc(`Pas do lądowania w użyciu (${src}).`)}"><i>ARR</i><b>${esc(dash(u.arr))}</b></div>
       ${u.source === "ATIS" ? "" : `<div class="dm-sugg">sugestia, brak ATIS</div>`}`;
   };
@@ -358,7 +372,7 @@ export function mountDman(el, icao, { onUpdate, view, onView } = {}) {
   const renderSpans = () => {
     const L = lbl();
     body.querySelectorAll(".dm-spans .sp").forEach((row) => {
-      row.title = row.dataset.g === "dep" ? `Zakres drabiny ${L.obt} (lewej)` : `Zakres drabin ${L.tot} i ELDT (prawych)`;
+      row.title = row.dataset.g === "dep" ? `Zakres drabiny ${L.obt || "odlotów"} (lewej)` : `Zakres drabin ${L.tot || "odlotów"} i ELDT (prawych)`;
       row.querySelectorAll("button").forEach((b) => b.classList.toggle("on", +b.dataset.span === st.span[row.dataset.g]));
     });
   };

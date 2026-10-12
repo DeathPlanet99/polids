@@ -25,14 +25,17 @@ export function relSec(t, nowMs) {
 export const hmAt = (nowMs, rel) => (rel === null || rel === undefined ? "–" : clock(nowMs + rel * 1000, false));
 
 // --- odloty: czasy do drabin TSAT i TTOT (lotnisko z A-CDM) albo EOBT i ETOT (bez A-CDM)
-// nazwy drabin i kolumny odlotów: bez A-CDM (data.cdm false, także gdy vIFF nie odpowiada) EOBT i ETOT
-export const depLabels = (cdm) => (cdm ? { obt: "TSAT", tot: "TTOT" } : { obt: "EOBT", tot: "ETOT" });
+// nazwy drabin i kolumny odlotów: bez A-CDM (data.cdm false, także gdy vIFF nie odpowiada) EOBT i ETOT; przed
+// pierwszymi danymi (cdm null) puste, żeby na lotnisku z A-CDM nie mignęły EOBT i ETOT
+export const depLabels = (cdm) => (cdm === null || cdm === undefined ? { obt: "", tot: "" }
+  : cdm ? { obt: "TSAT", tot: "TTOT" } : { obt: "EOBT", tot: "ETOT" });
 // A-CDM: TSAT-ekwiwalent: TSAT z vIFF, bez niego TOBT, potem EOBT (vIFF albo plan lotu); est = nie TSAT.
 // ETOT = off-block (AOBT, a bez niego TSAT/TOBT/EOBT) + czas kołowania (vIFF, domyślny lotniska albo przyjęte 10 min);
 // ta sama wartość jest w tabeli szczegółów (ETOT) i na drabinie TTOT, gdy brak ATOT, TTOT i CTOT.
 // TTOT-ekwiwalent: ATOT (po starcie), TTOT, CTOT, inaczej ETOT.
-// Bez A-CDM (cdm false): sam EOBT i ETOT = (AOBT albo EOBT) + kołowanie, po starcie ATOT; TOBT, TSAT, TTOT i CTOT
-// nie przesuwają etykiet (slot widać w kolorze etykiety, w dymku i w szczegółach lotu).
+// Bez A-CDM (cdm false): sam EOBT i ETOT = (AOBT albo EOBT) + kołowanie, po starcie ATOT; lot na ziemi ze slotem stoi
+// na CTOT, gdy CTOT jest później niż ETOT (jak lot bez TTOT na A-CDM; ttotSrc "CTOT" = brązowy callsign). TOBT, TSAT
+// i TTOT z vIFF nie przesuwają etykiet.
 export function depTimes(s, nowMs, taxiDefault = 10, cdm = true) {
   const v = s.viff || {};
   const r = (t) => relSec(t, nowMs);
@@ -41,10 +44,12 @@ export function depTimes(s, nowMs, taxiDefault = 10, cdm = true) {
   const taxi = v.taxi || taxiDefault;
   const [etotBase, base] = v.aobt ? ["AOBT", r(v.aobt)] : [tsatSrc, tsat];
   const etot = base === null ? null : base + taxi * 60;
+  const ctot = r(v.ctot);
   let ttotSrc = null, ttot = null;
   if (v.atot) [ttotSrc, ttot] = ["ATOT", r(v.atot)];
   else if (cdm && v.ttot) [ttotSrc, ttot] = ["TTOT", r(v.ttot)];
-  else if (cdm && v.ctot) [ttotSrc, ttot] = ["CTOT", r(v.ctot)];
+  else if (cdm && v.ctot) [ttotSrc, ttot] = ["CTOT", ctot];
+  else if (!cdm && s.state !== "air" && ctot !== null && (etot === null || ctot > etot)) [ttotSrc, ttot] = ["CTOT", ctot];
   else if (s.state !== "air" && etot !== null) [ttotSrc, ttot] = ["ETOT", etot];
   const moving = s.state === "air" || (s.groundspeed || 0) >= 3;
   const offBlock = !!v.aobt || moving || !!v.atot;
