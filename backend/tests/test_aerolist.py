@@ -69,7 +69,10 @@ def test_build_lists_dedupe_names_kinds():
     lists = build_lists(nav, csv, SQUARE)
     assert list(lists) == list(aerolist.FIR_KEYS)
     ep = {a["icao"]: a for a in lists["EPWW"]}
-    assert [a["icao"] for a in lists["EPWW"]] == ["EPDE", "EPEL", "EPGD", "EPGM", "EPKB", "EPKS"]   # po ICAO
+    # po ICAO; z lądowiskami z listy PANDORY, których nie ma w navdata (EPGB, EPGN, EPGO, EPGW)
+    assert [a["icao"] for a in lists["EPWW"]] == ["EPDE", "EPEL", "EPGB", "EPGD", "EPGM", "EPGN", "EPGO", "EPGW",
+                                                  "EPKB", "EPKS"]
+    assert ep["EPGB"]["name"] == "GOLUBIE" and ep["EPGW"]["name"] == "ULIM"
     # nazwy z navdata; miasto z przodu tam, gdzie navdata podaje samą dzielnicę albo patrona
     assert ep["EPDE"]["name"] == "DEBLIN" and ep["EPGD"]["name"] == "GDANSK LECH WALESA"
     assert ep["EPKS"]["name"] == "POZNAN KRZESINY" and ep["EPEL"]["name"] == "ELBLAG"
@@ -77,10 +80,12 @@ def test_build_lists_dedupe_names_kinds():
     assert ep["EPGM"]["name"] == "GIZYCKO-MAZURY RESIDENCE" and ep["EPKB"]["name"] == "KAZIMIERZ BISKUPI"
     # wojskowe: ET*, "Military"/"Air Base" w airports.csv
     assert ep["EPDE"]["kind"] == "MIL" and ep["EPKS"]["kind"] == "MIL" and ep["EPEL"]["kind"] is None
-    assert lists["ET"] == [{"icao": "ETNL", "name": "ROSTOCK-LAAGE", "kind": "MIL", "lat": 53.92, "lon": 12.28}]
+    assert lists["ET"] == [{"icao": "ETNL", "name": "ROSTOCK-LAAGE", "kind": "MIL", "rank": 2, "alias": [],
+                            "lat": 53.92, "lon": 12.28}]
     assert [a["icao"] for a in lists["ED"]] == ["EDDB"] and lists["ED"][0]["name"] == "BERLIN BRANDENBURG"
     assert [a["icao"] for a in lists["UMKK"]] == ["UMKK"] and [a["icao"] for a in lists["UMMV"]] == ["UMMS"]
     assert [a["icao"] for a in lists["UKLV"]] == ["UKLL"] and [a["icao"] for a in lists["ESAA"]] == ["ESSA"]
+    assert lists["ESAA"][0]["name"] == "STOCKHOLM ARLANDA"
     assert lists["LZBB"][0]["name"] == "GERONIMO LZ"
     assert not any(a["icao"] == "EGLL" for lst in lists.values() for a in lst)
 
@@ -90,6 +95,46 @@ def test_display_name():
     assert display_name("EPLL", "LODZ") == "LODZ" and display_name("EPSY", "OLSZTYN-MAZURY") == "OLSZTYN-MAZURY"
     assert display_name("EPKT", None, "Katowice Wojciech Korfanty International Airport") == "KATOWICE WOJCIECH KORFANTY"
     assert display_name("EDDB", "Berlin Brandenburg") == "BERLIN BRANDENBURG"
+
+
+def test_heliports_mil_rank_alias():
+    """Lądowiska śmigłowców przy szpitalach i platformy pominięte; MIL także poza EP i ET; rank i inne nazwy."""
+    nav = [("ESSA", "ARLANDA", 59.65, 17.92), ("ESSB", "BROMMA", 59.35, 17.94),
+           ("ESHC", "STOCKHOLM/SODERSJUKHUSET", 59.3, 18.0), ("ESHG", "STOCKHOLM/GAMLA STAN", 59.3, 18.1),
+           ("ESEX", "KRIEGERS FLAK A", 55.0, 13.0), ("ESDF", "RONNEBY", 56.27, 15.27),
+           ("EDGL", "BERUFSGENOSSENSCHAFTLICHE UNFALLKLINIK LUDWIGSHAFEN", 49.5, 8.4),
+           ("EDDM", "MUNICH", 48.35, 11.79), ("LKPR", "RUZYNE", 50.1, 14.26), ("LKCV", "CASLAV", 49.94, 15.38),
+           ("EPWA", "CHOPIN", 52.17, 20.97), ("EPBC", "BABICE", 52.27, 20.91), ("EPMO", "MODLIN", 52.45, 20.65)]
+    lists = build_lists(nav, [], SQUARE, atc={"ESSB", "EPBC", "EPMO", "LKCV"})
+    se = {a["icao"]: a for a in lists["ESAA"]}
+    assert set(se) == {"ESSA", "ESSB", "ESDF"}
+    assert se["ESDF"]["kind"] == "MIL" and se["ESSA"]["kind"] is None
+    assert [a["icao"] for a in lists["ED"]] == ["EDDM"] and lists["ED"][0]["alias"] == ["MUENCHEN", "MONACHIUM"]
+    ep = {a["icao"]: a for a in lists["EPWW"]}
+    assert (ep["EPWA"]["rank"], ep["EPBC"]["rank"], ep["EPMO"]["rank"]) == (0, 1, 1)
+    assert ep["EPWA"]["name"] == "WARSZAWA CHOPIN" and ep["EPGB"]["rank"] == 2
+    lk = {a["icao"]: a for a in lists["LKAA"]}
+    assert lk["LKPR"]["name"] == "PRAHA RUZYNE" and "PRAGA" in lk["LKPR"]["alias"] and lk["LKPR"]["rank"] == 0
+    assert lk["LKCV"]["kind"] == "MIL" and lk["LKCV"]["rank"] == 1
+    assert aerolist.atc_airports([{"callsign": "EDDB_N_TWR"}, {"callsign": "EPWW_CTR"}, {"callsign": "EPKK_ATIS"},
+                                  {"callsign": None}]) == {"EDDB", "EPKK"}
+
+
+def test_main_airports_exist_in_lists(client):
+    """Tabele MAIN, ALIAS i MIL wskazują lotniska, które są na listach (literówka w kodzie nie przejdzie)."""
+    lists = {k: {a["icao"]: a for a in client.get(f"/api/aerodromes/fir/{k}").json()} for k in aerolist.FIR_KEYS}
+    every = {i: a for lst in lists.values() for i, a in lst.items()}
+    assert set(aerolist.MAIN) <= set(every) and set(aerolist.ALIAS) <= set(every) and set(aerolist.CITY) <= set(every)
+    assert set(aerolist.MIL) <= set(every) and all(every[i]["kind"] == "MIL" for i in aerolist.MIL)
+    assert all(every[i]["rank"] == 0 for i in aerolist.MAIN)
+    # ESAA bez szpitalnych lądowisk śmigłowców
+    assert not any("SJUKHUS" in a["name"] or "LASARETT" in a["name"] for a in lists["ESAA"].values())
+    assert {"ESSA", "ESGG", "ESMS"} <= set(lists["ESAA"])
+    # lotniska ze stanowiskami w danych mają rank 1 (EPMO, EPBC, EPEL), bez stanowisk rank 2 (EPAR)
+    ep = lists["EPWW"]
+    assert (ep["EPWA"]["rank"], ep["EPMO"]["rank"], ep["EPBC"]["rank"], ep["EPEL"]["rank"], ep["EPAR"]["rank"]) == \
+        (0, 1, 1, 1, 2)
+    assert {"EPGB", "EPGN", "EPGO", "EPGW"} <= set(ep)
 
 
 def test_airport_positions_order_and_online():
@@ -173,7 +218,7 @@ def test_fir_lists_from_navdata(client):
 
 def test_card_foreign_airport(client, fakes):
     d = client.get("/api/aerodromes/ukll/card").json()
-    assert (d["icao"], d["fir"], d["full_page"]) == ("UKLL", "UKLV", False) and d["name"] == "LVIV INTL"
+    assert (d["icao"], d["fir"], d["fir_label"]) == ("UKLL", "UKLV", "Ukraina, FIR Lwów") and d["name"] == "LVIV INTL"
     assert d["metar"].startswith("UKLL ") and d["parsed"]["qnh"] == 1015 and d["taf"].startswith("TAF UKLL")
     types = [p["type"] for p in d["positions"]]
     assert types == sorted(types, key=aerolist.TYPE_ORDER.index) and {"APP", "TWR", "GND", "ATIS"} <= set(types)
@@ -185,8 +230,12 @@ def test_card_foreign_airport(client, fakes):
     assert m["metar"] is None and m["parsed"] is None and m["fir"] == "UMMV" and m["positions"] == []
     # polskie lotnisko spoza bazy lotnisk (tylko navdata) też ma kartę; nieznany kod: 404
     assert client.get("/api/aerodromes/EPKX/card").json()["fir"] == "EPWW"
-    assert client.get("/api/aerodromes/EPWA/card").json()["full_page"] is True
-    assert client.get("/api/aerodromes/ZZZZ/card").status_code == 404
+    assert client.get("/api/aerodromes/EPWA/card").json()["name"] == "WARSZAWA CHOPIN"
+    # nieznany kod: 404 z komunikatem, po którym karta (aerolist.js UNKNOWN) pokazuje jeden komunikat i nie odpytuje
+    r = client.get("/api/aerodromes/ZZZZ/card")
+    assert r.status_code == 404 and r.json()["detail"].startswith("Nie znam lotniska")
+    # lądowisko śmigłowców nie jest na liście ESAA, ale jego karta się otwiera (z navdata)
+    assert client.get("/api/aerodromes/ESHC/card").json()["name"] == "STOCKHOLM/SODERSJUKHUSET"
     assert client.get("/api/aerodromes/E%3CB%3E/card").status_code == 404
 
 
@@ -213,12 +262,29 @@ def test_card_upstream_errors(client, monkeypatch):
 JS_SCRIPT = r"""
 const m = await import(process.argv[2]);
 const args = ["0", "OVERVIEW", "overview", "", "fir/ED", "fir/ed", "FIR/UKLV", "fir/XX", "fir/", "epwa", "EDDB", " EPKK ",
-  "EP1", "EPWAX", "<b>", "fir/ED/x", null];
+  "EP1", "EPWAX", "<b>", "fir/ED/x", null, "EPWA/awos", "epwa/RUCH", "EPWA/overview", "EPWA/xyz", "EPWA/awos/x"];
+// lista jak z /api/aerodromes/fir/EPWW (fragment) i ED; it.i = kolejność listy (po ICAO)
+const mk = (rows) => rows.map(([icao, name, rank, alias], i) => ({ i, icao, rank, keys: m.searchKeys(name, alias || []) }));
+const ep = mk([["EPBC", "WARSZAWA BABICE", 1], ["EPKC", "KRAKOW CZYZYNY", 2], ["EPKK", "KRAKOW BALICE", 0],
+  ["EPKM", "KATOWICE MUCHOWIEC", 1], ["EPKS", "POZNAN KRZESINY", 1], ["EPKT", "KATOWICE PYRZOWICE", 0],
+  ["EPLL", "LODZ", 0], ["EPMO", "WARSZAWA MODLIN", 1], ["EPOD", "OLSZTYN DAJTKI", 1], ["EPPO", "POZNAN LAWICA", 0],
+  ["EPRJ", "RZESZOW", 2], ["EPRZ", "RZESZOW JASIONKA", 0], ["EPSY", "OLSZTYN-MAZURY", 0], ["EPWA", "WARSZAWA CHOPIN", 0]]);
+const ed = mk([["EDAV", "EBERSWALDE-FINOW", 2], ["EDDB", "BERLIN BRANDENBURG", 0], ["EDDK", "COLOGNE-BONN", 0, ["KOELN", "KOLONIA"]],
+  ["EDDL", "DUESSELDORF", 0], ["EDDM", "MUNICH", 0, ["MUENCHEN", "MONACHIUM"]], ["EDDN", "NUERNBERG", 0], ["EDQM", "HOF-PLAUEN", 1]]);
+const pick = (items, q) => m.bestMatch(items, m.queryForms(q))?.icao ?? null;
+const qs = ["warszawa", "krakow", "Kraków", "poznan", "katowice", "rzeszow", "olsztyn", "łódź", "EPKS", "epk", "modlin", "zzzz"];
+const dq = ["BER", "münchen", "munchen", "nürnberg", "nurnberg", "düsseldorf", "köln", "koln", "kolonia", "hof plauen", "EDD"];
+const lay = (n, c, r) => { const L = m.blockLayout(n, c, r); return [L.cols, L.cells.map((x) => [x.row, x.col, x.block].join(":")).join(" ")]; };
 console.log(JSON.stringify({
   arg: args.map(m.aeroArg),
   fold: ["Łódź", "gdańsk  lech wałęsa", "Jeżów Sudecki", "KRAKÓW"].map(m.fold),
   fir: ["EPDE", "EDDB", "ETNL", "UMKK", "UMKB", "UMMS", "ESSA", "LKPR", "LZIB", "EYVI", "UKLL", "UKBB", "EGLL"].map(m.firOf),
   keys: m.FIR_KEYS,
+  split: ["EPWA", "EPWA/awos", "EPWA/ruch", "0"].map(m.splitArg),
+  ep: Object.fromEntries(qs.map((q) => [q, pick(ep, q)])),
+  ed: Object.fromEntries(dq.map((q) => [q, pick(ed, q)])),
+  plural: [1, 2, 4, 5, 12, 22, 32, 33, 93, 119, 469].map((n) => n + " " + m.lotnisk(n)),
+  layout: [lay(30, 4, 34), lay(119, 4, 34), lay(10, 4, 34), lay(5, 4, 2), lay(0, 4, 10), lay(300, 4, 34)],
 }));
 """
 
@@ -248,7 +314,10 @@ def aerojs(tmp_path_factory):
 def test_js_aero_arg(aerojs):
     """#aerodrome/0, #aerodrome/OVERVIEW (dawny adres), #aerodrome/fir/ED, #aerodrome/EPWA; reszta nierozpoznana."""
     assert aerojs["arg"] == ["0", "0", "0", None, "fir/ED", "fir/ED", "fir/UKLV", None, None, "EPWA", "EDDB", "EPKK",
-                             None, None, None, None, None]
+                             None, None, None, None, None, "EPWA/awos", "EPWA/ruch", "EPWA", None, None]
+    # widok lotniska w adresie (PRZEGLĄD = sam ICAO): #aerodrome/EPWA/awos, #aerodrome/EPWA/ruch
+    assert aerojs["split"] == [{"code": "EPWA", "view": "overview"}, {"code": "EPWA", "view": "awos"},
+                               {"code": "EPWA", "view": "ruch"}, {"code": "0", "view": "overview"}]
     assert aerojs["keys"] == list(aerolist.FIR_KEYS)
 
 
@@ -258,3 +327,41 @@ def test_js_fold_and_fir_match_backend(aerojs):
     codes = ["EPDE", "EDDB", "ETNL", "UMKK", "UMKB", "UMMS", "ESSA", "LKPR", "LZIB", "EYVI", "UKLL", "UKBB", "EGLL"]
     # bez wczytanej listy UKLV przeglądarka przypisuje UK* po prefiksie UKL (jak backend bez granicy FIR)
     assert aerojs["fir"] == [fir_key(c, uklv=[]) for c in codes]
+
+
+def test_js_enter_opens_main_airport(aerojs):
+    """Enter po nazwie miasta otwiera główne lotnisko, nie najmniejsze lądowisko pierwsze po ICAO."""
+    assert aerojs["ep"] == {"warszawa": "EPWA", "krakow": "EPKK", "Kraków": "EPKK", "poznan": "EPPO",
+                            "katowice": "EPKT", "rzeszow": "EPRZ", "olsztyn": "EPSY", "łódź": "EPLL",
+                            "EPKS": "EPKS", "epk": "EPKC", "modlin": "EPMO", "zzzz": None}
+
+
+def test_js_search_umlauts_and_aliases(aerojs):
+    """"münchen"/"köln" przez inne nazwy, "nürnberg" i "nurnberg" do NUERNBERG z navdata, "BER" do BERLIN."""
+    assert aerojs["ed"] == {"BER": "EDDB", "münchen": "EDDM", "munchen": "EDDM", "nürnberg": "EDDN",
+                            "nurnberg": "EDDN", "düsseldorf": "EDDL", "köln": "EDDK", "koln": "EDDK",
+                            "kolonia": "EDDK", "hof plauen": "EDQM", "EDD": "EDDB"}
+
+
+def test_js_plural(aerojs):
+    assert aerojs["plural"] == ["1 lotnisko", "2 lotniska", "4 lotniska", "5 lotnisk", "12 lotnisk", "22 lotniska",
+                                "32 lotniska", "33 lotniska", "93 lotniska", "119 lotnisk", "469 lotnisk"]
+
+
+def test_js_block_layout(aerojs):
+    """Lista mieszcząca się w okienku: kolumny wyrównane; dłuższa: bloki wysokości okienka jeden pod drugim, w bloku
+    kolumna po kolumnie, więc kolejność czytania zgadza się z przewijaniem."""
+    def cells(s):
+        return [tuple(map(int, x.split(":"))) for x in s.split()]
+    fits, mid, short, tiny, empty, long_ = aerojs["layout"]
+    c = cells(fits[1])                       # 30 wierszy, 4 kolumny: 8 + 8 + 8 + 6
+    assert fits[0] == 4 and c[0] == (0, 0, 0) and c[8] == (0, 1, 0) and c[29] == (5, 3, 0)
+    c = cells(mid[1])                        # 119 ≤ 4 × 34: jeden blok, 30 wierszy w kolumnie
+    assert mid[0] == 4 and c[29] == (29, 0, 0) and c[30] == (0, 1, 0) and c[118] == (28, 3, 0)
+    assert short[0] == 2 and cells(short[1])[5] == (0, 1, 0)        # 10 → 2 kolumny po 5
+    assert tiny[0] == 3 and cells(tiny[1]) == [(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0), (0, 2, 0)]  # mieszczą się 2
+    assert empty == [1, ""]
+    c = cells(long_[1])                      # 300 > 4 × 34 = 136: bloki 136, 136, 28 (7 wierszy × 4)
+    assert long_[0] == 4 and c[33] == (33, 0, 0) and c[34] == (0, 1, 0) and c[135] == (33, 3, 0)
+    assert c[136] == (34, 0, 1) and c[169] == (67, 0, 1) and c[170] == (34, 1, 1) and c[271] == (67, 3, 1)
+    assert c[272] == (68, 0, 2) and c[279] == (68, 1, 2) and c[299] == (74, 3, 2)

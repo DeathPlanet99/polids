@@ -2,13 +2,6 @@
    Styl jak reszta treści – panele NM UI z paskiem tytułu, gęste tabele, płaskie przyciski, bez poświaty.
    Każdy panel przewija się w sobie; strona nie przewija się w ogóle. */
 
-/* OVERVIEW w podmenu AERODROME: nad przyciskami lotnisk, odcięty odstępem i ciemniejszy, żeby było widać,
-   że to nie kod lotniska */
-.submenu button.aero-ov-btn { font-size: 12px; letter-spacing: .6px;
-  background: linear-gradient(#2f8a22, #1d5c14); border-color: #17470f; }
-.submenu button.aero-ov-btn:hover { background: linear-gradient(#3da22c, #27761c); }
-.submenu button.aero-ov-btn.active { background: linear-gradient(#8cff5a, #5fd23a); color: #0b2a06; }
-
 .aero-pane.ov-mode > .toolbar .aero-view { display: none; }   /* PRZEGLĄD/AWOS/RUCH dotyczą jednego lotniska */
 .ov { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .ov > .toolbar.ov-bar { margin: 0 0 6px; }

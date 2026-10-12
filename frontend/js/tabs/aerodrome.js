@@ -1,22 +1,12 @@
 import { api, atisHtml, esc, fmt, h, hhmm, positionTip, remember, vatsimBookings, vatsimOnline, lsGet, lsSet, ONLINE_EVENT } from "../api.js";
 import { colorize, wxLines, windVec, hwTxt, xwTxt, kt, validTxt, pointTip } from "./meteo.js";
-import { FIR_KEYS, FIR_LABELS, aeroArg, firOf, mountAeroCard, mountFirList } from "../aerolist.js";
+import { FIR_KEYS, FIR_LABELS, aeroArg, firOf, mountAeroCard, mountFirList, obsInfo, splitArg } from "../aerolist.js";
 import { mountAwos } from "../awos.js";
 import { mountDman } from "../dman.js";
 import { mountOverview } from "../overview.js";
 
 const TYPE_ORDER = ["CTR", "FSS", "APP", "DEP", "TWR", "GND", "DEL", "ATIS"];
 const byType = (a, b) => TYPE_ORDER.indexOf(a.callsign.split("_").pop()) - TYPE_ORDER.indexOf(b.callsign.split("_").pop()) || a.callsign.localeCompare(b.callsign);
-
-// Czas obserwacji METAR (np. 051630Z) i ile minut temu
-function obsAge(time) {
-  const m = /^(\d{2})(\d{2})(\d{2})Z$/.exec(time || "");
-  if (!m) return null;
-  const now = new Date();
-  let t = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), +m[1], +m[2], +m[3]);
-  if (t - now.getTime() > 86400000) t = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, +m[1], +m[2], +m[3]);
-  return Math.round((now.getTime() - t) / 60000);
-}
 
 function lvpBox(lvp) {
   if (!lvp) return "";
@@ -279,11 +269,14 @@ export default {
     </div>`);
     root.append(pane);
     const $ = (s) => pane.querySelector(s);
+    // lotnisko pełnej strony; ustawienie serwera default_aerodrome tylko wypełnia nim pole ICAO, zanim użytkownik coś
+    // wybierze (pierwsze otwarcie AERODROME to zawsze 0, potem ostatni ekran: initial() niżej)
     let icao = lsGet("aerodrome.icao") || ctx.config.default_aerodrome || "EPWA";
     let timer = null;
-    // widok: PRZEGLĄD (siatka poniżej), AWOS (awos.js) albo RUCH (paski EFES, strips.js); AWOS i RUCH mają własne
-    // zegary sprzątane przy zmianie widoku
-    let view = ["awos", "ruch"].includes(lsGet("aerodrome.view")) ? lsGet("aerodrome.view") : "overview", awos = null, strips = null;
+    // widok: PRZEGLĄD (siatka poniżej), AWOS (awos.js) albo RUCH (paski EFES, dman.js); w adresie: #aerodrome/EPWA,
+    // #aerodrome/EPWA/awos, #aerodrome/EPWA/ruch (krok do cofnięcia). AWOS i RUCH mają własne zegary sprzątane
+    // przy zmianie widoku.
+    let view = "overview", awos = null, strips = null;
     // tryb ekranu: "ov" (0 = OVERVIEW), "list" (lista FIR-u), "page" (lotnisko z bazy: PRZEGLĄD/AWOS/RUCH), "card" (karta)
     let mode = null, state = null, ov = null, list = null, listKey = null, card = null, cardIcao = null;
     const listState = {};   // filtr, wybrany wiersz i przewinięcie każdej listy: ← wraca do listy w tym samym miejscu
@@ -294,7 +287,11 @@ export default {
       adSet = new Set(ads.map((a) => a.icao));
       $("#aero-list").innerHTML = ads.map((a) => `<option value="${esc(a.icao)}">${esc(a.name)}</option>`).join("");
       // otwarte przed wczytaniem listy lotnisko EP spoza bazy (np. EPKX z navdata): karta zamiast pustej strony
-      if (mode === "page" && !adSet.has(icao)) showCard(icao);
+      if (mode === "page" && !adSet.has(icao)) {
+        showCard(icao);
+        state = icao;
+        remember("aerodrome", icao, { replace: true });
+      } else saveLast();
     }).catch((e) => console.warn("Lista lotnisk:", e.message));
     const isPage = (code) => code.startsWith("EP") && (!adSet || adSet.has(code));
 
@@ -407,6 +404,9 @@ export default {
       }
       if (mode === "page" && view === "overview") drawApw();
     };
+    // lądowisko bez pasów w bazie (np. EPGM): wiatru na podejściu nie ma dla czego liczyć, nie pytamy serwera
+    const noRunways = () => !!lastSt && Array.isArray(lastSt.runways) && !lastSt.runways.length;
+    const apwDue = () => Date.now() - awAt > 300000 && !noRunways();
 
     let ticks = 0;
     const load = async () => {
@@ -424,6 +424,7 @@ export default {
         }
         // RUCH nie zależy od statusu lotniska: własne zapytanie, przy braku serwera błąd zamiast "Ładowanie…"
         renderRuch($(".aero-ruch-line"));
+        if (apwDue()) loadApw();   // błąd statusu nie blokuje karty wiatru
         return;
       }
       // w międzyczasie przełączono na AWOS, RUCH, inne lotnisko, listę albo OVERVIEW
@@ -433,12 +434,12 @@ export default {
       $(".upd").textContent = "Aktualizacja " + new Date().toISOString().slice(11, 16) + "Z";
       const clouds = (p.clouds || []).map((c) => `${c.cover}${c.base_ft !== null ? String(c.base_ft / 100).padStart(3, "0") : "///"}${c.type || ""}`).join(" ") || (p.cavok ? "CAVOK" : "NSC");
       const rvr = (p.rvr || []).map((x) => `R${x.runway} ${x.value}`).join("<br>") || "–";
-      const age = obsAge(p.time);
+      const obs = obsInfo(p.time);
       const gust = p.wind_gust ? ` <span class="gust">G${p.wind_gust}</span>` : "";
       $(".aero-errors").innerHTML = st.errors.length ? `<p class="error">${st.errors.map(esc).join("<br>")}</p>` : "";
       $(".metar-head").innerHTML = `
           <div class="wx">${colorize(st.metar)}</div>
-          <div class="obs ${age !== null && age > 70 ? "stale" : ""}">${p.time ? `obs. ${esc(p.time.slice(2, 4))}:${esc(p.time.slice(4, 6))}Z` : ""}${age !== null ? ` · ${age} min temu` : ""}</div>
+          <div class="obs ${obs.stale ? "stale" : ""}">${esc(obs.text)}</div>
           ${sunBox(st.sun)}
           ${lvpBox(st.lvp)}`;
       $(".aero-wind").innerHTML = `${windrose(st)}
@@ -458,7 +459,7 @@ export default {
       $(".aero-rwys").innerHTML = runwayTable(st);
       lastSt = st;
       drawApw();
-      if (Date.now() - awAt > 300000) loadApw();
+      if (apwDue()) loadApw();
       $(".aero-taf").innerHTML = st.taf ? wxLines("taf", st.taf) : colorize(null);
       $(".atis-h").textContent = `ATIS ${st.atis ? st.atis.letter || "" : ""}`;
       $(".aero-atis").innerHTML = st.atis ? `<div class="mono atis-text">${atisHtml(st.atis.lines)}</div>`
@@ -501,11 +502,7 @@ export default {
       $(".upd").textContent = "";
       $(".content").innerHTML = "";
       // wieża wybrana w filtrze: zawsze PRZEGLĄD lotniska, także gdy ostatnio był otwarty AWOS albo RUCH
-      ov = mountOverview($(".content"), { onGoto: (code) => {
-        view = "overview";
-        lsSet("aerodrome.view", view);
-        goto(code);
-      } });
+      ov = mountOverview($(".content"), { onGoto: (code) => goto(code) });
     };
 
     // lista lotnisk FIR-u (aerolist.js); fresh = kliknięta podzakładka: lista od nowa, bez filtra
@@ -533,20 +530,28 @@ export default {
       $(".title").textContent = "";
       $(".upd").textContent = "";
       $(".content").innerHTML = "";
-      card = mountAeroCard($(".content"), code, { onInfo: (d) => {
-        if (d.fir) markSub(d.fir);
-        $(".upd").textContent = "Aktualizacja " + new Date().toISOString().slice(11, 16) + "Z · co minutę";
-      } });
+      card = mountAeroCard($(".content"), code, {
+        onInfo: (d) => {
+          if (d.fir) markSub(d.fir);
+          $(".upd").textContent = "Aktualizacja " + new Date().toISOString().slice(11, 16) + "Z · co minutę";
+          saveLast(true);
+        },
+        onMissing: () => {
+          $(".upd").textContent = "";
+          // zapisany wcześniej nieistniejący kod nie otwiera się więcej na starcie
+          if (lsGet("aerodrome.last") === code) lsSet("aerodrome.last", "0");
+        },
+      });
     };
 
-    // lotnisko z bazy: PRZEGLĄD, AWOS albo RUCH (jak dotąd)
-    const showPage = (code) => {
+    // lotnisko z bazy: PRZEGLĄD, AWOS albo RUCH (jak dotąd; widok z adresu)
+    const showPage = (code, v = "overview") => {
       markSub("EPWW");
       leave();
       setMode("page");
       icao = code;
+      view = v;
       $(".aero-icao").value = icao;
-      lsSet("aerodrome.icao", icao);
       ticks = 0;
       if (awFor !== icao) { aw = null; awErr = ""; awAt = 0; awFor = icao; lastSt = null; }
       pane.querySelectorAll(".aero-view button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
@@ -565,37 +570,53 @@ export default {
         return;
       }
       build();
-      if (Date.now() - awAt > 300000) loadApw();   // niezależnie od /status (błąd statusu nie blokuje karty wiatru)
-      load();
+      load();   // wiatr na podejściu po statusie (load: tylko lotnisko z pasami, także przy błędzie statusu)
       timer = setInterval(load, 60000);
     };
 
-    // ekran wg arg (postać z aeroArg); lotnisko i 0 zapamiętane: menu AERODROME po ponownym uruchomieniu wraca tam
+    // Ostatni ekran (0 albo lotnisko z widokiem) na następne uruchomienie: zapisany dopiero, gdy wiadomo, że lotnisko
+    // istnieje (w bazie albo karta się wczytała), więc literówka (ZZZZ) nie zostaje ekranem startowym.
+    const saveLast = (cardOk = false) => {
+      if (!state || state.startsWith("fir/")) return;
+      const { code } = splitArg(state);
+      if (state === "0" || (mode === "page" && adSet?.has(code)) || (mode === "card" && cardOk && cardIcao === code)) {
+        lsSet("aerodrome.last", state);
+      }
+    };
+    // ekran wg arg (postać z aeroArg); zwraca adres tego, co naprawdę pokazano (karta nie ma widoków AWOS i RUCH)
     const show = (a, opts = {}) => {
-      state = a;
       if (a === "0") showOverview();
       else if (a.startsWith("fir/")) showList(a.slice(4), opts);
-      else if (isPage(a)) showPage(a);
-      else showCard(a);
-      if (!a.startsWith("fir/")) lsSet("aerodrome.last", a);
+      else {
+        const { code, view: v } = splitArg(a);
+        if (isPage(code)) showPage(code, v);
+        else {
+          showCard(code);
+          a = code;
+        }
+      }
+      state = a;
+      saveLast();
+      return a;
     };
-    // zmiana ekranu z wnętrza zakładki (podzakładka, lotnisko z listy, pole ICAO): krok do cofnięcia (←)
+    // zmiana ekranu z wnętrza zakładki (podzakładka, lotnisko z listy, widok, pole ICAO): krok do cofnięcia (←)
     const goto = (arg, opts) => {
-      const a = aeroArg(arg);
+      let a = aeroArg(arg);
       if (!a) {
         $(".title").textContent = `Niepoprawny kod ICAO: ${String(arg ?? "").trim().slice(0, 10)}`;
         return;
       }
-      show(a, opts);
+      a = show(a, opts);
       remember("aerodrome", a);
     };
-    // pierwsze otwarcie z menu: ostatnie lotnisko albo 0 (także z kluczy zapisanych przez wersje do 0.12)
+    // pierwsze otwarcie z menu: ostatni ekran albo 0 (także z kluczy zapisanych przez wersje do 0.12: lotnisko i widok)
     const initial = () => {
       const last = aeroArg(lsGet("aerodrome.last"));
       if (last && !last.startsWith("fir/")) return last;
       if (lsGet("aerodrome.ov") === "1") return "0";
       const old = aeroArg(lsGet("aerodrome.icao"));
-      return old && !old.startsWith("fir/") ? old : "0";
+      const oldView = lsGet("aerodrome.view");
+      return old && !old.startsWith("fir/") ? old + (["awos", "ruch"].includes(oldView) ? "/" + oldView : "") : "0";
     };
 
     sub.addEventListener("click", (e) => {
@@ -607,33 +628,36 @@ export default {
     window.addEventListener(ONLINE_EVENT, () => {
       if (mode !== "page" || view !== "overview" || !$(".notams")) return;
       load();
-      if (awErr) loadApw();
+      if (awErr && !noRunways()) loadApw();
       if ($(".notams .error")) renderNotams($(".notams"));
     });
-    const typed = () => $(".aero-icao").value.trim().toUpperCase();
+    // pole ICAO w pasku: na stronie lotniska zostaje bieżący widok (z RUCH EPWA wpisane EPKK otwiera RUCH EPKK)
+    const typed = () => {
+      const t = $(".aero-icao").value.trim().toUpperCase();
+      return t && /^[A-Z0-9]{4}$/.test(t) && mode === "page" && view !== "overview" ? `${t}/${view}` : t;
+    };
     $(".go").addEventListener("click", () => typed() && goto(typed()));
+    // PRZEGLĄD / AWOS / RUCH: krok w historii (← wraca do poprzedniego widoku tego lotniska)
     const setView = (v) => {
-      if (v === view) return;
-      view = v;
-      lsSet("aerodrome.view", view);
-      showPage(icao);
+      if (v === view && mode === "page") return;
+      goto(v === "overview" ? icao : `${icao}/${v}`);
     };
     $(".aero-view").addEventListener("click", (e) => {
       const b = e.target.closest("button[data-view]");
       if (b) setView(b.dataset.view);
     });
     $(".aero-icao").addEventListener("keydown", (e) => e.key === "Enter" && typed() && goto(typed()));
-    $(".aero-icao").addEventListener("change", () => typed() && typed() !== (mode === "card" ? cardIcao : icao) && goto(typed()));
+    $(".aero-icao").addEventListener("change", () => typed() && aeroArg(typed()) !== state && goto(typed()));
 
     // arg: undefined = przycisk AERODROME w menu (ekran zostaje), napis = adres (←, Wstecz, odnośnik z innej zakładki).
     // AWOS tego lotniska zostaje (wybrany pas, nakładka, wykrywanie nowej litery ATIS); RUCH tego lotniska zostaje
     // (zaznaczony pasek, przewinięcie zatok) i tylko wznawia odświeżanie co 30 s; lista dostaje kursor w wyszukiwarce.
     return { activate: (arg) => {
-      const a = (arg ? aeroArg(arg) : null) || (arg ? "0" : state || initial());
+      let a = (arg ? aeroArg(arg) : null) || (arg ? "0" : state || initial());
       if (a === state && mode === "page" && strips) strips.resume();
       else if (a === state && mode === "page" && awos) { /* AWOS bez zmian */ }
       else if (a === state && mode === "list" && list) list.focus();
-      else show(a);
+      else a = show(a);
       remember("aerodrome", a);
     } };
   },

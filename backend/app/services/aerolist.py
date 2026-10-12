@@ -2,7 +2,10 @@
 i stanowiska lotniska do karty lotniska zagranicznego.
 
 Lotniska: navdata (data/import/icao.txt, tabela nav_points, source "icao") uzupełnione o data/seed/airports.csv
-(tabela aerodromes, tylko EP). Nazwy WIELKIMI LITERAMI bez polskich znaków, jak w PANDORZE (np. "GDANSK LECH WALESA").
+(tabela aerodromes, tylko EP) i o kilka lądowisk z listy PANDORY (EP_EXTRA). Nazwy WIELKIMI LITERAMI bez polskich
+znaków, jak w PANDORZE (np. "GDANSK LECH WALESA"). Lądowiska śmigłowców przy szpitalach i platformy morskie są pomijane.
+Każde lotnisko ma rank (0 główne lotnisko miasta, 1 ze stanowiskami ATC, 2 pozostałe): przy kilku trafieniach
+wyszukiwarki Enter otwiera to ważniejsze ("warszawa" → EPWA, nie EPBC), oraz alias (inne nazwy do wyszukiwania).
 
 Przypisanie do FIR-u (Marek, 12.10.2026: "dla Niemiec ED oddzielnie i wojskowe ET oddzielnie"):
 EP* → EPWW, ES* → ESAA, ED* → ED (cywilne), ET* → ET (wojskowe), LK* → LKAA, LZ* → LZBB, UMK* → UMKK,
@@ -17,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import Aerodrome, NavPoint
+from .positions import all_positions
 from .vatsim import FACILITY_TYPES, controller_info, fir_boundaries, match_positions
 
 # kolejność podzakładek AERODROME (po "0" = OVERVIEW)
@@ -30,16 +34,57 @@ FIR_LABELS = {
 _PREFIX_FIR = (("UMK", "UMKK"), ("EP", "EPWW"), ("ES", "ESAA"), ("ED", "ED"), ("ET", "ET"), ("LK", "LKAA"),
                ("LZ", "LZBB"), ("UM", "UMMV"), ("EY", "EYVL"))
 
-# Miasto przed nazwą z navdata, gdy navdata podaje samą dzielnicę albo patrona (EPKK "BALICE", EPGD "LECH WALESA"):
-# lista wyszukuje wtedy także po mieście ("KRAKOW", "GDANSK"). Jak w AIP: MIASTO NAZWA.
-PL_CITY = {
+# Miasto przed nazwą z navdata, gdy navdata podaje samą dzielnicę albo patrona (EPKK "BALICE", EPGD "LECH WALESA",
+# LKPR "RUZYNE", ESSA "ARLANDA"): lista wyszukuje wtedy także po mieście ("KRAKOW", "PRAHA"). Jak w AIP: MIASTO NAZWA.
+CITY = {
     "EPWA": "WARSZAWA", "EPBC": "WARSZAWA", "EPMO": "WARSZAWA", "EPKK": "KRAKOW", "EPKC": "KRAKOW",
     "EPKP": "KRAKOW", "EPKT": "KATOWICE", "EPKM": "KATOWICE", "EPGD": "GDANSK", "EPOK": "GDYNIA",
     "EPPO": "POZNAN", "EPKS": "POZNAN", "EPPK": "POZNAN", "EPWR": "WROCLAW", "EPRZ": "RZESZOW",
     "EPSC": "SZCZECIN", "EPSD": "SZCZECIN", "EPZG": "ZIELONA GORA", "EPOD": "OLSZTYN", "EPKA": "KIELCE",
     "EPBA": "BIELSKO-BIALA", "EPKW": "BIELSKO-BIALA", "EPBK": "BIALYSTOK", "EPGI": "GRUDZIADZ",
     "EPLR": "LUBLIN", "EPOP": "OPOLE", "EPKN": "OPOLE", "EPNL": "NOWY SACZ", "EPRG": "RYBNIK",
+    "ESSA": "STOCKHOLM", "ESSB": "STOCKHOLM", "ESGG": "GOTEBORG", "ESGP": "GOTEBORG",
+    "EDDT": "BERLIN", "EDDI": "BERLIN",
+    "LKPR": "PRAHA", "LKKB": "PRAHA", "LKLT": "PRAHA", "LKTB": "BRNO", "LKCM": "BRNO", "LKMT": "OSTRAVA",
+    "LZIB": "BRATISLAVA", "LZTT": "POPRAD", "UMKK": "KALININGRAD", "EYKS": "KAUNAS",
 }
+PL_CITY = {k: v for k, v in CITY.items() if k.startswith("EP")}
+
+# Inne nazwy tylko do wyszukiwania (nie na liście): polskie nazwy miast za granicą i nazwy w języku kraju tam,
+# gdzie navdata ma angielską ("PRAGA", "LWOW", "MUENCHEN" dla MUNICH, "KOELN" dla COLOGNE-BONN).
+ALIAS = {
+    "LKPR": ("PRAGA", "PRAGUE"), "LKKB": ("PRAGA",), "LKLT": ("PRAGA",), "LZIB": ("BRATYSLAWA",),
+    "LZKZ": ("KOSZYCE",), "UMKK": ("KROLEWIEC",), "EYVI": ("WILNO",), "EYKA": ("KOWNO",), "EYKS": ("KOWNO",),
+    "UMBB": ("BRZESC",), "UMMG": ("GRODNO",), "UMGG": ("GOMEL",), "UMII": ("WITEBSK", "VITEBSK"),
+    "UMOO": ("MOHYLEW", "MOGILEV"), "UMIO": ("ORSZA",), "UMMS": ("MINSK",),
+    "UKLL": ("LWOW", "LVOV", "LEMBERG"), "UKMC": ("LWOW",), "UKLI": ("STANISLAWOW",), "UKLR": ("ROWNE",),
+    "UKLU": ("UZHOROD", "UZHGOROD"), "UKLN": ("CZERNIOWCE",), "UKLT": ("TARNOPOL",), "UKLC": ("LUCK",),
+    "UKLK": ("LUCK",), "UKLH": ("CHMIELNICKI",),
+    "EDDM": ("MUENCHEN", "MONACHIUM"), "EDDK": ("KOELN", "KOLONIA"), "EDDN": ("NORYMBERGA",),
+    "EDDP": ("LIPSK",), "EDDC": ("DREZNO",), "EDDV": ("HANOWER",), "EDDW": ("BREMA",),
+    "ESSA": ("SZTOKHOLM",), "ESSB": ("SZTOKHOLM",), "ESGG": ("GOTHENBURG",),
+}
+
+# Główne lotnisko miasta: przy kilku trafieniach (np. "warszawa": EPBC, EPMO, EPWA) Enter otwiera to (rank 0).
+# Pozostałe lotniska ze stanowiskami ATC w danych mają rank 1, reszta (VFR) rank 2.
+MAIN = frozenset((
+    "EPWA", "EPKK", "EPGD", "EPKT", "EPWR", "EPPO", "EPRZ", "EPSC", "EPLL", "EPLB", "EPBY", "EPZG", "EPSY",
+    "ESSA", "ESGG", "ESMS", "ESPA", "ESNU",
+    "EDDB", "EDDF", "EDDM", "EDDH", "EDDK", "EDDL", "EDDS", "EDDN", "EDDP", "EDDC", "EDDV", "EDDW", "EDDE",
+    "EDDG", "EDDR",
+    "LKPR", "LKTB", "LKMT", "LKKV", "LZIB", "LZKZ", "LZTT", "UMKK", "EYVI", "EYKA", "EYPA", "UMMS", "UKLL",
+))
+
+# lotniska wojskowe spoza EP i ET (EP: airports.csv "Military"/"Air Base", ET: wszystkie)
+MIL = frozenset(("ESCF", "ESCM", "ESDF", "ESIB", "ESPE", "LKCV", "LKNA", "LKKB", "LZSL", "LZMC", "EYSA"))
+
+# Nie lotniska, tylko lądowiska śmigłowców przy szpitalach i platformy na morzu (Szwecja ma ich kilkadziesiąt):
+# pomijane na listach (otworzyć je można dalej, wpisując ICAO)
+_HELI = re.compile(r"SJUKHUS|LASARETT|HELIKOPTER|KLINIK|KRANKENHAUS|HOSPITAL|HELIPORT|KRIEGERS FLAK|MEERWIND")
+HELI = frozenset(("ESHG", "ESEG"))   # STOCKHOLM/GAMLA STAN, GALLIVARE/VASSARA
+
+# Lądowiska z listy PANDORY (zdjęcie od Marka, 12.10.2026), których nie ma w navdata ani w airports.csv
+EP_EXTRA = {"EPGB": "GOLUBIE", "EPGN": "GLINIANY LAS", "EPGO": "GORASZKA", "EPGW": "ULIM"}
 
 # lotniska z samego airports.csv: bez słów ogólnych ("Airfield", "Military Air Base")
 _GENERIC = re.compile(r"\b(INTERNATIONAL|AIRPORT|AIRFIELD|AIRSTRIP|GLIDER FIELD|FIELD|MILITARY|NAVAL|AIR BASE|PRIVATE)\b")
@@ -67,9 +112,9 @@ def csv_name(name: str | None) -> str:
 
 
 def display_name(icao: str, nav_name: str | None, csv: str | None = None) -> str:
-    """Nazwa z navdata (jak w PANDORZE), bez niej z airports.csv; dla części lotnisk EP z miastem z przodu."""
+    """Nazwa z navdata (jak w PANDORZE), bez niej z airports.csv; dla części lotnisk z miastem z przodu."""
     name = fold(nav_name) if nav_name and nav_name.strip() else csv_name(csv) if csv else ""
-    city = PL_CITY.get(icao)
+    city = CITY.get(icao)
     if city and name and city not in name:
         name = f"{city} {name}"
     return name
@@ -121,8 +166,9 @@ def fir_key(icao: str, lat: float | None = None, lon: float | None = None, uklv:
 
 
 def kind_of(icao: str, nav_name: str | None, csv: Aerodrome | None) -> str | None:
-    """MIL dla lotnisk wojskowych (ET*, w airports.csv "Military"/"Air Base", w navdata "... AB"), inaczej None."""
-    if icao.startswith("ET"):
+    """MIL dla lotnisk wojskowych (ET*, znane bazy w innych FIR-ach, w airports.csv "Military"/"Air Base",
+    w navdata "... AB"), inaczej None."""
+    if icao.startswith("ET") or icao in MIL:
         return "MIL"
     if csv is not None and _MIL_CSV.search(fold(csv.name)):
         return "MIL"
@@ -131,9 +177,20 @@ def kind_of(icao: str, nav_name: str | None, csv: Aerodrome | None) -> str | Non
     return None
 
 
+def is_heliport(icao: str, name: str | None) -> bool:
+    return icao in HELI or bool(_HELI.search(fold(name)))
+
+
+def entry(icao: str, name: str, kind: str | None, lat, lon, atc: set[str] | frozenset = frozenset()) -> dict:
+    """Wiersz listy: rank 0 = główne lotnisko miasta, 1 = ze stanowiskami ATC, 2 = pozostałe; alias = inne nazwy."""
+    return {"icao": icao, "name": name, "kind": kind, "rank": 0 if icao in MAIN else 1 if icao in atc else 2,
+            "alias": list(ALIAS.get(icao, ())), "lat": lat, "lon": lon}
+
+
 def build_lists(nav: list[tuple[str, str | None, float, float]], csv: list[Aerodrome],
-                uklv: list[list] | None = None) -> dict[str, list[dict]]:
-    """Wszystkie listy naraz: {klucz FIR: [{icao, name, kind, lat, lon}]} posortowane po ICAO, bez powtórzeń."""
+                uklv: list[list] | None = None, atc: set[str] | frozenset = frozenset()) -> dict[str, list[dict]]:
+    """Wszystkie listy naraz: {klucz FIR: [{icao, name, kind, rank, alias, lat, lon}]} po ICAO, bez powtórzeń
+    i bez lądowisk śmigłowców. atc: lotniska, które mają stanowiska w danych (do rank)."""
     rings = uklv_polygons() if uklv is None else uklv
     by_csv = {a.icao.upper(): a for a in csv}
     seen: dict[str, dict] = {}
@@ -142,15 +199,16 @@ def build_lists(nav: list[tuple[str, str | None, float, float]], csv: list[Aerod
         if icao in seen or not fir_key(icao, lat, lon, rings):
             continue
         a = by_csv.get(icao)
-        seen[icao] = {"icao": icao, "name": display_name(icao, name, a.name if a else None),
-                      "kind": kind_of(icao, name, a), "lat": lat, "lon": lon}
+        seen[icao] = entry(icao, display_name(icao, name, a.name if a else None), kind_of(icao, name, a), lat, lon, atc)
     for icao, a in by_csv.items():   # lotniska tylko z airports.csv (EPGM, EPKB, EPNA…)
         if icao not in seen and fir_key(icao, a.lat, a.lon, rings):
-            seen[icao] = {"icao": icao, "name": display_name(icao, None, a.name), "kind": kind_of(icao, None, a),
-                          "lat": a.lat, "lon": a.lon}
+            seen[icao] = entry(icao, display_name(icao, None, a.name), kind_of(icao, None, a), a.lat, a.lon, atc)
+    for icao, name in EP_EXTRA.items():
+        seen.setdefault(icao, entry(icao, name, None, None, None, atc))
     out: dict[str, list[dict]] = {k: [] for k in FIR_KEYS}
     for icao in sorted(seen):
-        out[fir_key(icao, seen[icao]["lat"], seen[icao]["lon"], rings)].append(seen[icao])
+        if not is_heliport(icao, seen[icao]["name"]):
+            out[fir_key(icao, seen[icao]["lat"], seen[icao]["lon"], rings)].append(seen[icao])
     return out
 
 
@@ -165,12 +223,13 @@ def fir_lists(db: Session) -> dict[str, list[dict]]:
     if _cache["lists"] is None or _cache["sig"] != sig or time.monotonic() - _cache["t"] > _TTL:
         nav = db.execute(select(NavPoint.ident, NavPoint.name, NavPoint.lat, NavPoint.lon)
                          .where(NavPoint.kind == "AD", NavPoint.source == "icao")).all()
-        _cache.update(sig=sig, t=time.monotonic(), lists=build_lists(nav, list(db.scalars(select(Aerodrome)))))
+        _cache.update(sig=sig, t=time.monotonic(),
+                      lists=build_lists(nav, list(db.scalars(select(Aerodrome))), atc=atc_airports(all_positions(db))))
     return _cache["lists"]
 
 
 def airport_entry(db: Session, icao: str) -> dict | None:
-    """Lotnisko z list FIR-ów, a spoza nich z navdata albo airports.csv (bez przypisanego FIR-u)."""
+    """Lotnisko z list FIR-ów, a spoza nich z navdata albo airports.csv (lądowiska śmigłowców, inne FIR-y)."""
     icao = icao.upper()
     for lst in fir_lists(db).values():
         hit = next((a for a in lst if a["icao"] == icao), None)
@@ -180,12 +239,20 @@ def airport_entry(db: Session, icao: str) -> dict | None:
                      .where(NavPoint.kind == "AD", NavPoint.ident == icao).limit(1)).first()
     a = db.get(Aerodrome, icao)
     if nav:
-        return {"icao": icao, "name": display_name(icao, nav.name, a.name if a else None), "kind": kind_of(icao, nav.name, a),
-                "lat": nav.lat, "lon": nav.lon}
+        return entry(icao, display_name(icao, nav.name, a.name if a else None), kind_of(icao, nav.name, a), nav.lat, nav.lon)
     if a:
-        return {"icao": icao, "name": display_name(icao, None, a.name), "kind": kind_of(icao, None, a),
-                "lat": a.lat, "lon": a.lon}
+        return entry(icao, display_name(icao, None, a.name), kind_of(icao, None, a), a.lat, a.lon)
     return None
+
+
+def atc_airports(positions: list[dict]) -> set[str]:
+    """Lotniska, które mają w danych stanowisko APP, TWR, GND, DEL albo ATIS (np. EDDB_N_TWR → EDDB)."""
+    out = set()
+    for p in positions:
+        cs = (p.get("callsign") or "").upper()
+        if _type(cs, cs.split("_")[0]):
+            out.add(cs.split("_")[0])
+    return out
 
 
 # --- stanowiska lotniska: APP, TWR, GND, DEL, ATIS ----------------------------------------------------------------

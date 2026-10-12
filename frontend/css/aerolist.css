@@ -19,9 +19,10 @@
 .alist-legend { white-space: nowrap; }
 .alist-legend .ab { font-size: 10px; line-height: 14px; }
 
-.alist-box { flex: 1; min-height: 0; overflow-y: auto; background: #000; border: 1px solid var(--line); }
-.alist-cols { column-gap: 0; column-rule: 1px solid #1c211c; }
-.alist-row { display: flex; align-items: baseline; gap: 14px; padding: 2px 12px; break-inside: avoid; cursor: pointer;
+.alist-box { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; background: #000; border: 1px solid var(--line); }
+/* kolumny i bloki wysokości okienka rozmieszcza aerolist.js (blockLayout): kolejność czytania = kolejność przewijania */
+.alist-cols { display: grid; grid-auto-rows: auto; column-gap: 0; }
+.alist-row { display: flex; align-items: baseline; gap: 14px; padding: 2px 12px; min-width: 0; cursor: pointer;
   font: 16px/1.35 var(--mono); white-space: nowrap; color: #dfe4df; }
 .alist-row[hidden], .alist-msg[hidden] { display: none; }
 .alist-row.odd { background: #171a17; }
@@ -33,7 +34,10 @@
 .alist-atc .ab { font-size: 10px; line-height: 14px; min-width: 13px; }
 .alist-row.on b { color: var(--green-hi); }
 .alist-row:hover { background: var(--row-hover); }
+.alist-row.cn { border-left: 1px solid #1c211c; }
+.alist-row.blk { box-shadow: inset 0 1px 0 #3c453c; }                 /* początek kolejnego bloku */
 .alist-row.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--green-hi); color: #fff; }
+.alist-row.sel.blk { box-shadow: inset 3px 0 0 var(--green-hi), inset 0 1px 0 #3c453c; }
 .alist-msg { padding: 10px 14px; font-size: 14px; }
 .alist-msg b { color: #fff; }
 
@@ -64,6 +68,9 @@ table.data.acard-pos td { padding: 4px 10px; vertical-align: middle; }
 .acard-cs { font: 700 14px var(--mono); }
 .acard-pn { display: block; color: var(--muted); font: 11px var(--mono); }
 .acard-st b { color: var(--green-hi); }
+.acard-unk { color: var(--muted); font-style: italic; }
+.acard-missing { margin: 30px auto; padding: 16px 24px; max-width: 760px; border: 1px solid var(--line); font-size: 16px; }
+.acard-missing b { color: #fff; }
 .acard-st b.acard-letter { color: #000; background: var(--yellow); padding: 0 5px; }
 .acard-atis-one + .acard-atis-one { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
 .acard-atis-one .hint { margin-bottom: 3px; }

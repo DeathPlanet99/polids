@@ -45,11 +45,13 @@ def list_aerodromes(q: str = "", db: Session = Depends(get_db)):
 @router.get("/fir/{key}")
 def fir_list(key: str, db: Session = Depends(get_db)):
     """Lotniska FIR-u do podzakładek AERODROME (EPWW, ESAA, ED, ET, LKAA, LZBB, UMKK, EYVL, UMMV, UKLV), także VFR
-    i wojskowe: [{icao, name, kind}] po ICAO, nazwy WIELKIMI LITERAMI (kind "MIL" albo null)."""
+    i wojskowe: [{icao, name, kind, rank, alias}] po ICAO, nazwy WIELKIMI LITERAMI (kind "MIL" albo null; rank 0 =
+    główne lotnisko miasta, 1 = ze stanowiskami ATC, 2 = pozostałe; alias = inne nazwy do wyszukiwania)."""
     k = key.upper()
     if k not in FIR_KEYS:
         raise HTTPException(404, f"Nie znam listy lotnisk {key[:8]}")
-    return [{"icao": a["icao"], "name": a["name"], "kind": a["kind"]} for a in fir_lists(db)[k]]
+    return [{"icao": a["icao"], "name": a["name"], "kind": a["kind"], "rank": a["rank"], "alias": a["alias"]}
+            for a in fir_lists(db)[k]]
 
 
 @router.get("/{icao}/card")
@@ -85,7 +87,7 @@ async def card(icao: str, db: Session = Depends(get_db)):
     return {
         "icao": code, "name": entry["name"] if entry else code, "kind": entry["kind"] if entry else None,
         "fir": fir, "fir_label": FIR_LABELS.get(fir), "lat": lat, "lon": lon,
-        "elevation_ft": ad.elevation_ft if ad else None, "full_page": ad is not None,
+        "elevation_ft": ad.elevation_ft if ad else None,
         "metar": metar, "parsed": parse_metar(metar).to_dict() if metar else None, "taf": taf,
         "positions": positions, "network_error": net_error, "updated": updated, "errors": errors,
     }
