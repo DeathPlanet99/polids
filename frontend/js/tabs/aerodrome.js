@@ -319,17 +319,21 @@ export default {
         // częstotliwości FIS (Information) są w RADIO (warstwa FIS); informacja lotniskowa (np. EPBC) zostaje
         const ps = info.atc_positions.filter((p) => !(/information/i.test(p.name) && /_(APP|CTR)$/.test(p.callsign))).sort(byType);
         const extra = Object.keys(bookings).filter((cs) => cs.startsWith(icao + "_") && !ps.some((p) => p.callsign === cs));
+        // nazwa stacji najwyżej tak szeroka jak najdłuższa w panelu: imiona i godziny rezerwacji w jednej kolumnie tuż za nią
+        el.style.setProperty("--nm-w", `${Math.max(0, ...ps.map((p) => (p.name || "").length))}ch`);
         el.innerHTML = (ps.map((p) => {
           const on = online[p.callsign], books = bookings[p.callsign] || [];
           const cls = on ? "on" : books.length ? "booked" : "";
           const tip = positionTip(on, books);
+          // pos-txt: znak, nazwa stacji i kto (imię i nazwisko albo rezerwacja); przy braku miejsca kto schodzi pod znak (style.css)
           return `<div class="radio-row ${cls}" ${tip ? `data-tip="${esc(tip)}"` : ""}><span class="freq ${cls}">${esc(p.frequency)}</span>
-            <span class="cs">${esc(p.callsign)}</span><span class="nm" title="${esc(p.name)}">${esc(p.name)}</span>
-            ${on ? `<b class="who">${esc(on.name || "")}</b>` : books.length ? `<span class="booked-txt">${hhmm(books[0].start)}–${hhmm(books[0].end)}</span>` : ""}</div>`;
+            <span class="pos-txt"><span class="cs">${esc(p.callsign)}</span><span class="nm" title="${esc(p.name)}">${esc(p.name)}</span>
+            ${on ? `<b class="who">${esc(on.name || "")}</b>` : books.length ? `<span class="booked-txt">${hhmm(books[0].start)}–${hhmm(books[0].end)}</span>` : ""}</span></div>`;
         }).join("") || info.frequencies.map((x) => `<div class="radio-row"><span class="freq">${esc(x.mhz)}</span><span class="nm">${esc(x.kind)} ${esc(x.description)}</span></div>`).join("")
           || `<span class="hint">Brak danych</span>`)
-          + extra.map((cs) => `<div class="radio-row booked" data-tip="${esc(positionTip(null, bookings[cs]))}"><span class="freq booked">-</span><span class="cs">${esc(cs)}</span>
-            <span class="booked-txt">${hhmm(bookings[cs][0].start)}–${hhmm(bookings[cs][0].end)}</span></div>`).join("")
+          + extra.map((cs) => `<div class="radio-row booked" data-tip="${esc(positionTip(null, bookings[cs]))}"><span class="freq booked">-</span>
+            <span class="pos-txt"><span class="cs">${esc(cs)}</span><span class="nm"></span>
+            <span class="booked-txt">${hhmm(bookings[cs][0].start)}–${hhmm(bookings[cs][0].end)}</span></span></div>`).join("")
           + `<p class="hint">${msg}</p>`;
       };
       draw();
