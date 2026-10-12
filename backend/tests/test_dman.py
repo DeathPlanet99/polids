@@ -181,15 +181,47 @@ def test_cad_info(monkeypatch):
         return [{"icao": "EPWA", "rate": 34, "taxiTime": 15, "isCdm": True, "config": "11"}, {"icao": "EPKK", "rate": -1}]
 
     monkeypatch.setattr(viff, "_get", fake_get)
-    assert asyncio.run(viff.cad_info("epwa")) == {"rate": 34, "taxi": 15, "cdm": True, "config": "11"}
-    assert asyncio.run(viff.cad_info("EPKK")) == {"rate": None, "taxi": None, "cdm": False, "config": None}
+    monkeypatch.setattr(viff, "_cad", {"failed": 0.0, "task": None})
+    assert asyncio.run(viff.cad_info("epwa")) == {"rate": 34, "taxi": 15}
+    assert asyncio.run(viff.cad_info("EPKK")) == {"rate": None, "taxi": None}
     assert asyncio.run(viff.cad_info("EPGD")) is None
 
+    calls = []
+
     async def down(path, params=None, ttl=None):
+        calls.append(path)
         raise UpstreamError("timeout")
 
     monkeypatch.setattr(viff, "_get", down)
     assert asyncio.run(viff.cad_info("EPWA")) is None
+    # po błędzie vIFF nie jest pytany ponownie przez CAD_MISS_S (każde odświeżenie RUCH nie czeka na timeout)
+    assert asyncio.run(viff.cad_info("EPWA")) is None and calls == ["/etfms/getCadAirports"]
+
+
+def test_cad_info_wait_limit(monkeypatch):
+    import time
+
+    state = {"delay": 0.5}
+
+    async def slow_get(path, params=None, ttl=None):
+        await asyncio.sleep(state["delay"])
+        return [{"icao": "EPWA", "rate": 30, "taxiTime": 12}]
+
+    monkeypatch.setattr(viff, "_get", slow_get)
+    monkeypatch.setattr(viff, "_cad", {"failed": 0.0, "task": None})
+
+    async def run():
+        t0 = time.monotonic()
+        first = await viff.cad_info("EPWA", wait=0.1)          # nie czeka dłużej niż wait
+        took = time.monotonic() - t0
+        skipped = await viff.cad_info("EPWA", wait=0.1)        # przekroczenie czasu = przerwa w pytaniu
+        await asyncio.sleep(0.6)                               # zapytanie w tle kończy się i kasuje przerwę
+        state["delay"] = 0
+        return first, took, skipped, await viff.cad_info("EPWA", wait=0.1)
+
+    first, took, skipped, later = asyncio.run(run())
+    assert first is None and took < 0.4 and skipped is None
+    assert later == {"rate": 30, "taxi": 12}
 
 
 def test_viff_departure_taxi():
@@ -212,6 +244,8 @@ def client(monkeypatch):
         return {}
 
     asked = []
+    # ELDT z vIFF za 40 min od teraz (stała godzina zależałaby od pory uruchomienia testów)
+    eta = (datetime.now(timezone.utc) + timedelta(minutes=40)).strftime("%H%M")
 
     async def fake_get(path, params=None, ttl=None):
         if path == "/ifps/depAirport":
@@ -222,7 +256,7 @@ def client(monkeypatch):
             return [{"icao": "EPWA", "rate": 34, "taxiTime": 15, "isCdm": True}]
         if path == "/ifps/callsign":
             asked.append(params["callsign"])
-            return {"callsign": params["callsign"], "arrival": "EPWA", "eta": "1300"} if params["callsign"] == "ATADEP" else None
+            return {"callsign": params["callsign"], "arrival": "EPWA", "eta": eta} if params["callsign"] == "ATADEP" else None
         raise AssertionError(path)
 
     monkeypatch.setattr(aerodromes, "get_feed", feed)
@@ -230,8 +264,9 @@ def client(monkeypatch):
     monkeypatch.setattr(aerodromes, "get_tafs", tafs)
     monkeypatch.setattr(viff, "_get", fake_get)
     monkeypatch.setattr(viff, "_eta_miss", {})
+    monkeypatch.setattr(viff, "_cad", {"failed": 0.0, "task": None})
     with TestClient(main.app) as c:
-        c.asked = asked
+        c.asked, c.eta = asked, eta
         yield c
 
 
@@ -250,13 +285,41 @@ def test_strips_endpoint_dman(client):
     assert (gate["callsign"], gate["registration"], gate["viff"]["taxi"], gate["viff"]["tsat"]) == ("GATE1", "SPLVA", 12, "1215")
 
     d = client.get("/api/aerodromes/EPWA/strips?dman=1").json()
-    assert d["cad"] == {"rate": 34, "taxi": 15, "cdm": True, "config": None}
+    assert d["cad"] == {"rate": 34, "taxi": 15}
     # pytamy o przyloty w powietrzu i na ziemi na lotnisku odlotu, nie o te po lądowaniu
     assert sorted(client.asked) == ["ATADEP", "INB1", "INB2"]
     arr = {s["callsign"]: s for s in d["arrivals"]}
-    assert (arr["ATADEP"]["eldt"], arr["ATADEP"]["eldt_source"]) == ("1300", "vIFF")
+    assert (arr["ATADEP"]["eldt"], arr["ATADEP"]["eldt_source"]) == (client.eta, "vIFF")
     assert arr["LANDED"]["eldt"] is None and arr["INB2"]["eldt_source"] == "POS"
     assert client.get("/api/aerodromes/XXXX/strips?dman=1").status_code == 404
+
+
+def test_strips_dman_not_slower_when_viff_down(client, monkeypatch):
+    """vIFF nie odpowiada (każde zapytanie po czasie kończy się błędem): ?dman=1 nie może czekać dłużej niż zwykłe paski
+    (ustawienia A-CDM równolegle z odlotami, bez pytania o ELDT każdego przylotu po błędzie vIFF)."""
+    import time
+
+    calls = []
+
+    async def dead_get(path, params=None, ttl=None):
+        calls.append(path)
+        await asyncio.sleep(0.6)
+        raise UpstreamError("api.viffsys.com: timeout")
+
+    monkeypatch.setattr(viff, "_get", dead_get)
+    t0 = time.monotonic()
+    plain = client.get("/api/aerodromes/EPWA/strips").json()
+    t_plain = time.monotonic() - t0
+    t0 = time.monotonic()
+    d = client.get("/api/aerodromes/EPWA/strips?dman=1").json()
+    t_dman = time.monotonic() - t0
+    assert plain["viff_error"] and d["viff_error"] and d["cad"] is None
+    assert "/ifps/callsign" not in calls
+    assert t_dman < t_plain + 0.35, (t_plain, t_dman)
+    # kolejne odświeżenie: ustawienia A-CDM nie są pytane ponownie po błędzie
+    calls.clear()
+    client.get("/api/aerodromes/EPWA/strips?dman=1")
+    assert "/etfms/getCadAirports" not in calls
 
 
 # --- frontend -----------------------------------------------------------------------------------------------------
@@ -291,6 +354,15 @@ const t3 = core.depTimes({ eobt: "1230", viff: null, state: "ground" }, now, 12)
 const t4 = core.depTimes({ viff: { tsat: "1150", ctot: "1220" }, state: "ground", groundspeed: 8 }, now);
 const t5 = core.depTimes({ viff: { tsat: "1150", atot: "1158" }, state: "air" }, now);
 out.dep = [t1, t2, t3, t4, t5].map((t) => [t.tsatSrc, t.tsat, t.ttotSrc, t.ttot, t.late]);
+out.etot = [t1, t2, t3, t5].map((t) => [t.etotBase, t.etot, t.offBlock]);
+// za dużo etykiet na wysokość: odpadają najpóźniejsze
+out.over = [...core.overflow([{ t: 5, h: 10 }, { t: 1, h: 10 }, { t: 3, h: 10 }], 21, 1)];
+out.overNone = core.overflow([{ t: 5, h: 10 }, { t: 1, h: 10 }], 21, 1).size;
+// kolory punktów wejścia spoza listy lotniska: stałe dla nazwy, bez kolorów punktów STAR lotniska
+const iafC = core.fixColors("EPGD", ["ABC", "DEF"]);
+out.fixc = [core.fixColor("VAMPU", iafC), core.fixColor("VAMPU", iafC), core.fixColor("ABC", iafC) === iafC.ABC,
+  core.fixColor(null, iafC) === core.OTHER_COLOR, Object.values(iafC).includes(core.fixColor("VAMPU", iafC)),
+  core.EXTRA_COLORS.includes(core.fixColor("RUDKA", {}))];
 out.colors = [core.fixColors("EPWA", ["AGAVA", "BIMPA", "LIMVI", "LOGDA", "NEPOX", "SORIX"]).SORIX, core.fixColors("EPKK", ["ABC", "DEF"]),
   core.fixOrder("EPWA", ["AGAVA", "BIMPA", "LIMVI", "LOGDA", "NEPOX", "SORIX"])];
 console.log(JSON.stringify(out));
@@ -344,10 +416,18 @@ def test_time_helpers_and_departure_times(js):
     assert t5[2:4] == ["ATOT", -120]
 
 
+def test_etot_and_overflow(js):
+    # ETOT = (AOBT albo TSAT/TOBT/EOBT) + kołowanie: ta sama wartość w tabeli i na drabinie TTOT
+    assert js["etot"] == [["TSAT", 0, False], ["AOBT", 60, True], ["EOBT", 1800 + 720, False], ["TSAT", 0, True]]
+    assert js["over"] == [0] and js["overNone"] == 0
+
+
 def test_fix_colors(js):
     epwa, other, order = js["colors"]
     assert epwa == "#d8902c" and set(other) == {"ABC", "DEF"} and other["ABC"] != other["DEF"]
     assert order == ["SORIX", "NEPOX", "BIMPA", "LIMVI", "AGAVA", "LOGDA"]   # jak przyciski w oknie ACC
+    vampu, again, known, other, clash, extra = js["fixc"]
+    assert vampu == again and vampu.startswith("#") and known and other and not clash and extra
 
 
 def test_strip_tab_and_ruch_wiring():
@@ -357,7 +437,14 @@ def test_strip_tab_and_ruch_wiring():
     assert "subtabs(" in strip and "mountStrips(" in strip and 'remember("strip"' in strip and 'lsGet("strip.icao")' in strip
     dm = (FRONTEND / "js" / "dman.js").read_text("utf-8")
     assert "export function mountDman(" in dm and "strips?dman=1" in dm and 'navigate("map"' in dm
-    # STRIP i AERODROME › RUCH: paski EFES tylko w zakładce STRIP
+    # STRIP i AERODROME › RUCH: paski EFES tylko w zakładce STRIP; PASKI tylko dla lotnisk z podzakładką w STRIP
     assert "import { mountStrips" not in dm and "mountStrips(" not in dm
+    assert "STRIP_AIRPORTS.includes(icao)" in dm and "Paski tylko dla 15 głównych lotnisk" in dm
+    # widok DMAN/AMAN ↔ AMAN w adresie AERODROME (#aerodrome/EPWA/aman): kliknięcie = krok do cofnięcia
+    ad = (FRONTEND / "js" / "tabs" / "aerodrome.js").read_text("utf-8")
+    assert "onView?.(v, {})" in dm and "onView?.(st.view, { replace: true })" in dm and "setView(v) {" in dm
+    assert "remember(\"aerodrome\", `${code}/${v}`, o)" in ad and "strips.setView(rv)" in ad and "DMAN/AMAN ›" in ad
+    # nieznany typ samolotu: "–", nie "null"
+    assert 'R("AC TYPE", acType(s))' in dm and 'R("AC TYPE", s.aircraft' not in dm
     for css in ("dman.css", "strips.css"):
         assert f"css/{css}" in (FRONTEND / "index.html").read_text("utf-8")

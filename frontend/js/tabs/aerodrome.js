@@ -225,7 +225,7 @@ const NOTAM_SORT = {
   end: (a, b) => (a.perm - b.perm) || (a.end || "9").localeCompare(b.end || "9"),
 };
 
-// Ruch: paski postępu lotu w widoku RUCH (strips.js); w PRZEGLĄDZIE tylko jednowierszowe podsumowanie
+// Ruch: w PRZEGLĄDZIE tylko jednowierszowe podsumowanie; widok RUCH to DMAN/AMAN (dman.js), paski EFES są w zakładce STRIP
 function ruchLine(t, icao) {
   const local = t.departures.filter((p) => p.arrival === icao).length;
   const n = (v, one, few, many) => `<b>${v}</b> ${v === 1 ? one : v % 10 >= 2 && v % 10 <= 4 && (v % 100 < 10 || v % 100 >= 20) ? few : many}`;
@@ -285,6 +285,7 @@ export default {
     // OVERVIEW: cały FIR EPWW zamiast jednego lotniska (overview.js); zapamiętane, więc powrót do AERODROME
     // otwiera to, co było ostatnio otwarte
     let ovMode = lsGet("aerodrome.ov") === "1", ov = null;
+    let ruchView = null;   // widok RUCH z adresu (#aerodrome/EPWA/aman: "dman" albo "aman"), null = ostatnio używany
 
     // lista podpowiedzi ICAO; bez niej pole działa dalej (wpisany kod), błąd tylko w konsoli
     api("/api/aerodromes").then((ads) => {
@@ -363,7 +364,7 @@ export default {
             <div class="values compact"></div>
             <div class="card aero-rwy-card"><h3>Pasy</h3><div class="aero-rwys"></div></div>
             <div class="card grow aero-taf-card"><h3>TAF</h3><div class="scroll aero-taf wx"></div></div>
-            <div class="card aero-ruch" title="Pokaż paski postępu lotu (widok RUCH)"><h3>Ruch VATSIM<span class="ruch-go">paski ›</span></h3><div class="aero-ruch-line"><span class="hint">Ładowanie…</span></div></div>
+            <div class="card aero-ruch" title="Pokaż ruch na drabinach DMAN/AMAN (widok RUCH)"><h3>Ruch VATSIM<span class="ruch-go">DMAN/AMAN ›</span></h3><div class="aero-ruch-line"><span class="hint">Ładowanie…</span></div></div>
           </div>
           <div class="aero-col">
             <div class="card part"><h3>Częstotliwości · online · rezerwacje</h3><div class="scroll freqs"></div></div>
@@ -487,6 +488,7 @@ export default {
     const go = (code) => {
       const want = (code || $(".aero-icao").value || icao).trim().toUpperCase();
       if (want === "OVERVIEW") return showOverview();
+      const same = !ovMode && want === icao;
       ovMode = false;
       lsSet("aerodrome.ov", "0");
       ov?.destroy();
@@ -496,7 +498,9 @@ export default {
       $(".aero-icao").value = icao;
       lsSet("aerodrome.icao", icao);
       sub.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.icao === icao));
-      remember("aerodrome", icao);
+      // to samo lotnisko (zmiana PRZEGLĄD/AWOS/RUCH): bez nowego wpisu, tylko adres bez widoku RUCH (EPWA/aman → EPWA)
+      if (same) remember("aerodrome", icao, { replace: true });
+      else remember("aerodrome", icao);
       ticks = 0;
       if (awFor !== icao) { aw = null; awErr = ""; awAt = 0; awFor = icao; lastSt = null; }
       clearInterval(timer);
@@ -513,10 +517,13 @@ export default {
       if (view === "ruch") {
         $(".title").textContent = icao;
         $(".upd").textContent = "";
-        strips = mountDman($(".content"), icao, { onUpdate: (d) => {
+        // widok DMAN/AMAN albo AMAN w adresie: #aerodrome/EPWA/aman (przycisk widoku = krok do cofnięcia, dman.js)
+        const code = icao;
+        strips = mountDman($(".content"), icao, { view: ruchView, onView: (v, o) => remember("aerodrome", `${code}/${v}`, o), onUpdate: (d) => {
           $(".title").textContent = `${d.icao} · ${d.name}  (elev ${fmt(d.elevation_ft, 0)} ft)`;
           $(".upd").textContent = `Aktualizacja ${d.now.slice(0, 2)}:${d.now.slice(2)}Z · co 30 s`;
         } });
+        ruchView = null;
         return;
       }
       build();
@@ -547,11 +554,22 @@ export default {
     $(".aero-icao").addEventListener("change", () => go());
     // AWOS już pokazuje to lotnisko: zostaje (wybrany pas, otwarta nakładka, wykrywanie nowej litery ATIS).
     // RUCH tego lotniska: zostaje (zaznaczony pasek, przewinięcie zatok), tylko wznawia odświeżanie co 30 s.
+    // "EPWA/dman" i "EPWA/aman": RUCH lotniska w widoku DMAN/AMAN albo AMAN (dman.js); samo "EPWA" zostawia widok.
     return { activate: (arg) => {
-      const want = (arg || "").trim().toUpperCase();
+      const [a0, a1 = ""] = (arg || "").trim().split("/");
+      const want = a0.toUpperCase();
+      const rv = ["dman", "aman"].includes(a1.toLowerCase()) ? a1.toLowerCase() : null;
       if (want === "OVERVIEW" || (!want && ovMode)) return showOverview();
-      if (strips && (want || icao) === icao) return strips.resume();
-      if (!(awos && (want || icao) === icao)) go(want || icao);
+      if (rv && view !== "ruch") {
+        view = "ruch";
+        lsSet("aerodrome.view", view);
+      }
+      if (strips && (want || icao) === icao) {
+        if (rv) strips.setView(rv);
+        return strips.resume();
+      }
+      ruchView = rv;
+      if (!(awos && view === "awos" && (want || icao) === icao)) go(want || icao);
     } };
   },
 };

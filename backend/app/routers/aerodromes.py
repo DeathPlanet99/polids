@@ -141,7 +141,11 @@ async def strips(icao: str, dman: bool = False, db: Session = Depends(get_db)):
         except (UpstreamError, ValueError) as exc:
             return None, f"vIFF: {exc}"
 
-    st, (viff, viff_error) = await asyncio.gather(status(ad.icao, db), from_viff())
+    async def cad_info():
+        # ustawienia A-CDM lotniska tylko dla DMAN, równolegle z odlotami (najwyżej kilka sekund, patrz viff.cad_info)
+        return await viff_service.cad_info(ad.icao) if dman else None
+
+    st, (viff, viff_error), cad = await asyncio.gather(status(ad.icao, db), from_viff(), cad_info())
     traffic, updated, net_error = {}, None, st["network_error"]
     if not net_error:
         try:
@@ -160,13 +164,13 @@ async def strips(icao: str, dman: bool = False, db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
     board = strip_board(ad.icao, traffic, viff, use, wtc, now)
     procs = procedures().get(ad.icao, {})
-    viff_etas, cad = None, None
-    if dman:
-        # vIFF zna ELDT lotów w powietrzu i jeszcze na lotnisku odlotu; najbliższe najpierw
+    viff_etas = None
+    if dman and not viff_error:
+        # vIFF zna ELDT lotów w powietrzu i jeszcze na lotnisku odlotu; najbliższe najpierw. Gdy vIFF nie odpowiedział
+        # na listę odlotów, nie pytamy o każdy przylot (awaria vIFF nie może wydłużać odświeżania RUCH).
         asked = sorted((s for s in board["arrivals"] if s["state"] == "air" or s["away"]),
                        key=lambda s: (s["dist_nm"] is None, s["dist_nm"] or 0))
-        viff_etas, cad = await asyncio.gather(
-            viff_service.arrival_etas(ad.icao, [s["callsign"] for s in asked]), viff_service.cad_info(ad.icao))
+        viff_etas = await viff_service.arrival_etas(ad.icao, [s["callsign"] for s in asked])
     dman_service.annotate(board, ad.icao, now, viff_etas)
     return {
         "icao": ad.icao, "name": ad.name, "elevation_ft": ad.elevation_ft, "now": now.strftime("%H%M"),

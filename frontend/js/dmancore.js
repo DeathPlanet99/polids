@@ -26,26 +26,40 @@ export const hmAt = (nowMs, rel) => (rel === null || rel === undefined ? "–" :
 
 // --- odloty: czasy do drabin TSAT i TTOT
 // TSAT-ekwiwalent: TSAT z vIFF (A-CDM), bez niego TOBT, potem EOBT (vIFF albo plan lotu); est = nie TSAT.
-// TTOT-ekwiwalent: ATOT (po starcie), TTOT, CTOT, inaczej ETOT = (AOBT albo TSAT/TOBT/EOBT) + czas kołowania.
+// ETOT = off-block (AOBT, a bez niego TSAT/TOBT/EOBT) + czas kołowania (vIFF, domyślny lotniska albo przyjęte 10 min);
+// ta sama wartość jest w tabeli szczegółów (ETOT) i na drabinie TTOT, gdy brak ATOT, TTOT i CTOT.
+// TTOT-ekwiwalent: ATOT (po starcie), TTOT, CTOT, inaczej ETOT.
 export function depTimes(s, nowMs, taxiDefault = 10) {
   const v = s.viff || {};
   const r = (t) => relSec(t, nowMs);
   const [tsatSrc, tsatT] = v.tsat ? ["TSAT", v.tsat] : v.tobt ? ["TOBT", v.tobt] : s.eobt ? ["EOBT", s.eobt] : [null, null];
   const tsat = r(tsatT);
   const taxi = v.taxi || taxiDefault;
+  const [etotBase, base] = v.aobt ? ["AOBT", r(v.aobt)] : [tsatSrc, tsat];
+  const etot = base === null ? null : base + taxi * 60;
   let ttotSrc = null, ttot = null;
   if (v.atot) [ttotSrc, ttot] = ["ATOT", r(v.atot)];
   else if (v.ttot) [ttotSrc, ttot] = ["TTOT", r(v.ttot)];
   else if (v.ctot) [ttotSrc, ttot] = ["CTOT", r(v.ctot)];
-  else if (s.state !== "air") {
-    const base = v.aobt ? r(v.aobt) : tsat;
-    if (base !== null) [ttotSrc, ttot] = ["ETOT", base + taxi * 60];
-  }
+  else if (s.state !== "air" && etot !== null) [ttotSrc, ttot] = ["ETOT", etot];
   const moving = s.state === "air" || (s.groundspeed || 0) >= 3;
-  const offBlock = !!v.aobt || moving;
+  const offBlock = !!v.aobt || moving || !!v.atot;
   // spóźniony: TSAT (prawdziwy, z A-CDM) minął ponad minutę temu, a samolot nie ruszył (brak AOBT i ruchu)
   const late = tsatSrc === "TSAT" && tsat !== null && tsat < -60 && !offBlock && !s.planned;
-  return { tsat, tsatSrc, tsatT, ttot, ttotSrc, taxi, offBlock, late, ready: !!v.ready, airborne: s.state === "air" || !!v.atot };
+  return { tsat, tsatSrc, tsatT, ttot, ttotSrc, etot, etotBase, taxi, offBlock, late, ready: !!v.ready, airborne: s.state === "air" || !!v.atot };
+}
+
+// Etykiety, które nie mieszczą się na drabinie (więcej niż wysokość obszaru): zostają najwcześniejsze, najpóźniejsze
+// odpadają i są liczone w znaczniku "▲ n". items [{t, h}] (t = czas, h = wysokość px); zwraca zbiór indeksów odrzuconych.
+export function overflow(items, avail, gap = 1) {
+  const idx = items.map((_, i) => i).sort((a, b) => items[a].t - items[b].t || a - b);
+  const out = new Set();
+  let used = 0;
+  for (const i of idx) {
+    used += items[i].h + gap;
+    if (used > avail + gap + 1e-6) out.add(i);
+  }
+  return out;
 }
 
 // --- AMAN: sekwencja przylotów na pas (przybliżenie)
@@ -126,6 +140,19 @@ export function fixColors(icao, iafs = []) {
   const out = {};
   iafs.forEach((f, i) => { out[f] = PALETTE[i % PALETTE.length]; });
   return out;
+}
+// kolor punktu wejścia spoza listy lotniska (ostatni punkt trasy, STAR spoza .ese): stały dla nazwy punktu (hash),
+// z kolorów, których nie mają punkty wejścia lotniska, więc ten sam punkt ma na danym lotnisku zawsze ten sam kolor
+export const EXTRA_COLORS = ["#b585e6", "#3fc4bb", "#e584b4", "#a3c24c", "#8f9cff", "#e8a87c", "#58b8d8", "#c9a0dc", "#7fd18b", "#d6b85a"];
+export function fixColor(fix, colors = {}) {
+  if (!fix) return OTHER_COLOR;
+  if (colors[fix]) return colors[fix];
+  const used = new Set(Object.values(colors));
+  const free = EXTRA_COLORS.filter((c) => !used.has(c));
+  const pal = free.length ? free : EXTRA_COLORS;
+  let h = 0;
+  for (const c of String(fix)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return pal[h % pal.length];
 }
 // kolejność przycisków legendy: EPWA jak w oknie ACC, inne lotniska alfabetycznie
 export function fixOrder(icao, iafs = []) {

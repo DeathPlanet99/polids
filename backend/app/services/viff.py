@@ -106,18 +106,41 @@ async def departures(icao: str) -> dict:
     return {"icao": icao, "cdm": await is_cdm_airport(icao), "flights": flights, "states": FLIGHT_STATES}
 
 
-async def cad_info(icao: str) -> dict | None:
-    """Ustawienia A-CDM lotniska z /etfms/getCadAirports (jedno zapytanie na wszystkie lotniska, cache 1 h):
-    przepustowość odlotów (rate na godzinę), domyślny czas kołowania, konfiguracja pasów; None bez danych."""
+# Ustawienia A-CDM lotnisk (/etfms/getCadAirports) to tylko dodatek do DMAN: czekamy na nie najwyżej CAD_WAIT_S,
+# zapytanie, które nie zdążyło, kończy się w tle (i trafia do cache), a po błędzie albo przekroczeniu czasu nie pytamy
+# przez CAD_MISS_S. Dzięki temu awaria vIFF nie wydłuża odświeżania widoku RUCH.
+CAD_WAIT_S = 4.0
+CAD_MISS_S = 300
+_cad: dict = {"failed": 0.0, "task": None}
+
+
+async def _cad_airports():
     try:
         data = await _get("/etfms/getCadAirports", ttl=3600)
-    except Exception:  # noqa: BLE001 - to tylko dodatek do DMAN
+    except Exception:  # noqa: BLE001 - błąd sieci, 404 albo odpowiedź nie-JSON
+        _cad["failed"] = time.monotonic()
+        return None
+    _cad["failed"] = 0.0
+    return data
+
+
+async def cad_info(icao: str, wait: float = CAD_WAIT_S) -> dict | None:
+    """Ustawienia A-CDM lotniska z /etfms/getCadAirports (jedno zapytanie na wszystkie lotniska, cache 1 h):
+    przepustowość odlotów (rate na godzinę) i domyślny czas kołowania; None bez danych, po błędzie i po `wait` s."""
+    if _cad["failed"] and time.monotonic() - _cad["failed"] < CAD_MISS_S:
+        return None
+    task = _cad["task"]
+    if task is None or task.done() or task.get_loop() is not asyncio.get_running_loop():
+        task = _cad["task"] = asyncio.ensure_future(_cad_airports())
+    try:
+        data = await asyncio.wait_for(asyncio.shield(task), wait)
+    except asyncio.TimeoutError:
+        _cad["failed"] = time.monotonic()   # odpowiedź, która przyjdzie w tle, kasuje ten znacznik
         return None
     num = lambda v: v if isinstance(v, int) and v > 0 else None  # noqa: E731
     for a in data if isinstance(data, list) else []:
         if isinstance(a, dict) and str(a.get("icao") or "").upper() == icao.upper():
-            return {"rate": num(a.get("rate")), "taxi": num(a.get("taxiTime")), "cdm": bool(a.get("isCdm")),
-                    "config": a.get("config") or a.get("atis_config") or None}
+            return {"rate": num(a.get("rate")), "taxi": num(a.get("taxiTime"))}
     return None
 
 
