@@ -61,7 +61,6 @@
 .aw-mode button.active, .aw-auto.active { background: linear-gradient(#8cff5a, #5fd23a); color: #0b2a06; }
 .aw-mode button.use { box-shadow: inset 0 -2px 0 #f4fff0; }
 .aw-mode button.use.active { box-shadow: inset 0 -2px 0 #0b2a06; }
-.aw-man[hidden] { display: none; }
 .aw-man { flex: none; font: 700 11px/16px var(--ui); letter-spacing: 1px; color: #000; background: var(--yellow); padding: 1px 6px; cursor: help; }
 .aw-col, .aw-atiscol { flex: 1 1 0; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); }
 .aw-h { flex: none; display: flex; justify-content: space-between; align-items: center; gap: 8px; height: 24px; padding: 0 8px;
