@@ -1,4 +1,5 @@
-"""AERODROME › RUCH jako DMAN/AMAN: dane do drabin czasu (TSAT, TTOT, ELDT) i do sekwencji przylotów AMAN.
+"""AERODROME › RUCH jako DMAN/AMAN: dane do drabin czasu (TSAT i TTOT, na lotnisku bez A-CDM EOBT i ETOT, ELDT)
+i do sekwencji przylotów AMAN.
 
 Uzupełnia paski z procedures.strip_board o pola potrzebne DMAN/AMAN (dotychczasowe pola zostają bez zmian):
 - registration: znaki rejestracyjne z uwag planu lotu (REG/SPLVA), u wszystkich lotów;
