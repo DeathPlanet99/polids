@@ -1,258 +1,136 @@
-/* radio: styl dodany w rundzie 7 */
+/* RADIO (runda 10): jedna strona jak w PANDORZE. U góry pasek ATIS, po lewej podgląd LOW ze stosami sąsiadów
+   z zachodu, północy i południa, w środku przyciski warstw i mały podgląd MID, po prawej podgląd HIGH ze stosami
+   ze wschodu. Czarne tło, zielone przyciski, Consolas; bez poświaty i cieni pod tekstem.
+   --rb-f: rozmiar częstotliwości na etykietach (mniejszy na 1366×768, większy na 1920×1080). */
+.rb { --rb-f: clamp(11px, .8vw, 15px); flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 4px;
+  padding: 4px 6px 6px; overflow: hidden; background: #000; }
 
-/* Sąsiedzi, INNE, ONLINE: ID pozycji wg profilu VACS ACC_EPWW (np. "EDUU OSE22/HVL22") z dopiskiem wysokości obok.
-   Szerokość kolumny ID: najdłuższa etykieta VACS w znakach (--pid-ch) + miejsce na dopisek. */
-.radio-list.vacs .radio-group { max-width: 1180px; }
-.radio-list.single.vacs .pid { width: calc(var(--pid-ch, 16) * 1ch + 64px); flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* pozostałe listy (LOTNISKA, EPWW ACC): ID = posName (np. "PO N APP"), szerokość wg najdłuższego w liście, bez zawijania */
-.radio-list.single:not(.vacs) .pid { width: calc(var(--pid-ch, 6) * 1ch + 4px); flex: none; white-space: nowrap; }
-.radio-list.single:not(.vacs) .cs { flex: none; }
-.radio-list.vacs .pid .alt { display: inline-block; margin-left: 8px; padding: 0 5px; vertical-align: 2px; font: 700 12px/17px var(--mono);
-  color: #b9c2b9; background: #121612; border: 1px solid #2f3a2f; border-radius: 2px; cursor: help; }
-/* sąsiad spoza profilu VACS: ID z pliku .ese, drugoplanowe */
-.radio-list.vacs .pid.ese { color: #6f776f; font-weight: 400; }
-.radio-list.single.vacs .cs { width: 150px; flex: none; }
-/* nazwa zwęża się na wąskim ekranie jednakowo we wszystkich wierszach (cqw), żeby kolumna "kto / → przejmuje" była równa */
-.radio-list.single.vacs .radio-group { container-type: inline-size; }
-.radio-list.single.vacs .nm { width: clamp(100px, 100cqw - 820px, 240px); }
-/* długie imię zalogowanego: wielokropek zamiast wyjścia za wiersz (pełne w dymku wiersza) */
-.radio-list.single.vacs .who { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* dziedziczenie VACS: kto przejmuje obszar, gdy główne stanowisko jest offline; kilka przejęć zawija się w wierszu */
-.radio-row .inhs { display: flex; flex-wrap: wrap; column-gap: 14px; min-width: 0; }
-/* wąski ekran: gdy w wierszu brakuje miejsca, przejęcia schodzą do drugiej linii zamiast przewijać listę w bok */
-.radio-list.single .radio-row { flex-wrap: wrap; row-gap: 2px; }
-.radio-row .inh { font-size: 14px; color: var(--muted); white-space: nowrap; cursor: help; }
-.radio-row .inh b { font: 700 14px var(--mono); color: var(--green-hi); }
-/* najechanie na etykietę VACS, dopisek albo przejęcie (własny title): bez drugiego dymka wiersza */
-.radio-row[data-tip]:has([title]:hover)::after { display: none; }
-.vacs-note { margin: -4px 0 10px; }
-.vacs-note a { color: var(--green-text); }
+/* --- pasek ATIS: ICAO i częstotliwość, online z literą informacji */
+.rb-atis { flex: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 1px clamp(8px, 1vw, 18px); padding: 2px 4px 3px;
+  border-bottom: 1px solid #141a14; }
+.rb-atis[hidden] { display: none; }
+.rb-at { display: inline-flex; align-items: baseline; gap: 5px; padding: 0 2px; background: none; border: 0; cursor: pointer;
+  font: 700 calc(var(--rb-f) + 3px)/1.25 var(--mono); color: #6f786f; white-space: nowrap; }
+.rb-at .rb-ati { font-size: calc(var(--rb-f) - 1px); color: #7d877d; }
+.rb-at .rb-fq { color: inherit; font: inherit; }
+.rb-at.on { color: #fff; }
+.rb-at.on .rb-ati { color: var(--green-hi); }
+.rb-at:hover .rb-ati { text-decoration: underline; }
+.rb-code { margin-left: 3px; padding: 0 3px; font: 700 calc(var(--rb-f) - 1px)/1.2 var(--mono); color: #000; background: var(--yellow);
+  border-radius: 2px; }
 
-/* ===== RADIO › GEO (runda 8): kafelki stron GEO jak w VACS, obok mapa zasięgu pozycji =====
-   Kafelki płaskie, ciemne, w stylu PANDORA/NM UI: zielone = online, pomarańczowa przerywana ramka = rezerwacja,
-   szary tekst = nieznane stanowisko, kolorowy pasek u góry = pozycja aktywna (ten sam kolor co na mapie). */
-.geo-root { flex: 1; min-height: 0; display: flex; gap: 8px; padding: 8px; overflow: hidden; }
-.geo-left { width: clamp(500px, 47%, 640px); flex: none; min-width: 0; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
-.geo-bar { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.geo-bar .seg { margin: 0; flex: none; }
-.geo-bar .seg button { padding: 3px 12px; white-space: nowrap; }
-.geo-simbar { display: inline-flex; gap: 4px; flex-wrap: wrap; }
-.geo-simbar .btn { padding: 2px 8px; font-size: 11px; }
-.geo-root:not(.sim) .geo-simbar .btn[data-act="clear"] { display: none; }
-.geo-status { flex: none; min-height: 17px; font-size: 11px; line-height: 1.3; }
+/* --- siatka: [LOW + sąsiedzi] [przyciski + MID] [HIGH + sąsiedzi] */
+.rb-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) clamp(200px, 16vw, 330px) minmax(0, 1fr); gap: 6px; }
+.rb-panel { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #000; border: 1px solid #121812; }
+.rb-svg { position: absolute; inset: 0; display: block; }
+.rb-frame { position: absolute; inset: 0; display: grid; gap: 6px; padding: 5px; pointer-events: none; }
+.rb-low .rb-frame { grid-template: "col top" auto "col free" minmax(0, 1fr) "col bot" auto / auto minmax(0, 1fr); }
+.rb-high .rb-frame { grid-template: "top col" auto "free col" minmax(0, 1fr) "bot col" auto / minmax(0, 1fr) auto; }
+.rb-midmap .rb-frame { grid-template: "free" minmax(0, 1fr) / minmax(0, 1fr); padding: 20px 3px 3px; }
+.rb-col { grid-area: col; min-height: 0; display: flex; flex-direction: column; justify-content: space-between; gap: 6px; }
+.rb-top { grid-area: top; display: flex; align-items: flex-start; gap: 8px; }
+.rb-bot { grid-area: bot; display: flex; align-items: flex-end; gap: 8px; }
+.rb-free { grid-area: free; min-width: 0; min-height: 0; }
+/* stosy mniej więcej tam, gdzie leży FIR: Szwecja nad zachodnią częścią Polski, Czechy na południowym zachodzie,
+   Kaliningrad nad wschodnią częścią, Słowacja na południu */
+.rb-low .rb-top { justify-content: flex-start; padding-left: 12%; }
+.rb-low .rb-bot { justify-content: flex-start; padding-left: 4%; }
+.rb-high .rb-top { justify-content: flex-end; padding-right: 8%; }
+.rb-high .rb-bot { justify-content: center; }
 
-/* przełącznik stron: siatka 3 × 3 jak w VACS, miejsce po stronie FMP puste */
-.geo-pages { flex: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; }
-.geo-pg { min-width: 0; padding: 3px 2px; letter-spacing: -.5px; background: #0d110d; border: 1px solid #2f3a2f; border-radius: 3px; color: #c3cdc3;
-  font: 700 11px/1.3 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.geo-pg:hover { border-color: var(--green-hi); color: #fff; }
-.geo-pg.on { background: var(--green); border-color: var(--green-hi); color: #fff; }
-.geo-pg.empty { border: 1px dashed #1c221c; background: none; cursor: default; }
+/* --- podgląd: tło FIR-ów, FIR EPWW, sektory ACC warstwy, warstwy APP/TWR/FIS (tylko LOW) */
+.rb-svg path { fill: none; stroke-linejoin: round; }
+.rb-firs path { stroke: #1d261d; stroke-width: 1; }
+.rb-land { fill: #060906; }
+.rb-midmap .rb-land { fill: #121612; }   /* MID: szary podgląd jak w PANDORZE */
+.rb-accg path { stroke: #435243; stroke-width: 1; }
+.rb-accg path.st { fill: rgba(95, 210, 58, .07); }
+.rb-accg path.hl { stroke: #fff; stroke-width: 2; fill: rgba(255, 255, 255, .06); }
+.rb-border { stroke: #a9b3a9; stroke-width: 1.4; }
+.rb-tmag path { stroke: rgba(62, 199, 224, .55); stroke-width: 1; stroke-dasharray: 4 3; }
+.rb-ctrg path { stroke: rgba(242, 210, 27, .7); stroke-width: 1; }
+.rb-fisg path { stroke: rgba(176, 140, 255, .45); stroke-width: 1; stroke-dasharray: 1 3; }
+.rb-marks .rb-lead { stroke: #7b847b; stroke-width: .8; }
+.rb-dot { fill: #c3cdc3; }
+.rb-dot.app { fill: var(--cyan); }
+.rb-dot.twr { fill: var(--yellow); }
+.rb-dot.fis { fill: #b08cff; }
 
-/* siatka kafelków: kolumnami z góry na dół (kolejność kluczy VACS), stała szerokość = 1/8 panelu */
-.geo-grid { flex: none; }
-.geo-tiles { --gap: 3px; --tw: calc((100% - 7 * var(--gap)) / 8); display: grid; grid-auto-flow: column; gap: var(--gap);
-  grid-template-rows: repeat(var(--rows), 58px); grid-template-columns: repeat(var(--cols), var(--tw)); }
-.gt { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; padding: 3px 2px 2px;
-  background: #0f130f; border: 1px solid #2a332a; border-radius: 3px; color: #d6ded6; font: 700 11px/12px var(--mono); text-align: center;
-  cursor: pointer; overflow: hidden; }
-.gt.sp { background: none; border: 0; cursor: default; }
-.gt .gl { display: block; max-width: 100%; white-space: nowrap; overflow: hidden; }
-.gt .gl.alt { color: #cdb85a; font-weight: 400; }
-.gt .gf { display: block; margin-top: 1px; font: 400 10px/11px var(--mono); color: #8c968c; }
-.gt .go { display: block; max-width: 100%; margin-top: 2px; white-space: nowrap; overflow: hidden; font: 400 10px/11px var(--mono); color: #fff; }
-/* sąsiad: kolor FIR-u jak w VACS (--fc) – pasek z lewej, lekko zabarwione tło i ramka, pierwsza linijka w kolorze FIR-u;
-   online (zielone) i rezerwacja (pomarańczowa przerywana ramka) nadpisują tło i ramkę, pasek FIR-u zostaje */
-.gt.fir { background: color-mix(in srgb, var(--fc) 18%, #0f130f); border-color: color-mix(in srgb, var(--fc) 45%, #1a201a); }
-.gt.fir::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--fc); }
-.gt.fir .gl:first-child { color: color-mix(in srgb, var(--fc) 55%, #fff); }
-.gt.fir.unk .gl:first-child { color: inherit; }
-.gt:hover, .gt.hl { border-color: var(--green-hi); }
-.gt.on { background: #1d5216; border-color: #5fd23a; color: #fff; }
-.gt.on .gf { color: #c9ffb3; }
-.gt.on .gl.alt { color: #ffe680; }
-.gt.fir.on .gl:first-child { color: #fff; }
-.gt.bk { border: 1px dashed #ffb020; }
-.gt.bk .gf { color: #ffd27a; }
-.gt.unk { color: #4f574f; }
-.gt.unk .gf { color: #3d443d; }
-.gt.sec { color: #9aa49a; }
-.gt.sec .gl { color: #c9d1c9; }
-.gt.sec.on .gl { color: #fff; }
-/* pozycja aktywna (online albo w symulacji): pasek w kolorze pozycji z mapy */
-.gt.act::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--pc, #fff); }
-.gt.focus { outline: 2px solid #fff; outline-offset: -2px; }
+/* --- etykiety (sektory, APP, TWR, FIS) i pola stosów: małe ID w prawym górnym rogu, pod nim częstotliwość;
+   skrót stanowiska, które przejmuje (inne niż stanowisko sektora), przed częstotliwością */
+.rb-lbls { position: absolute; inset: 0; pointer-events: none; }
+.rb-lbl, .rb-box { display: inline-grid; justify-items: end; align-content: start; padding: 0 4px 1px; background: #030503;
+  border: 1px solid #222a22; border-radius: 2px; white-space: nowrap; line-height: 1.05; cursor: help; }
+.rb-lbl { position: absolute; left: 0; top: 0; pointer-events: auto; }
+.rb-id { font: 400 calc(var(--rb-f) - 4px)/1.15 var(--mono); color: #7b847b; letter-spacing: .2px; }
+.rb-ln { display: flex; align-items: baseline; gap: 4px; }
+.rb-fq { font: 700 var(--rb-f)/1.12 var(--mono); color: #5c665c; }
+.rb-by { font: 700 calc(var(--rb-f) - 3px)/1 var(--mono); font-style: normal; color: var(--green-text); }
+.rb-more { font: 700 calc(var(--rb-f) - 4px) var(--mono); font-style: normal; color: var(--green-text); }
+.rb-lbl.on, .rb-box.on { background: #071305; border-color: var(--green-hi); }
+.rb-lbl.on .rb-fq, .rb-box.on .rb-fq { color: #fff; }
+.rb-lbl.on .rb-id, .rb-box.on .rb-id { color: #b9e8a6; }
+/* APP, TWR i FIS mniejsze niż sektory ACC (na podglądzie LOW bywa ich kilkadziesiąt) */
+.rb-lbl.app, .rb-lbl.twr, .rb-lbl.fis { --rb-f: clamp(10px, .7vw, 13px); }
+.rb-lbl.app { border-left: 3px solid var(--cyan); }
+.rb-lbl.twr { border-left: 3px solid var(--yellow); cursor: pointer; }
+.rb-lbl.fis { border-left: 3px solid #b08cff; }
+.rb-lbl .rb-atl .rb-by { color: #7b847b; }
+.rb-lbl .rb-atl.on .rb-by { color: var(--green-hi); }
+.rb-lbl .rb-atl .rb-code { font-size: calc(var(--rb-f) - 4px); }
+.rb-lbl:hover, .rb-box:hover { border-color: #fff; }
 
-/* legenda pod kafelkami: stany kafelka i kolory FIR-ów sąsiadów na tej stronie */
-.geo-legend { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 1px 10px; min-height: 15px; font: 10px/1.4 var(--mono); color: #9aa29a; }
-.geo-legend .glg { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.geo-legend .glg[title] { cursor: help; }
-.geo-legend i { flex: none; display: inline-block; width: 11px; height: 9px; border-radius: 1px; }
-.geo-legend .glg-on { background: #1d5216; border: 1px solid #5fd23a; }
-.geo-legend .glg-bk { border: 1px dashed #ffb020; }
-.geo-legend .glg-act { background: #0f130f; border: 1px solid #2a332a; border-top: 3px solid #40f5ec; }
-.geo-legend .glg-unk { height: 11px; background: #0f130f; border: 1px solid #2a332a; color: #4f574f; font: 700 9px/9px var(--mono); font-style: normal; text-align: center; }
-.geo-legend .glg-sep { color: #6c746c; }
+/* --- stosy sąsiadów: nagłówek FIR, poziomy o tym samym zakresie (górna i dolna granica FL po lewej) */
+.rb-nb { pointer-events: auto; min-width: 0; padding: 1px 4px 3px; background: rgba(0, 0, 0, .86); border: 1px solid #1a221a; border-radius: 2px; }
+.rb-nbh { font: 400 calc(var(--rb-f) - 3px)/1.3 var(--mono); color: var(--muted); white-space: nowrap; cursor: help; }
+.rb-nbh b { font-size: calc(var(--rb-f) - 1px); color: var(--yellow); }
+.rb-lv { display: flex; align-items: stretch; gap: 3px; margin-top: 2px; }
+.rb-fl { flex: none; display: flex; flex-direction: column; justify-content: space-between; min-width: 3ch;
+  font: 400 calc(var(--rb-f) - 4px)/1 var(--mono); color: #a0a8a0; text-align: right; cursor: help; }
+.rb-fl i { font-style: normal; }
+.rb-bxs { display: flex; flex-wrap: wrap; gap: 2px; font: 700 var(--rb-f) var(--mono); }
+/* boczna kolumna: jedno pole w linii (wąsko, mapa zostaje duża); u góry i u dołu do czterech obok siebie */
+.rb-col .rb-bxs { flex-direction: column; align-items: stretch; }
+.rb-top .rb-bxs, .rb-bot .rb-bxs { max-width: calc(32ch + 50px); }
+.rb-box { min-width: calc(7ch + 10px); }
+.rb-none { font: 11px var(--mono); color: #5c665c; padding: 2px 0; }
 
-/* karta "kto co obsługuje": jedna kolumna */
-.geo-card { flex: 1; min-height: 90px; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 3px; }
-.geo-card > h3 { flex: none; display: flex; align-items: center; gap: 6px; margin: 0; padding: 4px 10px; background: var(--head);
-  border-bottom: 1px solid var(--head-line); font: 700 11px/1.3 var(--sans); letter-spacing: .8px; text-transform: uppercase; color: var(--green-text); }
-.geo-card > h3 .geo-whon { color: var(--muted); font-weight: 400; }
-.geo-card > h3 button { margin-left: auto; padding: 0 8px; background: #0d110d; border: 1px solid #2f3a2f; border-radius: 3px; color: #c3cdc3;
-  font: 11px var(--sans); text-transform: none; letter-spacing: 0; cursor: pointer; }
-.geo-card > h3 button:hover { border-color: var(--green-hi); color: #fff; }
-.geo-wholist { flex: 1; min-height: 0; overflow: auto; padding: 2px 8px 6px; }
-.gw-row { padding: 3px 4px; border-bottom: 1px solid #161b16; }
-.gw-row:hover, .gw-row.hl { background: var(--row-hover); }
-.gw-h { display: flex; align-items: center; gap: 8px; font: 12px var(--mono); }
-.gw-h b { color: #fff; white-space: nowrap; }
-.gw-h .fq { color: var(--muted); font-size: 11px; }
-.gw-h .who { min-width: 0; flex: 1; color: var(--green-hi); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.gw-x { margin-left: auto; flex: none; width: 20px; height: 18px; padding: 0; background: #0d110d; border: 1px solid #2f3a2f; border-radius: 3px;
-  color: #9aa29a; font: 11px var(--sans); cursor: pointer; }
-.gw-x:hover { border-color: var(--bad); color: #fff; }
-.geo-root .sw { flex: none; display: inline-block; width: 11px; height: 11px; border-radius: 2px; vertical-align: -1px; }
-.geo-root .sw.free { border: 1px dashed #8a918a; }
-.gw-sec { display: flex; flex-wrap: wrap; gap: 1px 12px; padding: 1px 0 0 19px; font: 11px/1.4 var(--mono); color: #c3cdc3; }
-.gw-sec .acc { color: #fff; font-weight: 700; }
-.gw-sec .rn { color: var(--muted); font-style: italic; }
-.gw-free { display: flex; align-items: center; gap: 8px; padding: 5px 4px 2px; font: 11px var(--mono); color: #9aa29a; }
-.gw-free b { color: #c9d1c9; }
-.gw-note { padding: 4px 4px 0; font-size: 10px; }
+/* --- tytuł podglądu (warstwa, zakres) i przekrój LOW */
+.rb-title { position: absolute; z-index: 2; display: flex; align-items: center; gap: 6px; padding: 1px 4px; font: 11px var(--mono);
+  color: var(--muted); white-space: nowrap; background: rgba(0, 0, 0, .7); }
+.rb-title b { font-size: 13px; color: #fff; letter-spacing: 1px; }
+/* LOW i HIGH: w rogu wolnego pola przy środkowej kolumnie (miejsce ustawia radio.js), MID: lewy górny róg */
+.rb-low .rb-title { right: 4px; top: 3px; }
+.rb-high .rb-title, .rb-midmap .rb-title { left: 4px; top: 3px; }
+.rb-cut { display: inline-flex; align-items: center; gap: 3px; color: var(--green-text); }
+.rb-cut button { width: 18px; height: 17px; padding: 0; background: #0d110d; border: 1px solid #2f3a2f; border-radius: 2px; color: #c3cdc3;
+  font: 10px var(--mono); cursor: pointer; }
+.rb-cut button:hover:not(:disabled) { border-color: var(--green-hi); color: #fff; }
+.rb-cut button:disabled { opacity: .3; cursor: default; }
 
-/* mapa zasięgu */
-.geo-mapcard { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line);
-  border-radius: 3px; overflow: hidden; }
-.geo-mh { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; padding: 4px 6px 4px 8px; background: var(--head);
-  border-bottom: 1px solid var(--head-line); }
-.geo-lv, .geo-kinds { display: inline-flex; align-items: center; gap: 3px; }
-.geo-mh button { flex: none; height: 22px; padding: 0 5px; background: #0d110d; border: 1px solid #2f3a2f; border-radius: 3px; color: #c3cdc3;
-  font: 700 11px var(--mono); cursor: pointer; white-space: nowrap; }
-.geo-mh button:hover { border-color: var(--green-hi); color: #fff; }
-.geo-mh button.on { background: var(--green); border-color: var(--green-hi); color: #fff; }
-.geo-kinds button.on { background: #1b2a1b; border-color: #4a7a3a; color: #dfffd0; }
-.geo-kinds button:not(.on) { color: #6c746c; text-decoration: line-through; }
-.geo-mh .flbox { margin: 0 2px; padding: 0 4px; border: 1px solid transparent; border-radius: 3px; font-size: 12px; }
-.geo-mh .flbox.on { border-color: var(--green-hi); }
-.geo-mh .flbox input { width: 54px; padding: 1px 4px; font: 12px var(--mono); }
-.geo-viewctl a { font: 15px/30px var(--sans); }
-.geo-map { flex: 1; min-height: 0; }
-.geo-map .leaflet-control-attribution { font-size: 9px; }
-.geo-info { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 4px 8px; border-top: 1px solid var(--head-line);
-  background: var(--head); font: 11px/1.35 var(--mono); color: #9aa29a; }
-.geo-info b { color: #fff; }
-.geo-info .gk-sep { color: #4a524a; }
-.geo-info .gk, .geo-info .gk-f { flex: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.geo-info .gk i { flex: none; display: inline-block; width: 12px; height: 9px; border-radius: 1px; }
-.geo-info .gk-own { background: rgba(64,245,236,.4); border: 1px solid #40f5ec; }
-.geo-info .gk-free { border: 1px dashed #7d857d; }
-.geo-info .gk-rng { border: 2px dashed #ff9f1a; }
-.geo-info .gk[title] { cursor: help; }
-.geo-unfocus { padding: 0 5px; background: #0d110d; border: 1px solid #2f3a2f; border-radius: 3px; color: #c3cdc3; font: 10px var(--sans); cursor: pointer; }
-/* etykieta pozycji na mapie: pełne ciemne pole, bez poświaty */
-.geo-maplabel > div.geo-lbl { display: flex; align-items: center; gap: 4px; padding: 1px 5px; font: 700 11px/1.3 var(--mono); color: #fff;
-  background: rgba(0,0,0,.82); }
-.geo-maplabel > div.geo-lbl.hl { outline: 1px solid #fff; }
-.geo-lbl i { display: inline-block; width: 8px; height: 8px; border-radius: 1px; }
-.geo-map.light .geo-maplabel > div.geo-lbl { background: rgba(255,255,255,.92); color: #111; }
+/* --- środkowa kolumna: przyciski warstw (LOW MID HIGH w jednym rzędzie), stan sieci, legenda, podgląd MID */
+.rb-mid { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+/* przyciski rozłożone w pionie jak w PANDORZE (ATIS / LOW MID HIGH / APP / TWR / TWR/ATIS / FIS), MID przy dole */
+.rb-btns { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: minmax(26px, 40px); align-content: space-evenly; gap: 4px; padding: 2px 8%; }
+.rb-btns button { grid-column: 1 / -1; min-height: 0; padding: 3px 2px; background: #0b100b; border: 1px solid #2a4a22; border-radius: 2px;
+  color: #8fa58a; font: 700 13px/1.2 var(--ui); letter-spacing: .5px; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.rb-btns button[data-ly="low"], .rb-btns button[data-ly="mid"], .rb-btns button[data-ly="high"] { grid-column: auto; }
+.rb-btns button:hover { border-color: var(--green-hi); color: #fff; }
+.rb-btns button.on { background: linear-gradient(#45a832, #2f8a22); border-color: #1f5a16; color: #f4fff0; }
+.rb-btns button.on:hover { background: linear-gradient(#52bd3c, #36992a); }
+.rb-status { flex: none; font: 11px/1.35 var(--mono); color: var(--muted); text-align: center; overflow-wrap: anywhere; }
+.rb-legend { flex: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 10px; font: 10px/1.3 var(--mono); color: #7b847b; }
+.rb-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.rb-sw { display: inline-block; width: 11px; height: 9px; border: 1px solid #222a22; background: #030503; }
+.rb-sw.on { border-color: var(--green-hi); background: #071305; }
+.rb-midmap { flex: none; aspect-ratio: .9; max-height: 55%; --rb-f: clamp(10px, .68vw, 13px); }
 
-/* dymek kafelka i wycinka (position: fixed, nie jest przycinany przez kontenery) */
-.geo-float { display: none; position: fixed; z-index: 3000; pointer-events: none; width: max-content; max-width: 380px; padding: 6px 8px;
-  background: #0b0d10; border: 1px solid #3a4652; border-radius: 4px; color: #e6ebef; font: 12px/1.4 var(--sans); }
-.gtt-h { display: flex; align-items: baseline; gap: 8px; }
-.gtt-h b { font: 700 14px var(--mono); color: #fff; }
-.gtt-h span { font: 11px var(--mono); color: var(--green-text); }
-.gtt-sub { font: 11px var(--mono); color: var(--muted); }
-.gtt-own { padding: 3px 0 1px; font: 12px var(--mono); color: #e8ece8; }
-.gtt-own i, .gtt-chain i { display: inline-block; width: 9px; height: 9px; margin-right: 5px; border-radius: 1px; }
-.gtt-on { font: 11px var(--mono); color: var(--green-hi); }
-.gtt-bk { font: 11px var(--mono); color: #ffb020; }
-.gtt-k { margin: 5px 0 1px; font: 700 10px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .6px; color: var(--green-text); }
-.gtt-k span { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); }
-.gtt-chain { margin: 0; padding: 0 0 0 20px; font: 11px/1.45 var(--mono); color: #6f786f; }
-.gtt-chain li.act { color: #dfe6df; }
-.gtt-chain li.own { color: #fff; font-weight: 700; }
-.gtt-chain .onl { color: var(--green-hi); font-weight: 400; font-size: 10px; }
-.gtt-chain .fq { color: #6f786f; font-weight: 400; font-size: 10px; }
-.gtt-chain li.act .fq, .gtt-chain li.own .fq { color: #9aa29a; }
-/* kafelek APP/TWR/FIS: co pozycja przejmuje (miejsce w kolejności, kto teraz obsługuje) */
-.gtt-take { margin: 0; padding: 0; list-style: none; font: 11px/1.45 var(--mono); color: #9aa29a; }
-.gtt-take b { color: #dfe6df; font-weight: 700; }
-.gtt-take .me { color: var(--green-hi); }
-.gtt-src { margin-top: 4px; font-size: 10px; color: var(--muted); }
-.gtt-hint { margin-top: 3px; font-size: 10px; color: #b9c2b9; }
+/* --- dymek (jeden, przy kursorze) */
+.rb-tip { position: fixed; z-index: 3000; max-width: 480px; padding: 5px 8px; background: #0d110d; border: 1px solid var(--green);
+  border-radius: 2px; color: var(--text); font: 12px/1.35 var(--mono); white-space: pre-wrap; pointer-events: none; }
 
-/* listy RADIO: kliknięcie wiersza dodaje pozycję do symulacji GEO; aktywna = znacznik w jej kolorze */
-.radio-row.pick { cursor: pointer; }
-.radio-row.pick:hover { background: var(--row-hover); }
-.radio-row .act-mark { flex: none; width: 6px; align-self: stretch; border-radius: 1px; background: transparent; }
-.radio-row.act .act-mark { background: var(--pc, #fff); }
-.radio-row .nm.fir { color: var(--muted); font-style: italic; }
-/* nagłówek grupy sąsiada: znaczek koloru FIR-u (te same kolory co kafelki GEO) */
-.radio-group h3 .fir-sw { display: inline-block; width: 10px; height: 10px; margin-right: 7px; border-radius: 2px; vertical-align: 0; cursor: help; }
-.radio-list .pickhint { margin: -2px 0 10px; }
-.radio-list .pickhint a { color: var(--green-text); cursor: pointer; }
-
-/* ===== RADIO (runda 9): znak radiowy i sektor sąsiada, pasek skoku u sąsiadów, LOA ===== */
-/* kolumna nazwy u sąsiadów: znak radiowy ("Bremen Radar") i drobniej nazwa sektora ("Fläming (FLG)"), jedna linia */
-.radio-list.single.vacs .radio-group { max-width: 1280px; }
-.radio-list.single.vacs .nm { width: clamp(150px, 100cqw - 700px, 430px); }
-.radio-row .nm .sec { margin-left: 9px; font: 13px var(--mono); color: var(--muted); }
-/* znak radiowy przyjęty jak u pozostałych stanowisk ACC z tym prefiksem (nie z bazy wiedzy, LOA ani pliku .ese) */
-.radio-row .nm.der { color: #b9c2b9; }
-
-/* panel LOA (jak panel NM UI): pasek tytułu w jednej linii, po rozwinięciu tabele przewijane we własnym polu */
-.loa { max-width: 1280px; margin: -2px 0 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 3px; }
-.loa.none { display: flex; align-items: center; gap: 10px; padding: 4px 10px; font: 12px var(--mono); }
-.loa-h { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 4px 10px; background: var(--head); cursor: pointer;
-  font: 12px/1.5 var(--mono); white-space: nowrap; user-select: none; }
-.loa-h:hover { background: var(--row-hover); }
-.loa-h:focus-visible { outline: 1px solid var(--green-hi); outline-offset: -1px; }
-.loa.open .loa-h { border-bottom: 1px solid var(--head-line); }
-.loa-tw { flex: none; width: 10px; color: var(--green-text); transition: transform .12s; }
-.loa.open .loa-tw { transform: rotate(90deg); }
-.loa-tag { flex: none; padding: 0 6px; border: 1px solid var(--green); border-radius: 2px; color: var(--green-hi); font: 700 11px/16px var(--mono);
-  letter-spacing: .8px; }
-.loa-t { flex: none; color: #fff; font-weight: 700; }
-.loa-v { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
-.loa-n { flex: none; color: #b9c2b9; }
-.loa-pdf { flex: none; margin-left: auto; padding: 0 8px; background: #0d110d; border: 1px solid #2f3a2f; border-radius: 3px; color: #c3cdc3;
-  font: 700 11px/18px var(--mono); text-decoration: none; }
-.loa-pdf:hover { border-color: var(--green-hi); color: #fff; }
-.loa-b { display: none; max-height: min(46vh, 440px); overflow: auto; padding: 0 10px 8px; }
-.loa.open .loa-b { display: block; }
-.loa-tools { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; height: 32px; background: var(--panel); }
-.loa-q { width: 300px; padding: 2px 6px; background: #050605; border: 1px solid #2f3a2f; border-radius: 2px; font: 12px var(--mono); }
-.loa-q:focus { outline: none; border-color: var(--green-hi); }
-.loa-tools .hint { font-size: 11px; }
-.loa-sec[hidden], .loa [data-f][hidden] { display: none; }
-.loa h4 { margin: 8px 0 3px; font: 700 11px/1.3 var(--sans); letter-spacing: .8px; text-transform: uppercase; color: var(--green-text); }
-.loa h4 small { margin-left: 6px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
-/* gęste tabele przekazań: ruch, COP, poziom, sektory, warunki */
-.loa-tab { width: 100%; border-collapse: collapse; font: 12px/1.35 var(--mono); }
-.loa-tab th { position: sticky; top: 32px; z-index: 1; padding: 2px 8px 2px 4px; background: #111611; border-bottom: 1px solid var(--head-line);
-  color: var(--muted); font-weight: 400; text-align: left; white-space: nowrap; }
-.loa-tab td { padding: 2px 8px 2px 4px; border-bottom: 1px solid #161b16; vertical-align: top; color: #d6ded6; }
-.loa-tab tbody tr:nth-child(even) td { background: var(--row-alt); }
-.loa-tab tbody tr:hover td { background: var(--row-hover); }
-.loa-tab .trf { width: 220px; color: var(--cyan); }
-.loa-tab .cop { width: 90px; color: #fff; font-weight: 700; }
-.loa-tab .lvl { width: 150px; color: var(--yellow); white-space: nowrap; }
-/* długi opis poziomu (ESAA: "FL260 lub cruise level, jeśli niższy") zawija się zamiast poszerzać kolumnę */
-.loa-tab .lvl.wrap { min-width: 150px; white-space: normal; }
-.loa-tab .cond { color: #aab3aa; }
-/* sektory przekazania (Z / Do) */
-.loa-tab:not(.pos) td:nth-child(4):not(.cond), .loa-tab:not(.pos) td:nth-child(5):not(.cond) { width: 110px; white-space: nowrap; }
-.loa-tab.pos td:first-child { width: 70px; }
-.loa-tab.pos .pcs { width: 120px; color: var(--cyan); }
-.loa-tab.pos td:nth-child(3) { white-space: nowrap; }
-.loa-tab.pos .cop { width: 240px; }
-.loa-tab.pos .lvl { width: 70px; }
-.loa-tab .ep { color: var(--muted); }
-.loa-tab .nb { color: #fff; }
-/* zasady: trzy kolumny obok siebie (przekazanie, VFR, inne) */
-.loa-rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 18px; }
-.loa ul { margin: 0; padding: 0 0 0 16px; font: 12px/1.4 var(--mono); color: #d6ded6; }
-.loa li { margin: 0 0 3px; }
-.loa li::marker { color: var(--green-text); }
+@media (max-height: 820px) {
+  .rb-btns button { font-size: 12px; }
+  .rb-legend { display: none; }
+}

@@ -2,12 +2,13 @@ import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..models import Aerodrome, AtcPosition, NavPoint, Sector
+from ..models import Aerodrome, AtcPosition, NavPoint, NbSector, Sector
+from ..services import radioboard
 from ..services.http_cache import UpstreamError
 from ..services.neighbours import covered_firs, nb_owners, nb_sectors, owners_of
 from ..services.positions import all_positions
@@ -142,3 +143,81 @@ def sectors(db: Session = Depends(get_db)):
             "source": s.source}})
     return {"type": "FeatureCollection", "features": feats,
             "note": None if feats else "Brak sektorów: zaimportuj plik .ese (data/import)."}
+
+
+# --- RADIO jako jedna strona (PANDORA): GET /api/radio/board
+_BOARD: dict = {}
+# tło podglądów: granice FIR-ów z VATSpy w tej ramce (lon min, lat min, lon max, lat max)
+BOARD_FRAME = (4.0, 44.0, 34.0, 61.0)
+
+
+def _in_frame(geom: dict) -> bool:
+    pts = [pt for r in radioboard.rings(geom) for pt in r]
+    if not pts:
+        return False
+    x0, y0, x1, y1 = BOARD_FRAME
+    return min(p[0] for p in pts) < x1 and max(p[0] for p in pts) > x0 and min(p[1] for p in pts) < y1 \
+        and max(p[1] for p in pts) > y0
+
+
+def _board_static(db: Session, positions: dict) -> dict:
+    """Część tablicy niezależna od sieci; liczona od nowa po zmianie bazy (import) albo ownership.json."""
+    own_path = settings.seed_dir / "ownership.json"
+    st = own_path.stat()
+    stamp = (db.scalar(select(func.count(Sector.id))), db.scalar(select(func.max(Sector.id))),
+             db.scalar(select(func.count(NbSector.id))), db.scalar(select(func.max(NbSector.id))),
+             len(positions), st.st_mtime_ns, st.st_size)
+    if _BOARD.get("stamp") == stamp:
+        return _BOARD["data"]
+    own = seed_json(own_path)
+    by_id = {p.position_id: p.callsign for p in db.scalars(select(AtcPosition))}
+    covered = covered_firs(db)
+    epww, nb = [], []
+    for s in db.scalars(select(Sector).order_by(Sector.id)):
+        owners = [by_id[o] for o in s.owners.split(":") if o in by_id]
+        sl = radioboard.make_slice(s.fir, s.name, s.lower_ft, s.upper_ft, owners, json.loads(s.geometry))
+        if s.fir.upper() == "EPWW":
+            epww.append(sl)
+        elif s.fir.upper() not in covered:  # FIR bez własnego pliku .ese (Białoruś) – z pliku EPWW
+            nb.append(sl)
+    for s in nb_sectors(db):
+        nb.append(radioboard.make_slice(s.fir.upper(), s.name, s.lower_ft, s.upper_ft, owners_of(s), json.loads(s.geometry)))
+    coords = {a.icao: (a.lat, a.lon) for a in db.scalars(select(Aerodrome).where(Aerodrome.icao.like("EP%")))}
+    firs = fir_boundaries()
+    border = next((f["geometry"] for f in firs.get("features", []) if f["properties"]["id"] == "EPWW"), None) or {}
+    # same FIR-y (bez sektorów VATSpy typu ESMM-7), żeby tło było lekkie
+    frame = [{"id": f["properties"]["id"], "geometry": f["geometry"]} for f in firs.get("features", [])
+             if "-" not in f["properties"]["id"] and f["properties"]["id"] != "EPWW" and _in_frame(f["geometry"])]
+    data = radioboard.build_static(own=own, epww_slices=epww, nb_slices=nb, positions=positions, coords=coords,
+                                   border_geom=border, firs_geo=frame)
+    _BOARD.update(stamp=stamp, data=data)
+    return data
+
+
+@router.get("/board")
+async def board(geo: bool = False, db: Session = Depends(get_db)):
+    """Wszystko dla strony RADIO w jednym zapytaniu: sektory ACC EPWW (LOW/MID/HIGH) z właścicielem wg kolejności
+    przejmowania (ownership.json), TMA/APP, CTR/TWR, FIS, ATIS polskich lotnisk i stosy stanowisk sąsiadów przy
+    granicy (ESAA, EDWW, EDUU, EDMM, LKAA po lewej; UMKK, EYVL, UMMV, UKLV, LZBB po prawej) z granicami pionowymi.
+    owner/owners = pierwsze stanowisko online z kolejności (null/[] = nikt, pokazujemy częstotliwość nominalną).
+    `geo=1`: także geometria podglądów (granica EPWW, FIR-y w tle, wycinki ACC, TMA, CTR, FIS) – raz na sesję.
+    Błąd VATSIM nie psuje tablicy: `net.ok=false` i komunikat, wszystkie częstotliwości nominalne."""
+    merged = all_positions(db)
+    positions = {p["callsign"]: p for p in merged}
+    static = _board_static(db, positions)
+    net = {"ok": True, "error": None, "updated": None}
+    online, feed_atis = {}, []
+    try:
+        data = await vatsim_api.get_feed()
+        ctrls = data.get("controllers", []) + data.get("atis", [])
+        stations = [Station(p["callsign"], p["prefix"], p["frequency"] or "") for p in merged]
+        online = match_positions(ctrls, stations, nb_owners(db))
+        feed_atis = data.get("atis", [])
+        net["updated"] = data.get("general", {}).get("update_timestamp")
+    except (UpstreamError, ValueError) as exc:
+        net.update(ok=False, error=f"VATSIM data feed niedostępny: {exc}")
+    out = radioboard.board(static, online, positions, feed_atis)
+    out["net"] = net
+    if geo:
+        out["geo"] = static["geo"]
+    return out
