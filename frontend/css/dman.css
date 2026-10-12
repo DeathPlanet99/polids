@@ -1,0 +1,216 @@
+/* AERODROME › RUCH: DMAN/AMAN (dman.js, aman.js) na wzór ekranów z EPWA: czarne tło, szare etykiety odlotów,
+   żółte przylotów, niebieska tabela szczegółów, zielony pasek przycisków PANDORY. Bez poświaty i cieni pod tekstem. */
+.dm { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 3px; font: 11px/1.2 var(--mono); color: #e6e6e6; background: #000; }
+/* zanim przyjdą pierwsze dane: "Ładowanie…" albo błąd na środku zamiast pustych kolumn */
+.dm-note { position: absolute; left: 0; right: 0; top: 24px; bottom: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.dm-note[hidden] { display: none; }
+.dm-note > span { max-width: 70%; padding: 10px 16px; background: #000; border: 1px solid #3a3a3a; color: #9a9a9a; font-size: 13px; text-align: center; }
+.dm-note.err > span { color: var(--bad); border-color: #5a2020; }
+
+/* pasek przycisków u góry (jak @RMS / Reload / Brighter / Darker) */
+.dm-top { flex: none; display: flex; height: 20px; background: linear-gradient(#3fa22d, #2b8420); border: 1px solid #1f5a16; }
+.dm-top button { flex: 1 1 0; min-width: 0; padding: 0 6px; background: none; border: 0; border-right: 1px solid #1f5a16; color: #f4fff0;
+  font: 700 11px/18px var(--mono); letter-spacing: .4px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dm-top button:hover { background: rgba(255, 255, 255, .12); }
+.dm-top button.on { background: linear-gradient(#8cff5a, #5fd23a); color: #0b2a06; }
+.dm-msg { flex: 2.5 1 0; min-width: 0; padding: 0 8px; background: #000; color: #9aa59a; font: 11px/18px var(--mono);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+.dm-msg.err { color: var(--bad); }
+.dm-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* --- DMAN/AMAN: sześć kolumn */
+.dm-a { flex: 1; min-height: 0; display: grid; gap: 3px;
+  grid-template-columns: minmax(150px, .8fr) minmax(170px, 1.15fr) minmax(190px, 228px) minmax(300px, 2.1fr) minmax(150px, .75fr); }
+.dm-a > section { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: #050505; }
+
+/* listy odlotów (wg TSAT) i przylotów (wg ETA) */
+.dm-list { background: #121212 !important; border: 1px solid #2a2a2a; }
+.dm-rows { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; scrollbar-width: thin; scrollbar-color: #444 #121212; }
+.dm-rows > .dm-in { display: flex; flex-direction: column; gap: 2px; padding: 3px; }
+.dm-rows.up > .dm-in { margin-top: auto; }   /* ▲: późniejsze u góry, lista przy dolnej krawędzi jak na ekranie DMAN */
+.dm-row { display: grid; grid-template-columns: minmax(0, 1fr) 20px 42px 24px; align-items: center; height: 17px; background: #2e2e2e;
+  color: #e4e4e4; cursor: pointer; white-space: nowrap; }
+.dm-row.arr { grid-template-columns: minmax(0, 1fr) 20px 42px; }
+.dm-row > span { padding: 0 3px; overflow: hidden; text-overflow: clip; }
+.dm-row .m { text-align: center; color: #9a9a9a; }
+.dm-row .t { text-align: right; }
+.dm-row .t.est { color: #8fb0c8; }   /* nie TSAT (TOBT/EOBT) albo ETA z pozycji */
+.dm-row .r { height: 100%; line-height: 17px; text-align: center; background: #1b1b1b; }
+.dm-row:hover { background: #3c3c3c; }
+.dm-row.plan { color: #8d8d8d; }
+.dm-row.late { background: #c8352b; color: #fff; }
+.dm-row.late .r { background: #8e1f19; }
+.dm-row.sel { outline: 1px solid #fff; outline-offset: -1px; background: #505050; }
+.dm-row.late.sel { background: #e0463a; }
+.dm-empty { padding: 6px 4px; color: #777; font-size: 11px; }
+.dm-foot { flex: none; display: flex; gap: 2px; padding: 2px; background: #121212; border-top: 1px solid #2a2a2a; }
+.dm-foot button { flex: 1; height: 18px; padding: 0; border: 0; background: #545454; color: #e8e8e8; font: 700 10px/18px var(--mono); cursor: pointer; }
+.dm-foot button.on { background: #0f5578; color: #fff; }
+.dm-foot button:hover { filter: brightness(1.2); }
+
+/* drabiny czasu (SVG) */
+.dm-lad { position: relative; border: 1px solid #222; }
+.dm-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.dm-svg text { font-family: var(--mono); }
+.dm-svg .wm { fill: #1a1a1a; font-weight: 700; letter-spacing: -2px; }
+.dm-svg .pastbg { fill: #090a09; }
+.dm-svg .win { fill: #2a6c1d; opacity: .85; }
+.dm-svg .axis { stroke: #cfcfcf; stroke-width: 1; }
+.dm-svg .tick { stroke: #b8b8b8; stroke-width: 1; }
+.dm-svg .lbl { fill: #e4e4e4; font-size: 11px; }
+.dm-svg .lbl2 { fill: #7e867e; font-size: 9px; }
+.dm-svg .lblbg { fill: #050505; }
+.dm-svg .lbl.zero { fill: #fff; }
+.dm-svg .now { stroke: #3cb52b; stroke-width: 1.2; }
+.dm-svg .lead { stroke: #c4c4c4; stroke-width: 1; fill: none; }
+.dm-svg .lead.arr { stroke: #d8ad2c; }
+.dm-svg .more { fill: #9a9a9a; font-size: 10px; }
+.dm-svg .empty { fill: #6c6c6c; font-size: 11px; }
+.dm-tag { cursor: pointer; }
+.dm-tag .bg { fill: #3a3a3a; }
+.dm-tag:hover .bg { fill: #4a4a4a; }
+.dm-tag text { font-size: 12px; fill: #f0f0f0; }
+.dm-tag .mid { fill: #d0d0d0; }
+.dm-tag .tm.est { fill: #8fb0c8; }
+.dm-tag .csbg.late { fill: #c8352b; }
+.dm-tag .csbg.rdy { fill: #2a7d1c; }
+.dm-tag .csbg.ctot { fill: #8a5a12; }
+.dm-tag.arr .bg { fill: #e0b02c; }
+.dm-tag.arr:hover .bg { fill: #f0c03c; }
+.dm-tag.arr text { fill: #1c1400; }
+.dm-tag.arr .tm.est { fill: #4b3a06; }
+/* zielona ramka tylko po ruszeniu (AOBT, kołuje, w powietrzu), jak na ekranie DMAN; czas minął, a samolot stoi
+   (TSAT/TOBT/EOBT bez AOBT, przylot po ELDT): bursztynowa ramka */
+.dm-tag.off .bg { fill: #000; stroke: #2f8f22; stroke-width: 1; }
+.dm-tag.off text { fill: #c8c8c8; }
+.dm-tag.past:not(.off) .bg { fill: #1e1e1e; stroke: #b08a2a; stroke-width: 1; }
+.dm-tag.past:not(.off) text { fill: #d8d8d8; }
+.dm-tag.past:not(.off) .tm.est { fill: #8fb0c8; }
+.dm-tag.nar text { font-size: 10.5px; }
+.dm-tag.nar2 text { font-size: 10px; letter-spacing: -.2px; }
+.dm-tag.plan { opacity: .62; }
+.dm-tag.sel .bg { stroke: #fff; stroke-width: 1.6; }
+
+/* środek: szczegóły lotu, przyciski, zakres drabin, pasy, zegar */
+.dm-mid { gap: 4px; padding: 3px; background: #0c0c0c !important; border: 1px solid #222; overflow: hidden; }
+.dm-info { flex: 0 1 auto; width: 100%; border-collapse: separate; border-spacing: 0 1px; font: 10.5px/1.25 var(--mono); table-layout: fixed; }
+.dm-info th, .dm-info td { padding: 1px 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; font-weight: 400; }
+.dm-info th { width: 50%; background: #1c3a8a; color: #d6e2ff; }
+.dm-info td { background: #0f2462; color: #fff; }
+.dm-info tr.hd th { background: #1f78d8; color: #fff; }
+.dm-info tr.hd td { background: #1a66c0; color: #fff; font-weight: 700; }
+.dm-info tr.hl td { background: #1b4f86; }
+.dm-info tr.est td { color: #8fb0c8; }   /* wartość przyjęta albo wyliczona z TOBT/EOBT */
+.dm-info td.dm-hint { background: none; color: #8a8a8a; white-space: normal; padding: 6px 4px; }
+.dm-acts { flex: none; display: flex; gap: 3px; }
+.dm-acts button, .dm-spans button { flex: 1; height: 22px; padding: 0; border: 1px solid #222; background: linear-gradient(#5c5c5c, #444); color: #eee;
+  font: 700 11px var(--mono); cursor: pointer; }
+.dm-acts button:disabled { opacity: .4; cursor: default; }
+.dm-acts button:not(:disabled):hover, .dm-spans button:hover { filter: brightness(1.2); }
+.dm-spans { flex: none; display: flex; flex-direction: column; gap: 3px; }
+.dm-spans .sp { display: flex; gap: 3px; }
+.dm-spans .sp.l { margin-right: 18px; }
+.dm-spans .sp.r { margin-left: 18px; }
+.dm-spans button.on { background: linear-gradient(#8cff5a, #5fd23a); color: #0b2a06; border-color: #1f5a16; }
+.dm-rwys { flex: none; display: flex; flex-wrap: wrap; gap: 4px; }
+.dm-rwy { flex: 1; display: flex; align-items: baseline; justify-content: center; gap: 6px; padding: 3px 4px; color: #fff; border-radius: 2px; }
+.dm-rwy i { font-style: normal; font-size: 15px; }
+.dm-rwy b { font-size: 20px; font-weight: 400; }
+.dm-rwy small { font-size: 10px; color: #bcd; }
+.dm-rwy.dep { background: #0e2a56; }
+.dm-rwy.arr { background: #5a4710; }
+.dm-sugg { flex: 1 1 100%; text-align: center; color: var(--warn); font-size: 10px; }
+.dm-clock { flex: none; margin-top: auto; text-align: center; font: 30px/1.15 var(--mono); color: #fff; letter-spacing: 1px; }
+
+/* --- AMAN */
+.am { flex: 1; min-height: 0; display: grid; gap: 4px; grid-template-columns: 158px minmax(0, 1fr) 236px; }
+.am-side { min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 4px; border: 1px solid #3a3a3a; overflow: hidden; }
+.am-box { flex: none; display: grid; grid-template-columns: auto 1fr; gap: 6px; padding: 4px; border: 1px solid #9a9a9a; }
+.am-box i { font: 700 11px var(--mono); font-style: normal; color: #f0f0f0; }
+.am-box b { border: 1px solid #8a8a8a; padding: 6px 4px; text-align: center; font: 700 28px/1 var(--mono); color: #fff; }
+.am-box.flow { cursor: pointer; }
+.am-box.flow:hover { border-color: var(--green-hi); }
+.am-box.flow input { width: 100%; background: #000; color: #fff; border: 1px solid var(--green-hi); font: 700 20px var(--mono); text-align: center; }
+.am-box.cnt b { font-size: 22px; }
+.am-slot { flex: none; display: flex; flex-direction: column; gap: 6px; }
+.am-slot:empty { display: none; }
+.am-fixes { flex: 0 1 auto; min-height: 24px; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; align-content: start;
+  scrollbar-width: thin; scrollbar-color: #444 #000; }
+.am-fixes button { height: 20px; padding: 0 2px; background: color-mix(in srgb, var(--fc) 24%, #111); border: 2px solid var(--fc); color: #fff;
+  font: 700 11px/16px var(--mono); cursor: pointer; overflow: hidden; }
+.am-fixes button.thin { background: #000; border-style: dashed; color: #8a8a8a; }
+.am-fixes button:hover { filter: brightness(1.25); }
+.am-legend { flex: none; display: flex; flex-direction: column; gap: 2px; color: #9a9a9a; font-size: 10px; }
+.am-legend span { display: flex; align-items: center; gap: 5px; }
+.am-legend s { display: inline-block; width: 16px; height: 3px; }
+.am-legend s.ok { background: #33c23a; }
+.am-legend s.late { background: #e0302a; }
+.am-fill { flex: 1; min-height: 0; }
+.am-main { position: relative; min-width: 0; min-height: 0; border: 1px solid #3a3a3a; }
+.am-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.am-svg text { font-family: var(--mono); }
+.am-svg .lad { fill: #2a2a2a; }
+.am-svg .ladl, .am-svg .tk { stroke: #e6e6e6; stroke-width: 1; }
+.am-svg .hh { fill: #f0f0f0; font-size: 12px; font-weight: 700; }
+.am-svg .nowl { stroke: #e0302a; stroke-width: 2; }
+.am-svg .tbox { fill: #2a2a2a; stroke: #e6e6e6; }
+.am-svg .tnow { fill: #fff; font-size: 22px; font-weight: 700; }
+.am-svg .more { fill: #9a9a9a; font-size: 11px; }
+.am-svg .empty { fill: #6c6c6c; font-size: 13px; }
+.am-lead { stroke: var(--fc); stroke-width: 1; fill: none; opacity: .9; }
+.am-tag { cursor: pointer; }
+.am-tag .bg { fill: #262626; stroke: var(--fc); stroke-width: 1.2; }
+.am-tag:hover .bg { fill: #323232; }
+.am-tag .cs, .am-tag .nm { fill: #f2f2f2; font-size: 14px; }
+.am-tag .sta { fill: #a8a8a8; font-size: 12px; }
+.am-tag .dl.ok { fill: #33c23a; }
+.am-tag .dl.late { fill: #e0302a; }
+.am-tag.sel .bg { stroke-width: 2.4; fill: #3a3a3a; }
+.am-tag.cmp .cs, .am-tag.cmp .nm { font-size: 12px; }   /* gęsta sekwencja: niższe etykiety (16 px) */
+.am-tag.cmp .sta { font-size: 11px; }
+.am-thin { cursor: pointer; }
+.am-thin line { stroke: var(--fc); stroke-width: 1.2; }
+.am-thin text { fill: #bdbdbd; font-size: 11px; }
+.am-thin .hit { fill: transparent; }
+.am-thin.sel text { fill: #fff; font-weight: 700; }
+.am-hor { flex: none; display: flex; align-items: center; gap: 6px; font-size: 10px; color: #cfcfcf; }
+.am-hor input { flex: 1; min-width: 0; accent-color: var(--green); }
+.am-hor span { width: 30px; text-align: right; font-size: 12px; color: #fff; }
+.am-info, .am-rest { overflow: auto; border: 1px solid #9a9a9a; padding: 3px; }
+.am-info { flex: none; }
+.am-rest { flex: 1 1 auto; min-height: 50px; }
+.am-info { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 6px; align-content: start; }
+.am-info div { display: flex; flex-direction: column; min-width: 0; }
+.am-info i { font-style: normal; font-size: 9px; color: #8a8a8a; }
+.am-info b { font-weight: 400; font-size: 12px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.am-rest .h { font-size: 10px; color: #9a9a9a; margin-bottom: 2px; }
+.am-rest .r { display: grid; grid-template-columns: 1fr 40px 40px; gap: 4px; padding: 1px 2px; cursor: pointer; color: #cfcfcf; }
+.am-rest .r:hover { background: #222; }
+.am-rest .r.sel { outline: 1px solid #fff; outline-offset: -1px; color: #fff; }
+.am-rest .r.none { color: #666; cursor: default; }
+.am-lnd { flex: none; width: 100%; border-collapse: collapse; font: 12px var(--mono); }
+.am-lnd th, .am-lnd td { border: 1px solid #9a9a9a; padding: 1px 4px; text-align: right; font-weight: 400; color: #f0f0f0; }
+.am-lnd tr:first-child th { text-align: center; }
+.am-lnd tr > th:first-child { text-align: left; width: 34%; }
+
+/* niskie okna: mniejszy zegar i tabela szczegółów */
+@media (max-height: 820px) {
+  .dm-info { font-size: 10px; line-height: 1.15; }
+  .dm-clock { font-size: 24px; }
+  .am-box b { font-size: 22px; padding: 4px; }
+}
+/* okno do ~1300 px (laptop 1280x720): węższe kolumny, listy bez kolumny stanowiska (zawsze "–"), mniejsze pismo */
+@media (max-width: 1300px) {
+  .dm-a { grid-template-columns: minmax(124px, .8fr) minmax(140px, 1.15fr) minmax(176px, 212px) minmax(250px, 2.1fr) minmax(124px, .75fr); }
+  .dm-row { grid-template-columns: minmax(0, 1fr) 36px 20px; font-size: 10.5px; }
+  .dm-row.arr { grid-template-columns: minmax(0, 1fr) 36px; }
+  .dm-row .m { display: none; }
+  .dm-row > span { padding: 0 2px; }
+  .dm-spans .sp.l { margin-right: 8px; }
+  .dm-spans .sp.r { margin-left: 8px; }
+  .am { grid-template-columns: 146px minmax(0, 1fr) 214px; }
+}
+/* wąskie okno: AERODROME przewija się w całości, DMAN ma stałą wysokość */
+@media (max-width: 1250px), (max-height: 640px) {
+  .aero-pane .dm { flex: none; height: 640px; }
+}

@@ -15,7 +15,7 @@ export function posName(callsign) {
   return [prefix, ...mid, ...(type ? [type] : [])].join(" ");
 }
 
-// Jedna nazwa stanowiska w całej aplikacji (RADIO: kafelki GEO, mapa, listy, SEKTORYZACJA; MAP: dymki).
+// Jedna nazwa stanowiska w całej aplikacji (RADIO: etykiety podglądów; MAP: dymki).
 // Etykieta VACS, gdy stanowisko ma kafelek na stronach GEO (np. EPWA_I_APP → "WA C FIS", LKAA_U_CTR → "LKAA N/S")
 // albo etykietę sąsiada w profilu VACS ACC_EPWW; inaczej posName. Stanowiska ACC EPWW (EPWW_*_CTR) zawsze posName.
 // Przed wczytaniem etykiet (loadDisplayNames) displayName zwraca posName.
@@ -58,7 +58,7 @@ export function setDisplayNames(vacs) {
   by.forEach((e, k) => { LABELS.set(k, mergeLabels(e.labels)); if (e.alts.length) ALTS.set(k, e.alts.join("/")); });
 }
 
-// /api/nav/vacs raz na sesję, wspólne z RADIO (radiostate.loadVacsData); po błędzie kolejne wywołanie próbuje znowu
+// /api/nav/vacs raz na sesję (etykiety displayName); po błędzie kolejne wywołanie próbuje znowu
 let jsonP = null;
 export const loadVacsJson = () => (jsonP ||= api("/api/nav/vacs").catch((e) => { jsonP = null; throw e; }));
 export const loadDisplayNames = () => (namesP ||= loadVacsJson().then((d) => { setDisplayNames(d); return true; })

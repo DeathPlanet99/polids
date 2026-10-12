@@ -59,8 +59,8 @@ function wxRow(a, open) {
   const p = a.parsed || {};
   const t = a.traffic || {};
   const obs = p.time ? `${esc(p.time.slice(2, 4))}:${esc(p.time.slice(4, 6))}Z` : "";
-  return `<div class="ov-ad${open ? " open" : ""}" data-ad="${esc(a.icao)}">
-    <div class="ov-ad-head">
+  return `<div class="ov-aero${open ? " open" : ""}" data-icao="${esc(a.icao)}">
+    <div class="ov-aero-head">
       <b class="ic">${esc(a.icao)}</b>
       <span class="cat cat-${esc(p.flight_category || "")}">${esc(p.flight_category || "–")}</span>
       ${lvpChip(a.lvp)}
@@ -281,9 +281,9 @@ export function mountOverview(el, { onGoto } = {}) {
   });
   // kliknięcie wiersza lotniska rozwija / zwija TAF
   $(".ov-wx-body").addEventListener("click", (e) => {
-    const row = e.target.closest(".ov-ad");
+    const row = e.target.closest(".ov-aero");
     if (!row) return;
-    const icao = row.dataset.ad;
+    const icao = row.dataset.icao;
     if (open.has(icao)) open.delete(icao); else open.add(icao);
     if (last) draw(last);           // sam TAF: przerysowujemy z danych, które już mamy
   });

@@ -1,6 +1,11 @@
 import { api, esc, h } from "../api.js";
 
 const CHANGES = [
+  ["12.10.2026", "0.12.0 – menu jak w PANDORZE: strzałka ← na górze wraca do poprzedniego ekranu (także podzakładki i wybrane lotnisko, tak samo jak przycisk Wstecz przeglądarki); „?” to HOME z samym przywitaniem, a informacje o programie są w ABOUT; nowe zakładki SYT OP, AUP, STRIP i OTHER (AUP i OTHER będą dostępne w przyszłości)."],
+  ["12.10.2026", "RADIO na jednej stronie jak w PANDORZE: podgląd FIR EPWW LOW z sąsiadami EDWW, EDMM, EDUU, ESAA i LKAA, HIGH z UMKK, EYVL, UMMV, UKLV i LZBB oraz mały MID; w każdym sektorze jego ID i częstotliwość stanowiska, które go teraz obsługuje; częstotliwości sąsiadów z podziałem na poziomy; warstwy ATIS, LOW MID HIGH, APP, TWR, TWR/ATIS i FIS; kliknięcie nazwy FIR-u sąsiada otwiera wyciąg z LOA. Dawne podzakładki RADIO (lotniska, GEO z mapą zasięgu, SEKTORYZACJA, rezerwacje) zastąpiła ta jedna strona."],
+  ["12.10.2026", "AERODROME: podzakładki 0 (przegląd FIR EPWW), EPWW, ESAA, ED, ET, LKAA, LZBB, UMKK, EYVL, UMMV i UKLV z listami lotnisk (także VFR i MIL) i wyszukiwarką WYŚWIETL / WYCZYŚĆ; lotnisko zagraniczne pokazuje METAR, TAF, ATIS i stanowiska APP, TWR, GND, DEL, ATIS. RUCH jak DMAN/AMAN: drabiny TSAT, TTOT i ELDT oraz widok AMAN z punktami wejścia i odstępem FLOW. Paski EFES przeniesione do zakładki STRIP."],
+  ["12.10.2026", "METEO: SAT PL i SAT EUR, TURB (mapy turbulencji IMGW od +0 do +21 h) i SIGWX (IMGW). SYT OP: wszystkie aktywne NOTAM-y FIR EPWW i głównych lotnisk z filtrem i sortowaniem."],
+  ["11.10.2026", "0.11.1 – AERODROME › PRZEGLĄD: na polids.pl w przeglądarce z blokadą reklam (uBlock, AdBlock, Opera, Brave) pod paskiem METAR było pusto. Ogólne reguły EasyList chowały klasy „ad-grid” i „ad-col” (ad = aerodrome) jako reklamy; wszystkie nazwy z „ad” w interfejsie zmienione na „aero”. Karta wiatru bez METAR pokazuje „–” zamiast „undefined”."],
   ["08.10.2026", "AERODROME › OVERVIEW: jeden ekran dla FIR EPWW z poziomem przejściowym (jeden dla kraju: FL080, a FL090, gdy na którymkolwiek lotnisku QNH ≤ 995 hPa), METAR wszystkich lotnisk ze stanem LVP, aktywnymi NOTAM-ami, restrykcjami ECFMP i vIFF oraz Airport Monitorem vIFF. Filtr stanowiska: APP lub ACC zawęża lotniska (np. EPWA_APP: EPWA, EPMO, EPLL, EPRA) i pokazuje checklistę otwarcia, TWR przenosi do PRZEGLĄDU lotniska."],
   ["08.10.2026", "RADIO: nowa zakładka EDUU/EDYY; u sąsiadów prawdziwe callsigny radiowe z nazwami sektorów (VATSIM Germany Knowledgebase, LOA); pasek LOA z tabelami przekazań, zasadami i PDF-em; przyciski szybkiego skoku we wszystkich FIR-ach; lotniska VFR bez ID. DOCS: nowa kategoria LOA."],
   ["08.10.2026", "METEO › QNH: nowy podkład jak mapa rejonów QNH z AIP Polska (PAŻP), rejony odrysowane na nowo, pasy awaryjne 15–17 na 53°N i 51°N, ramki TMA/MTMA i SEKTOR n z QNH jak w vAWOS, szare oznaczenia TMA/CTR z mapy AIP (przełącznik „oznaczenia TMA/CTR”). AWOS: wiatr co 5 s z płynną wskazówką, RVR z METAR, „>2000 M” albo symulacja przy słabej widzialności. MAP: ATIS linia po linii, dane kontrolera po najechaniu na plakietkę lub opis stanowiska (także ESGG GND), lista sąsiednich FIR-ów domyślnie zwinięta."],
@@ -35,10 +40,12 @@ const CHANGES = [
 ];
 
 const TILES = [
-  ["aerodrome", "AERODROME", "Lotnisko na jednym ekranie: METAR, wiatr, pasy, ATIS, ruch z vIFF, NOTAM, widok AWOS."],
-  ["meteo", "METEO", "METAR i TAF lotnisk, mapa QNH regionalnego, wiatr przy ziemi i na podejściu."],
+  ["aerodrome", "AERODROME", "Przegląd FIR EPWW, listy lotnisk EPWW i sąsiadów, lotnisko na jednym ekranie: METAR, wiatr, pasy, ATIS, NOTAM, AWOS, RUCH (DMAN/AMAN)."],
+  ["meteo", "METEO", "METAR i TAF lotnisk, mapa QNH regionalnego, wiatr przy ziemi i na podejściu, satelita, turbulencje, SIGWX."],
   ["map", "MAP", "Ruch VATSIM, przestrzeń na wybranym poziomie, TMA/CTR, przepustowość sektorów i status lotu z vIFF."],
-  ["radio", "RADIO", "Kafelki GEO z częstotliwościami, zasięg stanowisk na mapie, sektoryzacja, kto jest online i rezerwacje na dziś."],
+  ["radio", "RADIO", "Jedna strona jak w PANDORZE: sektory ACC EPWW na podglądach LOW/MID/HIGH z częstotliwościami, warstwy APP/TWR/FIS, ATIS i stanowiska sąsiadów; nazwa FIR-u sąsiada otwiera wyciąg z LOA."],
+  ["sytop", "SYT OP", "Aktywne NOTAM-y FIR EPWW i głównych lotnisk."],
+  ["strip", "STRIP", "Paski postępu lotu EFES dla 15 głównych lotnisk."],
   ["callsign", "CALLSIGN", "Znaki wywoławcze linii lotniczych."],
   ["aircraft", "AIRCRAFT", "Typy samolotów wg producenta, kategorie turbulencji, zdjęcia."],
   ["checklist", "CHECKLIST", "Otwarcie i zamknięcie stanowiska, przekazanie, zmiana pasa."],
@@ -59,7 +66,7 @@ export default {
     root.append(pane);
     pane.querySelector(".about-tiles").addEventListener("click", (e) => {
       const b = e.target.closest("[data-open]");
-      if (b) location.hash = b.dataset.open;
+      if (b) ctx.open(b.dataset.open);
     });
     const load = async () => {
       const st = await api("/api/status").catch(() => ({ counts: {} }));

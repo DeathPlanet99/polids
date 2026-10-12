@@ -1,0 +1,9 @@
+/* HOME ("?" w menu): samo powitanie zalogowanego kontrolera, na środku ekranu. */
+.home-pane { display: flex; align-items: center; justify-content: center; padding: 24px; }
+.home-hello { margin: 0; max-width: 100%; color: var(--text); font: 700 44px/1.25 var(--ui); text-align: center; overflow-wrap: anywhere; }
+@media (max-width: 900px) { .home-hello { font-size: 30px; } }
+
+/* AUP, OTHER: krótka informacja na środku ekranu */
+.soon-pane { display: flex; align-items: center; justify-content: center; padding: 24px; }
+.soon-note { margin: 0; color: var(--muted); font: 700 20px/1.4 var(--ui); text-align: center; }
+.soon-note b { color: var(--green-hi); font-variant: small-caps; letter-spacing: .5px; }

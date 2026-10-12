@@ -13,18 +13,23 @@
   <link rel="stylesheet" href="/static/css/awos.css">
   <link rel="stylesheet" href="/static/css/qnh.css">
   <link rel="stylesheet" href="/static/css/viff.css">
-  <link rel="stylesheet" href="/static/css/sectors.css">
   <link rel="stylesheet" href="/static/css/strips.css">
   <link rel="stylesheet" href="/static/css/radio.css">
   <link rel="stylesheet" href="/static/css/map.css">
   <link rel="stylesheet" href="/static/css/wind.css">
   <link rel="stylesheet" href="/static/css/overview.css">
+  <link rel="stylesheet" href="/static/css/home.css">
+  <link rel="stylesheet" href="/static/css/aerolist.css">
+  <link rel="stylesheet" href="/static/css/dman.css">
+  <link rel="stylesheet" href="/static/css/sytop.css">
+  <link rel="stylesheet" href="/static/css/meteoimg.css">
 </head>
 <body>
   <aside class="menu">
-    <a class="brand" href="#about" title="PolIDS – Polish Integrated Display System"><img src="/static/icons/polids-logo-bez-podpisu.svg" alt="PolIDS"></a>
+    <a class="brand" href="#home" title="PolIDS – Polish Integrated Display System"><img src="/static/icons/polids-logo-bez-podpisu.svg" alt="PolIDS"></a>
     <nav id="tabs">
-      <button data-tab="about">?</button>
+      <button id="nav-back" class="back" title="Wstecz: poprzedni ekran (Alt+←)" disabled>←</button>
+      <button data-tab="home" title="HOME – strona startowa">?</button>
       <button data-tab="radio">RADIO</button>
       <button data-tab="meteo">METEO</button>
       <button data-tab="aerodrome">AERODROME</button>
@@ -38,6 +43,11 @@
       <button data-tab="docs">DOCS</button>
       <button data-tab="phraseology">PHRASEOLOGY</button>
       <button data-tab="checklist">CHECKLIST</button>
+      <button data-tab="sytop">SYT OP</button>
+      <button data-tab="aup">AUP</button>
+      <button data-tab="strip">STRIP</button>
+      <button data-tab="other">OTHER</button>
+      <button data-tab="about">ABOUT</button>
       <button data-tab="emergency" class="red">EMERGENCY</button>
       <button data-tab="admin" class="admin" hidden>ADMIN</button>
     </nav>

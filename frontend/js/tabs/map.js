@@ -186,7 +186,7 @@ function mainMap(ctx) {
       </section>
       <section class="ms-card" data-sec="points">
         <h4>Punkty i drogi</h4>
-        ${sw("ads", "lotniska", true, `<i data-sym="aerodrome"></i>`)}
+        ${sw("aeros", "lotniska", true, `<i data-sym="aerodrome"></i>`)}
         ${sw("navaids", "VOR / DME", false, `<i data-sym="vor"></i>`)}
         ${sw("ndbs", "NDB", false, `<i data-sym="ndb"></i>`)}
         ${sw("vfrs", "punkty VFR <small>(zoom ≥ 8)</small>", false, `<i data-sym="vfr"></i>`)}
@@ -311,14 +311,14 @@ function mainMap(ctx) {
     // ATIS też w tabeli kontroli: kto go wystawił (imię i nazwisko, CID, od kiedy)
     const ctrls = FACILITIES.filter(([k]) => fac[k]).flatMap(([k, l]) => fac[k].map((c) => ({ ...c, k, l })));
     const atis = fac.ATIS || [];
-    return `<div class="adc-h"><b>${esc(icao)}</b><span>${esc(name || "")}</span></div>
-      <div class="adc-sec">METAR</div><div class="adc-metar">${metar === undefined ? '<span class="muted">ładowanie…</span>' : metar ? esc(metar) : '<span class="muted">brak</span>'}</div>
-      <div class="adc-sec">Kontrola</div>${ctrls.length ? `<table>${ctrls.map((c) => `<tr><td><span class="ab ab-${c.k.toLowerCase()}">${c.l}</span></td>
+    return `<div class="aeroc-h"><b>${esc(icao)}</b><span>${esc(name || "")}</span></div>
+      <div class="aeroc-sec">METAR</div><div class="aeroc-metar">${metar === undefined ? '<span class="muted">ładowanie…</span>' : metar ? esc(metar) : '<span class="muted">brak</span>'}</div>
+      <div class="aeroc-sec">Kontrola</div>${ctrls.length ? `<table>${ctrls.map((c) => `<tr><td><span class="ab ab-${c.k.toLowerCase()}">${c.l}</span></td>
         <td class="cs">${esc(c.callsign)}</td><td class="fq">${esc(c.frequency)}</td><td>${who(c)}</td><td class="muted">od ${hhmm(c.logon_time)}</td></tr>`).join("")}</table>`
         : '<div class="muted">brak zalogowanego kontrolera</div>'}
-      ${atis.map((a) => `<div class="adc-sec">ATIS ${esc(a.atis_code || "")} <span class="muted">${esc(a.callsign)} ${esc(a.frequency)}</span></div>
-        <div class="adc-who">wystawił: ${who(a)} · od ${hhmm(a.logon_time)}</div>
-        <div class="adc-atis">${atisHtml(a.text_atis)}</div>`).join("")}`;
+      ${atis.map((a) => `<div class="aeroc-sec">ATIS ${esc(a.atis_code || "")} <span class="muted">${esc(a.callsign)} ${esc(a.frequency)}</span></div>
+        <div class="aeroc-who">wystawił: ${who(a)} · od ${hhmm(a.logon_time)}</div>
+        <div class="aeroc-atis">${atisHtml(a.text_atis)}</div>`).join("")}`;
   };
   // Karta nad lotniskiem, a gdy nad nim się nie mieści (lotnisko przy górnej krawędzi mapy, długi ATIS linijka po linijce):
   // pod plakietką. W poziomie przesunięta w granice mapy (z lewej panel boczny), wtedy bez strzałki.
@@ -332,14 +332,14 @@ function mainMap(ctx) {
     const zc = map.zoomControl?.getContainer(), x0 = zc ? zc.offsetLeft + zc.offsetWidth + 4 : 4;
     const dx = Math.round(Math.max(x0 - (p.x - w / 2), Math.min(0, W - 4 - (p.x + w / 2))));
     const dir = down ? "bottom" : "top", off = [dx, down ? 30 : -8];
-    el.classList.toggle("adc-shift", dx !== 0);
+    el.classList.toggle("aeroc-shift", dx !== 0);
     if (tt.options.direction === dir && String(tt.options.offset) === String(off)) return;
     Object.assign(tt.options, { direction: dir, offset: off });
     tt.update();
   };
   // Dymek podpinamy do markera; METAR doładowuje się przy pierwszym najechaniu
   const bindAdCard = (m, icao, name) => {
-    m.bindTooltip(() => adCard(icao, name, metarCache[icao]?.v), { direction: "top", offset: [0, -8], className: "atc-tip ad-tip", opacity: 1, pane: panes.tip });
+    m.bindTooltip(() => adCard(icao, name, metarCache[icao]?.v), { direction: "top", offset: [0, -8], className: "atc-tip aero-tip", opacity: 1, pane: panes.tip });
     m.on("tooltipopen", async () => {
       hideTip();
       placeCard(m);
@@ -378,7 +378,7 @@ function mainMap(ctx) {
     drawTraffic();
     trafficInfo();
   }).catch(() => loadAtc());
-  $(".ads").addEventListener("change", (e) => (e.target.checked ? layers.ads.addTo(map) : map.removeLayer(layers.ads)));
+  $(".aeros").addEventListener("change", (e) => (e.target.checked ? layers.ads.addTo(map) : map.removeLayer(layers.ads)));
 
   // --- Przestrzeń: wszystkie wycinki sektorów z pliku .ese (ACC EPWW, TMA, CTR, FIS/CTA/ATZ, sąsiedzi) z granicami pionowymi.
   // Na mapie tylko wycinki obejmujące wybrany poziom (albo wszystkie), z wybranych list; obsada wg kontrolerów online.
@@ -439,7 +439,7 @@ function mainMap(ctx) {
 
   // Właściciel jednego wycinka. Wynik: {c: obsługujący (w TMA / CTA / CTR tylko APP, TWR…: etykieta), top: ACC top-down,
   // key: znak do koloru, who: znak obsługującego z kolejności (kolor TMA / CTA / CTR), ext: obsługujący spoza stanowisk .ese,
-  // ch: kolejność z chains.js (TMA, CTA, CTR) – ta sama co w RADIO › GEO i SEKTORYZACJA}
+  // ch: kolejność z chains.js (TMA, CTA, CTR)}
   const ownerOf = (pr, ctxo) => {
     const ch = CHAIN_KINDS.includes(pr.kind) ? airspaceChain(pr.name, pr.owner_callsigns, net.vacs) : null;
     if (!ctxo) return { c: null, top: null, key: null, who: ch?.chain[0] || null, ch };

@@ -1,11 +1,11 @@
 /* AWOS (AERODROME › AWOS): wygląd jak NM UI: cienkie ramki 1px, paski tytułów małymi literami z odstępami,
    wartości monospace, bez poświaty. Przełącznik PRZEGLĄD / AWOS na pasku narzędzi AERODROME. */
-.ad-view { display: inline-flex; border: 1px solid var(--line); }
-.ad-view button { background: #0b0d0b; border: 0; border-right: 1px solid var(--line); color: var(--muted); padding: 5px 12px;
+.aero-view { display: inline-flex; border: 1px solid var(--line); }
+.aero-view button { background: #0b0d0b; border: 0; border-right: 1px solid var(--line); color: var(--muted); padding: 5px 12px;
   font: 700 11px var(--ui); letter-spacing: 1.5px; cursor: pointer; }
-.ad-view button:last-child { border-right: 0; }
-.ad-view button:hover { color: var(--text); background: var(--panel-2); }
-.ad-view button.active { background: #14240f; color: var(--green-hi); box-shadow: inset 0 -2px 0 var(--green-hi); }
+.aero-view button:last-child { border-right: 0; }
+.aero-view button:hover { color: var(--text); background: var(--panel-2); }
+.aero-view button.active { background: #14240f; color: var(--green-hi); box-shadow: inset 0 -2px 0 var(--green-hi); }
 
 .awos { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
 .awos .k { font: 700 10px/1.3 var(--ui); letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
@@ -18,10 +18,10 @@
 .aw-box[hidden] { display: none; }
 .aw-box { flex: none; background: var(--panel); border: 1px solid var(--line); padding: 3px 10px; display: flex; flex-direction: column; justify-content: center; }
 .aw-box .v { font: 700 22px/1.15 var(--mono); color: #fff; white-space: nowrap; }
-.aw-ad { flex: 1 1 auto; min-width: 140px; }
-.aw-ad .v { overflow: hidden; text-overflow: ellipsis; }
-.aw-ad .icao { color: var(--green-hi); }
-.aw-ad .aw-nm { font: 13px var(--ui); color: var(--text); }
+.aw-aero { flex: 1 1 auto; min-width: 140px; }
+.aw-aero .v { overflow: hidden; text-overflow: ellipsis; }
+.aw-aero .icao { color: var(--green-hi); }
+.aw-aero .aw-nm { font: 13px var(--ui); color: var(--text); }
 .aw-utc .v { color: var(--cyan); }
 .aw-q .v { color: var(--yellow); font-size: 26px; }
 .aw-lvp, .aw-vmc { min-width: 72px; align-items: center; font: 700 18px var(--mono); letter-spacing: 1px; color: #3a423a; }

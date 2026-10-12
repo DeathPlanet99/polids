@@ -79,12 +79,12 @@
 .qr-des { display: flex; flex-direction: column; align-items: center; font: 8px/1 var(--ui); color: var(--qr-des); }
 
 /* lotniska: romb (bez METAR-u) albo kółko z kropką (lotnisko kontrolowane / z METAR-em) i kod ICAO */
-.qr-ad { transform: translate(-6.5px, -6.5px); display: flex; align-items: center; gap: 2px; }
-.qr-ad i { width: 7px; height: 7px; margin: 1.5px; border: 1.5px solid var(--qr-ink); background: #fff; transform: rotate(45deg); flex: none; }
-.qr-ad.ctl i { width: 9px; height: 9px; margin: 0.5px; border-radius: 50%; transform: none;
+.qr-aero { transform: translate(-6.5px, -6.5px); display: flex; align-items: center; gap: 2px; }
+.qr-aero i { width: 7px; height: 7px; margin: 1.5px; border: 1.5px solid var(--qr-ink); background: #fff; transform: rotate(45deg); flex: none; }
+.qr-aero.ctl i { width: 9px; height: 9px; margin: 0.5px; border-radius: 50%; transform: none;
   background: radial-gradient(circle, var(--qr-ink) 0 1.6px, #fff 2px); }
-.qr-ad span { font: 700 9px/1 var(--ui); color: var(--qr-ink); background: rgba(255,255,255,.6); padding: 0 1px; }
-.qrwrap.qr-far .qr-ad span, .qrwrap.qr-far .qr-cap, .qrwrap.qr-far .qr-des { display: none; }
+.qr-aero span { font: 700 9px/1 var(--ui); color: var(--qr-ink); background: rgba(255,255,255,.6); padding: 0 1px; }
+.qrwrap.qr-far .qr-aero span, .qrwrap.qr-far .qr-cap, .qrwrap.qr-far .qr-des { display: none; }
 .leaflet-tooltip.qr-tip { background: var(--qr-box); color: #fff; border: 1px solid var(--qr-box-line); border-radius: 0; box-shadow: none;
   font: 700 11px var(--mono); padding: 1px 5px; }
 .leaflet-tooltip.qr-tip::before { display: none; }

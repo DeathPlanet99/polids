@@ -16,8 +16,8 @@
   border-bottom: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); }
 .wnd-bar label, .wnd-rwyl { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .wnd-rwyl[hidden] { display: none; }
-.wnd-ad { max-width: 250px; background: #0d110d; color: var(--text); border: 1px solid #2f3a2f; border-radius: 3px; padding: 3px 6px; font: 12px var(--mono); outline: none; }
-.wnd-ad:focus { border-color: var(--green-hi); }
+.wnd-aero { max-width: 250px; background: #0d110d; color: var(--text); border: 1px solid #2f3a2f; border-radius: 3px; padding: 3px 6px; font: 12px var(--mono); outline: none; }
+.wnd-aero:focus { border-color: var(--green-hi); }
 .wnd-seg { display: inline-flex; border: 1px solid var(--line); }
 .wnd-seg button { background: #0b0d0b; border: 0; border-right: 1px solid var(--line); color: var(--muted); padding: 4px 12px; cursor: pointer;
   font: 700 12px var(--mono); letter-spacing: .5px; white-space: nowrap; }
@@ -70,27 +70,27 @@ table.data.wnd-tab td, table.data.apw-tab td { padding: 2px 3px; font-family: va
 .wnd-tag, .apw-tag { display: inline-block; margin-left: 4px; padding: 0 3px; font: 700 9px/13px var(--mono); vertical-align: 2px; border: 1px solid; }
 
 /* --- AERODROME › PRZEGLĄD: karta wiatru 0 / 3000 ft (trzecia kolumna nieco szersza, żeby tabela mieściła się przy 1366 px) --- */
-.ad-grid { grid-template-columns: 232px minmax(420px, 1.25fr) minmax(320px, 1fr); }
+.aero-grid { grid-template-columns: 232px minmax(420px, 1.25fr) minmax(320px, 1fr); }
 /* niskie okno (1366x657, 1280x720): karta wiatru kurczy się i przewija w środku (pasy w użyciu są na górze tabeli),
    NOTAM zawsze ma co najmniej ok. 120 px */
-.ad-col > .card.ad-apw { flex: 0 1 auto; min-height: 0; }
-.ad-apw .apw { flex: 0 1 auto; min-height: 0; overflow: auto; }
-.ad-col > .card.ad-notam { min-height: 120px; }
+.aero-col > .card.aero-apw { flex: 0 1 auto; min-height: 0; }
+.aero-apw .apw { flex: 0 1 auto; min-height: 0; overflow: auto; }
+.aero-col > .card.aero-notam { min-height: 120px; }
 /* wąskie okno: strona przewija się w całości (siatka w naturalnej wysokości), trzecia kolumna pod spodem na całą szerokość */
 @media (max-width: 1250px), (max-height: 640px) {
-  .ad-grid { grid-template-columns: 232px minmax(0, 1fr); }
-  .ad-pane .content, .ad-pane .ad-grid { flex: none; }
-  .ad-grid > .ad-col:nth-child(3) { grid-column: 1 / -1; }
-  .ad-col > .card.part:has(+ .ad-apw) { max-height: none; }
-  .ad-col > .card.ad-apw { flex: none; }
-  .ad-apw .apw { overflow: visible; }
+  .aero-grid { grid-template-columns: 232px minmax(0, 1fr); }
+  .aero-pane .content, .aero-pane .aero-grid { flex: none; }
+  .aero-grid > .aero-col:nth-child(3) { grid-column: 1 / -1; }
+  .aero-col > .card.part:has(+ .aero-apw) { max-height: none; }
+  .aero-col > .card.aero-apw { flex: none; }
+  .aero-apw .apw { overflow: visible; }
 }
-.ad-apw h3 { display: flex; align-items: baseline; gap: 8px; }
-.ad-apw .apw-src { margin-left: auto; color: var(--muted); font-weight: 400; letter-spacing: 0; text-transform: none; white-space: nowrap; }
+.aero-apw h3 { display: flex; align-items: baseline; gap: 8px; }
+.aero-apw .apw-src { margin-left: auto; color: var(--muted); font-weight: 400; letter-spacing: 0; text-transform: none; white-space: nowrap; }
 .apw-tags { display: inline-flex; flex-direction: column; vertical-align: middle; gap: 1px; margin-left: 4px; }
 .apw-tags:empty { display: none; }
 .apw-tags .apw-tag { margin-left: 0; font-size: 8px; line-height: 9px; padding: 0 2px; }
-.ad-col > .card.part:has(+ .ad-apw) { max-height: 34%; }
+.aero-col > .card.part:has(+ .aero-apw) { max-height: 34%; }
 .apw-tab td { font-size: 12px; }
 .apw-tab td.rwy { text-align: left; }
 .apw-tab td.pt { font-size: 11px; color: var(--text); }
@@ -99,10 +99,10 @@ table.data.wnd-tab td, table.data.apw-tab td { padding: 2px 3px; font-family: va
 .apw-note { margin-top: 3px; font-size: 10px; line-height: 1.3; }
 
 /* --- ARR / DEP w kolorach pasków postępu lotu --- */
-.wnd-tag.arr, .apw-tag.arr, .ad-pane .tag.arr { color: #1d1600; background: var(--rw-arr); border-color: var(--rw-arr); }
-.wnd-tag.dep, .apw-tag.dep, .ad-pane .tag.dep { color: #001226; background: var(--rw-dep); border-color: var(--rw-dep); }
-.ad-pane .tag.arr.sugg { color: var(--rw-arr); background: transparent; }
-.ad-pane .tag.dep.sugg { color: var(--rw-dep); background: transparent; }
+.wnd-tag.arr, .apw-tag.arr, .aero-pane .tag.arr { color: #1d1600; background: var(--rw-arr); border-color: var(--rw-arr); }
+.wnd-tag.dep, .apw-tag.dep, .aero-pane .tag.dep { color: #001226; background: var(--rw-dep); border-color: var(--rw-dep); }
+.aero-pane .tag.arr.sugg { color: var(--rw-arr); background: transparent; }
+.aero-pane .tag.dep.sugg { color: var(--rw-dep); background: transparent; }
 .wnd-tab tr.arr td.rwy b, .apw-tab tr.arr td.rwy b { color: var(--rw-arr); }
 .wnd-tab tr.dep td.rwy b, .apw-tab tr.dep td.rwy b { color: var(--rw-dep); }
 .apw-tab tr.arr td { background: var(--rw-arr-bg) !important; }
@@ -119,8 +119,8 @@ table.data.rwy-table tr.inuse.dep td.rwy { color: var(--rw-dep); box-shadow: ins
 table.data.rwy-table tr.inuse.arr.dep td.rwy { color: var(--rw-arr); box-shadow: inset 3px 0 0 var(--rw-arr-line), inset 6px 0 0 var(--rw-dep-line); }
 
 /* róża wiatrów: legenda; pas w użyciu w ramce */
-.ad-pane .wr-legend .sw-arr { background: var(--rw-arr); border-color: var(--rw-arr); }
-.ad-pane .wr-legend .sw-dep { background: var(--rw-dep); border-color: var(--rw-dep); }
+.aero-pane .wr-legend .sw-arr { background: var(--rw-arr); border-color: var(--rw-arr); }
+.aero-pane .wr-legend .sw-dep { background: var(--rw-dep); border-color: var(--rw-dep); }
 .rwy-use .pair b.arr { color: var(--rw-arr); }
 .rwy-use .pair b.dep { color: var(--rw-dep); }
 

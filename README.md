@@ -7,14 +7,18 @@ w stylu EUROCONTROL NM UI. Backend FastAPI + SQLite, frontend w czystym JS, cał
 
 | Zakładka | Co jest |
 |---|---|
-| RADIO | GEO: kafelki stanowisk jak w VACS i mapa zasięgu wybranych pozycji; SEKTORYZACJA LOW/MID/HIGH (kolejność przejmowania z om.plvacc.pl); listy EPWW ACC, lotnisk i FIR-ów sąsiednich (osobno EDUU/EDYY), kto jest online, rezerwacje na dziś; u sąsiadów callsigny radiowe i nazwy sektorów (VATSIM Germany Knowledgebase, LOA) i pasek LOA z tabelami przekazań; przyciski szybkiego skoku we wszystkich listach; lotniska VFR bez ID |
-| METEO | METAR/TAF, mapa QNH regionalnego na podkładzie jak mapa rejonów QNH z AIP Polska (PAŻP), WIND z wiatrem 0 ft / 3000 ft na podejściu do każdego pasa |
-| AERODROME | OVERVIEW dla całego FIR EPWW (jeden TL dla kraju: FL080, a FL090, gdy na którymkolwiek lotnisku QNH ≤ 995 hPa; METAR/TAF ze stanem LVP, aktywne NOTAM-y, restrykcje ECFMP i vIFF, Airport Monitor vIFF; filtr stanowiska: APP/ACC zawęża lotniska i pokazuje checklistę otwarcia, TWR przenosi do lotniska); przegląd lotniska (wiatr, pasy, ATIS, LVP, NOTAM, częstotliwości, wiatr na podejściu), widok AWOS (wiatr co 5 s, RVR z METAR albo symulowany), paski EFES (RUCH) |
+| RADIO | jedna strona jak w PANDORZE: u góry pasek ATIS polskich lotnisk, podglądy FIR EPWW LOW (przekrój FL095–FL335 przyciskami ◀ ▶), mały MID i HIGH z ID sektora i częstotliwością stanowiska, które go teraz obsługuje (kolejność przejmowania z om.plvacc.pl); stosy stanowisk sąsiadów z podziałem na poziomy (ESAA, EDWW, EDUU, EDMM, LKAA po lewej; UMKK, EYVL, UMMV, UKLV, LZBB po prawej); warstwy ATIS, LOW MID HIGH, APP, TWR, TWR/ATIS i FIS; kliknięcie nazwy FIR-u sąsiada otwiera wyciąg z LOA (tabele przekazań, zasady, stanowiska, PDF w DOCS) |
+| METEO | METAR/TAF, mapa QNH regionalnego na podkładzie jak mapa rejonów QNH z AIP Polska (PAŻP), WIND z wiatrem 0 ft / 3000 ft na podejściu do każdego pasa, SAT PL i SAT EUR, TURB (mapy turbulencji IMGW +0…+21 h z odtwarzaniem), SIGWX (IMGW) |
+| AERODROME | podzakładki jak w PANDORZE: 0 = OVERVIEW całego FIR EPWW (jeden TL dla kraju: FL080, a FL090, gdy na którymkolwiek lotnisku QNH ≤ 995 hPa; METAR/TAF ze stanem LVP, aktywne NOTAM-y, restrykcje ECFMP i vIFF, Airport Monitor vIFF; filtr stanowiska: APP/ACC zawęża lotniska i pokazuje checklistę otwarcia, TWR przenosi do lotniska); EPWW, ESAA, ED, ET, LKAA, LZBB, UMKK, EYVL, UMMV, UKLV = listy lotnisk FIR-u (także VFR i MIL) z wyszukiwarką WYŚWIETL / WYCZYŚĆ; lotnisko zagraniczne: karta z METAR, TAF, ATIS i stanowiskami APP/TWR/GND/DEL/ATIS; lotnisko polskie: PRZEGLĄD (wiatr, pasy, ATIS, LVP, NOTAM, częstotliwości, wiatr na podejściu), AWOS (wiatr co 5 s, RVR z METAR albo symulowany) i RUCH jak DMAN/AMAN (drabiny TSAT, TTOT i ELDT, widok AMAN z punktami wejścia i odstępem FLOW) |
 | AD CIV / AD MIL / AD VFR | eAIP PAŻP |
 | CALLSIGN, AIRCRAFT | callsigny, typy samolotów (WTC, RECAT-EU, wymiary, zdjęcia, przyciski producentów) |
 | MAP | ruch VATSIM (odlot / przylot / tranzyt), przestrzeń na wybranym poziomie FL (ACC, TMA, CTA, CTR, FIS, sektory sąsiadów z ich plików `.ese`), przepustowość i szczegóły lotów z vIFF; ATIS linia po linii, dane kontrolera po najechaniu na plakietkę lub opis stanowiska, lista sąsiednich FIR-ów domyślnie zwinięta |
 | INOP, DOCS, PHRASEOLOGY | om.plvacc.pl, PDF-y z `data/docs/` (w tym LOA EPWW z sąsiadami), baza frazeologii EUROCONTROL |
 | CHECKLIST, EMERGENCY | checklisty stanowiska, procedury awaryjne EUROCONTROL |
+| SYT OP | wszystkie aktywne NOTAM-y FIR EPWW i głównych lotnisk (cv.plvacc.pl) z filtrem lokalizacji i tekstu, sortowaniem i pełną treścią |
+| AUP, OTHER | na razie tylko informacja, że będą dostępne w przyszłości |
+| STRIP | paski postępu lotu EFES (przeniesione z AERODROME › RUCH), podzakładka dla każdego z 15 głównych lotnisk |
+| ? (HOME), ABOUT | HOME: samo przywitanie „Witaj, imię i nazwisko (CID)”; ABOUT: informacje o programie, skróty do zakładek i lista zmian |
 | ADMIN | lista CID-ów z dostępem i odmowy logowania (tylko admin) |
 
 Źródła danych: pliki EuroScope (sektorówka EPWW, navdata, pliki `.ese` vACC sąsiadów w `data/import/neighbours/`), VATSIM (data feed, bookings), metar.vatsim.net /

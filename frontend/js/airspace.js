@@ -1,9 +1,9 @@
-// Wspólne warstwy mapy przestrzeni (RADIO i MAP): sektory EPWW z pliku .ese, granice FIR z VATSpy,
+// Warstwy mapy przestrzeni (MAP): sektory EPWW z pliku .ese, granice FIR z VATSpy,
 // podświetlenie stanowisk zalogowanych w sieci VATSIM.
 import { api, atisHtml, esc } from "./api.js";
 
 const PALETTE = ["#2f8fff", "#3ecf6e", "#ffb020", "#ff5c8a", "#a970ff", "#00c2c7", "#ff7a3d", "#c3d82b", "#ff4dd2", "#6f8cff"];
-// Stałe kolory 19 stanowisk ACC EPWW (te same w MAPA, SEKTORYZACJA i RADIO). Dobrane tak, żeby najbardziej różniły się
+// Stałe kolory 19 stanowisk ACC EPWW na MAP. Dobrane tak, żeby najbardziej różniły się
 // stanowiska, które mogą jednocześnie obsługiwać sąsiednie sektory; skrót stanowiska jest zawsze w etykiecie.
 export const POSITION_COLORS = {
   EPWW_N_CTR: "#40f5ec", EPWW_ALH_CTR: "#4ed227", EPWW_DBT_CTR: "#ae5af9", EPWW_DBF_CTR: "#fd8c7b", EPWW_ALL_CTR: "#4fcc92",
@@ -30,11 +30,10 @@ let vacsPromise = null, vacsData = null;
 export const loadVacs = () => (vacsPromise ||= api("/api/nav/ownership").then((d) => (vacsData = d))
   .catch((e) => { vacsPromise = null; throw e; }));
 loadVacs().catch(() => { /* bez VACS: właściciele z listy OWNER pliku .ese */ });
-export const VACS_LAYERS = ["LOW", "MID", "HIGH"];
 // warstwa wg poziomu w stopach: poniżej FL335 LOW, poniżej FL365 MID, wyżej HIGH
 export const vacsLayer = (ft) => (ft < 33500 ? "LOW" : ft < 36500 ? "MID" : "HIGH");
 // litera sektora ACC z nazwy sektora .ese: EPWWB → B, EPWWR-N → R; EPWW-MIDSEA, TMA, CTA → null
-export const accLetter = (name) => /^EPWW([A-Z])(?:-[A-Z]+)?$/.exec(name || "")?.[1] || null;
+const accLetter = (name) => /^EPWW([A-Z])(?:-[A-Z]+)?$/.exec(name || "")?.[1] || null;
 // skrót stanowiska VACS (EPWW_DBF_CTR → DBF)
 export const vacsShort = (vacs, cs) => vacs?.acc_positions?.[cs]?.short || cs;
 
@@ -137,7 +136,7 @@ export function drawSectors(layer, gj, online = null, { labels = true, tipPane =
     const cs = online ? own?.callsign : pr.callsign;
     const freq = online ? own?.frequency : pr.frequency;
     // sektor ACC rozstrzygnięty wg kolejności przejmowania: kolor wg stanowiska z tej kolejności
-    // (ten sam co w SEKTORYZACJI także przy znaku zastępczym, np. EPWW_C1_CTR na częstotliwości C)
+    // (ten sam także przy znaku zastępczym, np. EPWW_C1_CTR na częstotliwości C)
     const vc = online?.vacs?.[pr.name];
     const color = online && !own ? "#555" : colorFor(vc?.key || cs || pr.name);
     const ch = chain && vc ? `<br><span class="muted">${esc(vc.layer)}:</span> ${vc.chain.map((x) => (x === vc.owner ? `<b>${esc(x)}</b>` : esc(x))).join(" › ")}` : "";

@@ -1,7 +1,12 @@
 /* AERODROME › RUCH: paski postępu lotu jak w EFES. Odlot niebieski, przylot żółty, lokalny różowy, planowany przygaszony.
    Paski to jedyne miejsce z dominującym kolorem innym niż zielony; obudowa (pasek informacji, zatoki) jak NM UI.
    Bez poświaty: żadnych text-shadow ani cieni wokół pasków. */
-.ad-pane .strips { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.aero-pane .strips, .strip-pane .strips { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+/* zakładka STRIP: podzakładka lotniska z paskiem tytułu, paski pod spodem na całą wysokość */
+.pane.strip-pane { padding: 8px 12px; }
+.strip-pane > .strip-head { flex: none; margin-bottom: 6px; }
+.strip-pane > .strip-head .title { font-weight: 600; }
+.strip-pane > .strip-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .strips {
   --strip-font: Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace;
 }
@@ -150,17 +155,17 @@
 .sx-tip .h { color: var(--green-hi); font-family: var(--sans); font-size: 12px; margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
 
 /* PRZEGLĄD: jednowierszowe podsumowanie ruchu, klik przełącza na RUCH */
-.ad-col > .card.ad-ruch { flex: none; cursor: pointer; }
-.ad-ruch .ruch-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 13px; }
-.ad-ruch .ruch-line b { font: 700 15px var(--mono); color: #fff; }
-.ad-ruch .ruch-line span { display: inline-flex; align-items: center; gap: 5px; }
-.ad-ruch h3 { display: flex; }
-.ad-ruch .ruch-go { margin-left: auto; color: var(--text); }
-.ad-ruch:hover .ruch-go { color: var(--green-hi); }
-.ad-ruch:hover { border-color: var(--green); }
+.aero-col > .card.aero-ruch { flex: none; cursor: pointer; }
+.aero-ruch .ruch-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 13px; }
+.aero-ruch .ruch-line b { font: 700 15px var(--mono); color: #fff; }
+.aero-ruch .ruch-line span { display: inline-flex; align-items: center; gap: 5px; }
+.aero-ruch h3 { display: flex; }
+.aero-ruch .ruch-go { margin-left: auto; color: var(--text); }
+.aero-ruch:hover .ruch-go { color: var(--green-hi); }
+.aero-ruch:hover { border-color: var(--green); }
 
 @media (max-width: 1180px), (max-height: 560px) {
-  .ad-pane .strips { overflow: auto; }
+  .aero-pane .strips, .strip-pane .strips { overflow: auto; }
   .sx-board { display: flex; flex-direction: column; flex: none; }
   .sx-bay.main, .sx-bay.side { flex: none; max-height: none; }
   .sx-list { max-height: 60vh; }
