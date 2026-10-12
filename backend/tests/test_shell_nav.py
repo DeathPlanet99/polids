@@ -117,8 +117,8 @@ def test_home_greeting(js):
 
 
 def test_aerodrome_uses_navigation_api():
-    """Wybór lotniska i OVERVIEW to kroki do cofnięcia (remember), RUCH idzie przez dman.js."""
+    """Podzakładka (0, listy FIR-ów) i wybór lotniska to kroki do cofnięcia (remember), RUCH idzie przez dman.js."""
     src = (FRONTEND / "js" / "tabs" / "aerodrome.js").read_text("utf-8")
-    assert "history.replaceState" not in src and 'remember("aerodrome", icao)' in src and 'remember("aerodrome", "OVERVIEW")' in src
+    assert "history.replaceState" not in src and 'remember("aerodrome", a)' in src
     assert "mountDman(" in src and "mountStrips(" not in src
     assert "export function mountDman(" in (FRONTEND / "js" / "dman.js").read_text("utf-8")

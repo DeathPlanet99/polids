@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,8 +11,10 @@ from ..config import settings
 from ..database import get_db
 from ..models import Aerodrome, AircraftType, AtcPosition
 from ..services import viff as viff_service
+from ..services.aerolist import FIR_KEYS, FIR_LABELS, airport_entry, airport_positions, fir_key, fir_lists
 from ..services.http_cache import UpstreamError
 from ..services.lvp import evaluate as evaluate_lvp
+from ..services.positions import all_positions
 from ..services.metar import parse_metar, qfe_from_qnh
 from ..services.procedures import procedures, strip_board
 from ..services.runways import equipment_for, runway_config, runway_heading, select_runways, wind_components
@@ -37,6 +40,57 @@ def list_aerodromes(q: str = "", db: Session = Depends(get_db)):
         stmt = stmt.where(or_(Aerodrome.icao.ilike(like), Aerodrome.name.ilike(like), Aerodrome.city.ilike(like)))
     return [{"icao": a.icao, "name": a.name, "city": a.city, "kind": a.kind, "lat": a.lat, "lon": a.lon,
              "elevation_ft": a.elevation_ft} for a in db.scalars(stmt)]
+
+
+@router.get("/fir/{key}")
+def fir_list(key: str, db: Session = Depends(get_db)):
+    """Lotniska FIR-u do podzakładek AERODROME (EPWW, ESAA, ED, ET, LKAA, LZBB, UMKK, EYVL, UMMV, UKLV), także VFR
+    i wojskowe: [{icao, name, kind}] po ICAO, nazwy WIELKIMI LITERAMI (kind "MIL" albo null)."""
+    k = key.upper()
+    if k not in FIR_KEYS:
+        raise HTTPException(404, f"Nie znam listy lotnisk {key[:8]}")
+    return [{"icao": a["icao"], "name": a["name"], "kind": a["kind"]} for a in fir_lists(db)[k]]
+
+
+@router.get("/{icao}/card")
+async def card(icao: str, db: Session = Depends(get_db)):
+    """Karta lotniska zagranicznego (i polskiego spoza bazy lotnisk): METAR, TAF i stanowiska APP, TWR, GND, DEL,
+    ATIS ze stanem w sieci VATSIM (kto, od kiedy, litera i tekst ATIS)."""
+    code = icao.upper()
+    if not re.fullmatch(r"[A-Z0-9]{4}", code):
+        raise HTTPException(404, f"Nie znam lotniska {icao[:8]}")
+    entry = airport_entry(db, code)
+    known = [p for p in all_positions(db) if (p.get("callsign") or "").upper().startswith(code + "_")]
+    if not entry and not known:
+        raise HTTPException(404, f"Nie znam lotniska {code}")
+    errors = []
+    metar = taf = None
+    try:
+        metar = (await get_metars([code])).get(code)
+    except UpstreamError as exc:
+        errors.append(f"METAR: {exc}")
+    try:
+        taf = (await get_tafs([code])).get(code)
+    except UpstreamError as exc:
+        errors.append(f"TAF: {exc}")
+    ctrls, net_error, updated = [], None, None
+    try:
+        feed = await get_feed()
+        ctrls = feed.get("controllers", []) + feed.get("atis", [])
+        updated = feed.get("general", {}).get("update_timestamp")
+    except (UpstreamError, ValueError) as exc:
+        net_error = f"VATSIM: {exc}"
+    positions = airport_positions(code, known, ctrls)
+    ad = db.get(Aerodrome, code)
+    lat, lon = (entry["lat"], entry["lon"]) if entry else (ad.lat, ad.lon) if ad else (None, None)
+    fir = fir_key(code, lat, lon)
+    return {
+        "icao": code, "name": entry["name"] if entry else code, "kind": entry["kind"] if entry else None,
+        "fir": fir, "fir_label": FIR_LABELS.get(fir), "lat": lat, "lon": lon,
+        "elevation_ft": ad.elevation_ft if ad else None, "full_page": ad is not None,
+        "metar": metar, "parsed": parse_metar(metar).to_dict() if metar else None, "taf": taf,
+        "positions": positions, "network_error": net_error, "updated": updated, "errors": errors,
+    }
 
 
 @router.get("/{icao}")

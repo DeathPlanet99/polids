@@ -1,1 +1,76 @@
 /* AERODROME: listy lotnisk FIR-ów (runda 10) */
+/* Podzakładki 0, EPWW … UKLV; lista jak w PANDORZE: wyszukiwarka z WYŚWIETL / WYCZYŚĆ u góry, wiersze "ICAO NAZWA"
+   w pasach, w kilku kolumnach, przewijane w swoim okienku (strona się nie przewija). Lotnisko spoza bazy: karta. */
+.aero-pane.list-mode > .toolbar { display: none; }               /* lista ma własny pasek z wyszukiwarką */
+.aero-pane.card-mode > .toolbar .aero-view { display: none; }    /* PRZEGLĄD/AWOS/RUCH tylko dla lotnisk z bazy */
+
+.alist { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.alist-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.alist-q { width: 380px; max-width: 36vw; padding: 5px 10px; background: #eef1ee; color: #000; border: 2px solid #9aa49a;
+  border-radius: 2px; outline: none; font: 700 18px/1.2 var(--mono); text-transform: uppercase; }
+.alist-q::placeholder { color: #7a827a; font-weight: 400; text-transform: none; }
+.alist-q:focus { border-color: var(--green-hi); }
+.alist-btn { padding: 6px 16px; background: linear-gradient(#45a832, #2f8a22); border: 1px solid #1f5a16; border-radius: 2px;
+  color: #f4fff0; font: 700 14px/1.35 var(--ui); letter-spacing: .5px; cursor: pointer; white-space: nowrap; }
+.alist-btn:hover { background: linear-gradient(#52bd3c, #36992a); }
+.alist-btn:active { background: linear-gradient(#8cff5a, #5fd23a); color: #0b2a06; }
+.alist-title { margin-left: 10px; color: var(--muted); font: 700 14px var(--mono); text-transform: uppercase; letter-spacing: .5px; }
+.alist-title b { color: #fff; font-size: 18px; margin-right: 6px; }
+.alist-legend { white-space: nowrap; }
+.alist-legend .ab { font-size: 10px; line-height: 14px; }
+
+.alist-box { flex: 1; min-height: 0; overflow-y: auto; background: #000; border: 1px solid var(--line); }
+.alist-cols { column-gap: 0; column-rule: 1px solid #1c211c; }
+.alist-row { display: flex; align-items: baseline; gap: 14px; padding: 2px 12px; break-inside: avoid; cursor: pointer;
+  font: 16px/1.35 var(--mono); white-space: nowrap; color: #dfe4df; }
+.alist-row[hidden], .alist-msg[hidden] { display: none; }
+.alist-row.odd { background: #171a17; }
+.alist-row b { flex: none; width: 4.5ch; color: #fff; }
+.alist-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.alist-kind { flex: none; padding: 0 3px; border: 1px solid #3c453c; color: var(--muted); font: 10px/1.3 var(--mono); }
+.alist-atc { flex: none; display: inline-flex; gap: 2px; }
+.alist-atc:empty { display: none; }
+.alist-atc .ab { font-size: 10px; line-height: 14px; min-width: 13px; }
+.alist-row.on b { color: var(--green-hi); }
+.alist-row:hover { background: var(--row-hover); }
+.alist-row.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--green-hi); color: #fff; }
+.alist-msg { padding: 10px 14px; font-size: 14px; }
+.alist-msg b { color: #fff; }
+
+/* karta lotniska zagranicznego: METAR na całą szerokość, niżej TAF i stanowiska (APP, TWR, GND, DEL, ATIS) */
+.acard { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.acard-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 8px; }
+.acard-head > b { color: #fff; font: 700 28px/1.1 var(--mono); }
+.acard-name { color: #fff; font: 700 22px/1.1 var(--mono); }
+.acard-fir { font-size: 13px; }
+.acard .metar-head { margin-bottom: 8px; }
+.acard .metar-head .wx { font-size: 17px; }
+.acard-grid { flex: 1; min-height: 0; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); }
+.acard-col { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; }
+.acard-grid .card { --cy: 6px; --cx: 10px; min-height: 0; display: flex; flex-direction: column; }
+.acard-grid .card h3 { flex: none; }
+.acard-grid .scroll { flex: 1; min-height: 0; overflow: auto; }
+.acard-taf-card { flex: 0 1 auto; max-height: 50%; }
+.acard-atis-card { flex: 1 1 0; }
+.acard-upd { float: right; color: var(--muted); font-weight: 400; letter-spacing: 0; }
+.acard-taf { font-size: 15px; }
+table.data.acard-pos { width: auto; min-width: 70%; margin: 0 auto; font-size: 14px; }
+table.data.acard-pos td { padding: 4px 10px; vertical-align: middle; }
+.acard-pos tr.off td { color: var(--muted); }
+.acard-pos tr.off .freq { background: #1c211c; color: #8c948c; border-color: #343c34; }
+.acard-pos tr.off .ab { opacity: .45; }
+.acard-pos tr.on td { color: #fff; }
+.acard-pos .freq { font-size: 14px; padding: 1px 6px; }
+.acard-cs { font: 700 14px var(--mono); }
+.acard-pn { display: block; color: var(--muted); font: 11px var(--mono); }
+.acard-st b { color: var(--green-hi); }
+.acard-st b.acard-letter { color: #000; background: var(--yellow); padding: 0 5px; }
+.acard-atis-one + .acard-atis-one { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.acard-atis-one .hint { margin-bottom: 3px; }
+
+/* wąskie albo niskie okno: karta w naturalnej wysokości (przewija się cały ekran lotniska) */
+@media (max-width: 1250px), (max-height: 640px) {
+  .aero-pane.card-mode { overflow: auto; }
+  .acard-grid { grid-template-columns: minmax(0, 1fr); }
+  .acard-grid .scroll { max-height: 420px; }
+}
