@@ -20,9 +20,9 @@ export function mountDocs(pane, ctx, { start = "", onPick = () => {} } = {}) {
   const argOf = (url) => (url.startsWith(PREFIX) ? url.slice(PREFIX.length) : url);
   let docs = [], want = start || null;   // want: dokument z adresu, zanim lista się wczyta
   const mark = () => list.querySelectorAll("a[data-url]").forEach((a) => a.classList.toggle("on", a.dataset.url === viewer.getAttribute("src")));
-  const pick = (arg) => {        // "" = pierwszy dokument
-    const d = docs.find((x) => argOf(x.url) === arg) || (arg ? null : docs[0]);
-    if (d && viewer.getAttribute("src") !== d.url) viewer = frameGo(viewer, d.url);
+  const pick = (arg) => {        // "" albo plik spoza listy (np. wpisany ręcznie) = pierwszy dokument, nigdy pusty podgląd
+    const d = docs.find((x) => argOf(x.url) === arg) || docs[0];
+    if (viewer.getAttribute("src") !== d.url) viewer = frameGo(viewer, d.url);
     mark();
   };
 
