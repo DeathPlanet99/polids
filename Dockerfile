@@ -25,6 +25,10 @@ RUN useradd --system --uid 10001 --no-create-home --home-dir /app polids \
 FROM base AS test
 COPY requirements-dev.txt .
 RUN pip install -r requirements-dev.txt
+# Node tylko do testów: testy czystych funkcji frontendu (DMAN, SYT OP, RADIO, listy lotnisk, nawigacja) uruchamiają
+# moduły JS w Node; bez niego są pomijane. Sam plik node (bookworm, glibc jak w python:3.12-slim), bez npm.
+COPY --from=node:22.11.0-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+RUN node --version
 USER polids
 CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "backend/tests"]
 
