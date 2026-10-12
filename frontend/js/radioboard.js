@@ -184,8 +184,8 @@ export function labelOpts(kind, { box = null, on = false, fq = false, shapes = "
 }
 
 // Etykiety bez nakładania się. items [{x, y, w, h, alts?: [{w, h}], near?, max?, wc?, wv?, pin?}] w kolejności priorytetu
-// (najpierw ważniejsze); x, y = punkt zakotwiczenia, w, h = rozmiar pełnej etykiety, alts = mniejsze odmiany (skrócona,
-// samo ID), pin = punkt to kropka na mapie (lotnisko, TMA), której żadna etykieta nie zasłania.
+// (najpierw ważniejsze); x, y = punkt zakotwiczenia, w, h = rozmiar pełnej etykiety, alts = mniejsze odmiany (np.
+// skrócona w jednej linii), pin = punkt to kropka na mapie (lotnisko, TMA), której żadna etykieta nie zasłania.
 // Kandydaci leżą na pierścieniach coraz dalej od punktu (coraz więcej kierunków); dozwolony jest tylko kandydat bez
 // kolizji z już ułożonymi etykietami i przeszkodami (obstacles: stosy sąsiadów, tytuł podglądu; {x0, y0, x1, y1}),
 // w obrębie bounds {x, y, w, h} i bez kropki z pin (swojej i cudzej) pod sobą. Spośród nich wygrywa najtańszy:
@@ -194,12 +194,12 @@ export function labelOpts(kind, { box = null, on = false, fq = false, shapes = "
 // linię albo tuż obok cudzej kropki i za etykietę na cudzej linii. Bez kształtów etykieta zostaje na punkcie, gdy jest
 // tam miejsce; z kształtami (CTR, TMA) odchodzi obok nich, w wolne miejsce, z cienką linią do punktu. Pełna etykieta
 // może odejść od punktu najwyżej o `near` px (krawędź etykiety od punktu; it.near nadpisuje), mniejsza odmiana albo
-// jedyna (samo ID bez nikogo) o `max` px (domyślnie `far`); gdy nic nie pasuje, najmniejsza odmiana w miejscu najmniejszego
-// nałożenia. Układ zachłanny; gdy etykieta z wv > 1 zmalała (np. straciła częstotliwość) albo coś zasłania, kolejna
-// runda układa ją przed innymi (w tłoku, np. Warszawa–Modlin–Łódź–Radom na 1366 px, najpierw ta bez miejsca), a zostaje
-// runda o najmniejszym koszcie. Wynik: [{dx, dy, v, hit}] – przesunięcie środka, numer odmiany (0 = pełna) i czy coś
-// zasłania.
-const WC = 0.5, WV = [0, 25, 100], WX = 40, HIT = 500, ROUNDS = 4;
+// jedyna (samo ID bez nikogo) o `max` px (domyślnie `far`); gdy nic nie pasuje, to samo w zasięgu × STRETCH (dłuższa
+// linia), a dopiero potem najmniejsza odmiana w miejscu najmniejszego nałożenia. Układ zachłanny; gdy etykieta z wv > 1 zmalała (skrócona) albo coś zasłania, kolejna runda układa ją przed
+// innymi (w tłoku, np. Warszawa–Modlin–Łódź–Radom na 1366 px, najpierw ta bez miejsca), a zostaje runda z najmniejszą
+// liczbą zasłonięć, z nich ta o najmniejszym koszcie (nałożenie gorsze niż dłuższa linia i więcej skróconych).
+// Wynik: [{dx, dy, v, hit}] – przesunięcie środka, numer odmiany (0 = pełna) i czy coś zasłania.
+const WC = 0.5, WV = [0, 25, 100], WX = 40, HIT = 500, ROUNDS = 4, STRETCH = 1.5;
 export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26, far = 90, rings = 14, cover = null } = {}) {
   const pins = items.map((it, i) => (it.pin ? [it.x, it.y, i] : null)).filter(Boolean);
   const over = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
@@ -232,29 +232,36 @@ export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26,
   // jedna runda w kolejności order: wybór i koszt każdej etykiety
   function once(order) {
     const placed = obstacles.map((o) => ({ ...o })), leads = [], out = [];
-    let total = 0;
+    let total = 0, hits = 0;
     order.forEach((idx) => {
       const it = items[idx], sizes = [{ w: it.w, h: it.h }, ...(it.alts || [])], wc = WC * (it.wc ?? 1);
-      let pick = null, best = Infinity;
-      sizes.forEach((s, v) => {
-        const pv = WV[Math.min(v, WV.length - 1)] * (it.wv ?? 1);
-        for (const [dx, dy, d] of ring(s, v === 0 && sizes.length > 1 ? (it.near ?? near) : (it.max ?? far))) {
-          if (d + pv >= best) continue;  // już droższy niż najlepszy
-          const r = rectAt(it, s, dx, dy);
-          if (outside(r) || placed.some((p) => over(r, p) > 0)) continue;
-          if (dots(r).length) continue;  // kropka lotniska i TMA (swoja albo cudza) zostaje widoczna
-          let cost = d + pv + coverOf(cover, r) * wc;
-          if (cost >= best) continue;
-          cost += leads.reduce((acc, l) => acc + (crosses(...l, r) ? WX : 0), 0);
-          if (d > 0) {
-            const l = leadOf(it, r);
-            cost += placed.reduce((acc, p) => acc + (crosses(...l, p) ? WX : 0), 0)
-              + leads.reduce((acc, m) => acc + (cross2(l, m) ? WX : 0), 0)
-              + pins.reduce((acc, [x, y, i]) => acc + (i !== idx && distSeg(x, y, l) < 6 ? WX : 0), 0);
+      // najtańszy kandydat bez kolizji w zasięgu × k
+      const search = (k) => {
+        let pick = null, best = Infinity;
+        sizes.forEach((s, v) => {
+          const pv = WV[Math.min(v, WV.length - 1)] * (it.wv ?? 1);
+          for (const [dx, dy, d] of ring(s, k * (v === 0 && sizes.length > 1 ? (it.near ?? near) : (it.max ?? far)))) {
+            if (d + pv >= best) continue;  // już droższy niż najlepszy
+            const r = rectAt(it, s, dx, dy);
+            if (outside(r) || placed.some((p) => over(r, p) > 0)) continue;
+            if (dots(r).length) continue;  // kropka lotniska i TMA (swoja albo cudza) zostaje widoczna
+            let cost = d + pv + coverOf(cover, r) * wc;
+            if (cost >= best) continue;
+            cost += leads.reduce((acc, l) => acc + (crosses(...l, r) ? WX : 0), 0);
+            if (d > 0) {
+              const l = leadOf(it, r);
+              cost += placed.reduce((acc, p) => acc + (crosses(...l, p) ? WX : 0), 0)
+                + leads.reduce((acc, m) => acc + (cross2(l, m) ? WX : 0), 0)
+                + pins.reduce((acc, [x, y, i]) => acc + (i !== idx && distSeg(x, y, l) < 6 ? WX : 0), 0);
+            }
+            if (cost < best) { best = cost; pick = { dx, dy, v, r, d, hit: false }; }
           }
-          if (cost < best) { best = cost; pick = { dx, dy, v, r, d, hit: false }; }
-        }
-      });
+        });
+        return { pick, best };
+      };
+      // w zasięgu nic wolnego (tłok wokół Warszawy): dalej, z dłuższą linią, zanim cokolwiek zasłoni
+      let { pick, best } = search(1);
+      if (!pick) ({ pick, best } = search(STRETCH));
       if (!pick) {
         // nic wolnego: najmniejsza odmiana tam, gdzie zasłania najmniej (także kropek)
         const v = sizes.length - 1, s = sizes[v];
@@ -270,13 +277,14 @@ export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26,
       if (pick.d > 0) leads.push(leadOf(it, pick.r));
       out[idx] = { dx: pick.dx, dy: pick.dy, v: pick.v, hit: pick.hit };
       total += best;
+      hits += pick.hit ? 1 : 0;
     });
-    return { out, total };
+    return { out, total, hits };
   }
   let order = items.map((_, i) => i), front = [], win = null;
   for (let round = 0; round < ROUNDS; round++) {
     const res = once(order);
-    if (!win || res.total < win.total) win = res;
+    if (!win || res.hits < win.hits || (res.hits === win.hits && res.total < win.total)) win = res;
     const bad = order.filter((i) => (res.out[i].hit || (res.out[i].v > 0 && (items[i].wv ?? 1) > 1)) && !front.includes(i));
     if (!bad.length) break;
     front = [...front, ...bad];

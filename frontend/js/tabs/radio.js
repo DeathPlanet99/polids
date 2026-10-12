@@ -143,26 +143,70 @@ export function nbStackHtml(st, x) {
       : `<div class="rb-none">brak sektorów VACS</div>`) + "</div>";
 }
 
-// --- etykieta podglądu (sektor ACC, APP, TWR, FIS) w trzech odmianach: 0 pełna (ID nad częstotliwością), 1 skrócona
-// (ID i częstotliwość w jednej linii) i 2 samo ID; mniejsze, gdy pełna nie mieści się przy swoim punkcie (szczegóły
-// zawsze w dymku). lb: {cls, state, id, cid (ID skróconych), ls: [{fq, by}], more?, extra?, k?, icao?, rt}.
-// Bez nikogo (runda 11, Marek): ls bez częstotliwości i stanowiska, bez linii ATIS – jedna odmiana, samo ID (cid = id).
+// --- etykieta podglądu (sektor ACC, APP, TWR, FIS) w odmianach: 0 pełna (ID nad częstotliwością), 1 skrócona (ID
+// i częstotliwość w jednej linii, gdy pełna nie mieści się przy swoim punkcie) i 2 samo ID; szczegóły zawsze w dymku.
+// lb: {cls, state, id, ls: [{fq, by}], more?, extra?, k?, icao?, rt}.
+// Samo ID tylko bez nikogo (runda 11, Marek): ls bez częstotliwości i stanowiska, bez linii ATIS. Obsadzona
+// nigdy nie traci częstotliwości (albo nazwy stanowiska, które ją ma w innej etykiecie): samo ID czytałoby się jak „nikt”.
 const bare = (lb) => !lb.extra && !lb.ls.some((l) => l.fq || l.by);
-// odmiany do ułożenia (placeLabels): wszystkie, sektor ACC (small = false) tylko pełna, bez nikogo samo ID
-export const lblVariants = (lb, small = true) => (bare(lb) ? [2] : small ? [0, 1, 2] : [0]);
+// odmiany do ułożenia (placeLabels): APP/TWR/FIS pełna i skrócona, sektor ACC (small = false) tylko pełna, bez nikogo
+// samo ID
+export const lblVariants = (lb, small = true) => (bare(lb) ? [2] : small ? [0, 1] : [0]);
+// kolejność układania (najpierw mniejsza): sektory ACC, potem etykiety z częstotliwością (APP, TWR – też sam ATIS
+// online, FIS), na końcu samo ID bez nikogo – w tłoku (Warszawa–Modlin–Łódź–Radom) miejsce przy punkcie dostaje
+// częstotliwość
+const PRIO = { acc: [0, 0], app: [1, 4], twr: [2, 4.5], fis: [3, 5] };
+export const lblPrio = (kind, lb) => PRIO[kind][bare(lb) ? 1 : 0];
 export function lblHtml(lb, v = 0) {
   const attrs = `${lb.k ? ` data-k="${esc(lb.k)}"` : ""}${lb.icao ? ` data-icao="${esc(lb.icao)}" tabindex="0" role="button"` : ""} data-rt="${esc(lb.rt)}"`;
   const cls = `rb-lbl ${lb.cls} ${lb.state}${v ? " cmp" : ""}`;
-  if (v === 2) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.cid)}</b></div>`;
+  // ID w skróconej i samym ID: z częstotliwością bez rodzaju (WA S 135.930), bez niej pełne – samo „GD” czytałoby się
+  // jak lotnisko
+  const cid = lb.ls[0]?.fq ? shortId(lb.id) : lb.id;
+  if (v === 2) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(cid)}</b></div>`;
   const fq = lb.ls[0]?.fq ? `<span class="rb-fq">${esc(lb.ls[0].fq)}</span>` : "";
   // skrócona: kto przejmuje (inny niż stanowisko etykiety) przed częstotliwością – skrótem (WA S ↑LL 124.230: TMA
   // Łódź u wieży Łódź), a bez częstotliwości (podana w innej etykiecie) pełną nazwą zamiast pustej linii
   const b0 = String(lb.ls[0]?.by || "").replace(/^↑/, "");
   const by = b0 ? `<i class="rb-by">↑${esc(fq ? shortId(b0) : b0)}</i>` : "";
-  if (v === 1) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.cid)}</b>${by}${fq}</div>`;
+  if (v === 1) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(cid)}</b>${by}${fq}</div>`;
   const more = lb.more ? `<i class="rb-more">+${lb.more}</i>` : "";
   return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.id)}</b>${lb.ls.filter((l) => l.fq || l.by).map((l) => `<span class="rb-ln">${l.by ? `<i class="rb-by">${esc(l.by)}</i>` : ""}`
     + `${l.fq ? `<span class="rb-fq">${esc(l.fq)}</span>` : ""}</span>`).join("")}${more}${lb.extra || ""}</div>`;
+}
+
+// --- linijki etykiet ({fq, by}); x = {freq, nm, pos, on}: częstotliwość (online albo z pliku), nazwa stanowiska,
+// stanowiska z tablicy (pos), kontroler online. Właściciele (najwyżej dwaj) z częstotliwością, by = właściciel inny
+// niż stanowisko etykiety; nikt → żadnej linijki (samo ID; stanowisko i jego częstotliwość w dymku)
+export const lblLines = (nominal, owners, x) => owners.slice(0, 2).map((o) => ({ fq: x.freq(o), by: o === nominal ? "" : x.nm(o) }));
+// części TMA (warstwa APP) → Map id → {ls, more}. Częstotliwość stanowiska, które przejmuje cudze części (WA APP: WA N
+// i WA S, TMA Łódź i Radom), tylko w jednej etykiecie: w jego części (najpierw przy jego lotnisku), potem w TMA jego
+// lotniska, potem w pierwszej; w pozostałych sama nazwa (↑WA APP), reszta w dymku. Część obsługiwana przez własne
+// stanowisko zawsze z częstotliwością (WA S APP w TMA Warszawa, Łódź i Radom), jak sektory ACC
+export function tmaLines(parts, x) {
+  const keeper = new Map();  // znak → id części, w której etykieta ma jego częstotliwość
+  [(g, cs) => cs === g.nominal && cs.slice(0, 4) === g.icao, (g, cs) => cs === g.nominal, (g, cs) => cs.slice(0, 4) === g.icao]
+    .forEach((ok) => parts.forEach((g) => { const cs = g.owners[0]; if (cs && ok(g, cs) && !keeper.has(cs)) keeper.set(cs, g.id); }));
+  return new Map(parts.map((g) => {
+    const ls = lblLines(g.nominal, g.owners, x);
+    ls.forEach((l, i) => {
+      const cs = g.owners[i];
+      if (!keeper.has(cs)) keeper.set(cs, g.id);
+      if (keeper.get(cs) !== g.id && cs !== g.nominal) l.fq = "";
+    });
+    return [g.id, { ls, more: Math.max(0, g.owners.length - 2) }];
+  }));
+}
+// wieża (TWR, TWR/ATIS): online → jej częstotliwość; przejmuje inne stanowisko (np. APP) → częstotliwość wieży z ↑APP
+// (kto – w dymku); nikt → żadnej linijki (samo ID). Linia ATIS (twra) tylko z ATIS online. Wynik {tw, cover, ls, atl}
+export function twrLines(g, x, twra = false) {
+  const tw = g.owners.find((o) => /_TWR$/.test(o)) || null, cover = tw ? null : g.owners[0] || null;
+  const ls = tw ? [{ fq: x.freq(tw), by: tw === g.nominal ? "" : x.nm(tw) }]
+    : cover ? [{ fq: x.pos?.[g.nominal]?.frequency || "", by: `↑${byShort(x.nm(cover))}` }] : [];
+  const a = twra && g.atis ? x.on(g.atis) : null;
+  const atl = a ? `<span class="rb-ln rb-atl"><i class="rb-by">ATIS</i><span class="rb-fq">${esc(x.freq(g.atis))}</span>`
+    + `${a.atis_code ? `<b class="rb-code">${esc(a.atis_code)}</b>` : ""}</span>` : "";
+  return { tw, cover, ls, atl };
 }
 
 export default {
@@ -204,9 +248,8 @@ export default {
     };
     const posLine = (cs) => `${cs}${d?.pos?.[cs]?.name ? ` · ${d.pos[cs].name}` : ""} ${d?.pos?.[cs]?.frequency || ""}`.trim();
     const chainText = (ch) => ch.map(nm).join(" › ");
-    // linijki etykiety: właściciele (najwyżej dwaj) z częstotliwością, by = właściciel inny niż stanowisko etykiety;
-    // nikt → żadnej (samo ID, stanowisko i jego częstotliwość w dymku)
-    const lines = (nominal, owners) => owners.slice(0, 2).map((o) => ({ fq: freqOf(o), by: o === nominal ? "" : nm(o) }));
+    // linijki etykiet (lblLines, tmaLines, twrLines): częstotliwości i nazwy z tablicy
+    const lx = () => ({ freq: freqOf, nm, on, pos: d?.pos });
     const nowText = (owners) => (owners.length ? owners.map((o) => `Teraz: ${who(o) || o}`).join("\n")
       : d?.net?.ok === false ? "VATSIM: brak danych" : "Teraz nikt");
 
@@ -250,9 +293,10 @@ export default {
       now || (g.owners.length || !g.topdown ? nowText(g.owners) : `Teraz top-down: ${who(g.topdown) || g.topdown}`), ...extra,
       `Kolejność: ${chainText(g.chains[0] || [])}`].join("\n");
 
-    // etykiety podglądu: {lb (model etykiety), at: [lat, lon], prio, dot?, alts?}; APP, TWR i FIS tylko na LOW
+    // etykiety podglądu: {lb (model etykiety), at: [lat, lon], kind, box?, dot?}; APP, TWR i FIS tylko na LOW;
+    // kolejność układania: lblPrio
     function labelsFor(m, accs) {
-      const out = [];
+      const out = [], x = lx();
       if (layers.has(m.layer)) {
         const byLetter = new Map();
         accs.forEach((s) => { const b = byLetter.get(s.letter); if (!b || areaOf(s.geometry) > areaOf(b.geometry)) byLetter.set(s.letter, s); });
@@ -260,53 +304,35 @@ export default {
           const sl = byLetter.get(s.letter);
           const at = labelPoint({ type: "Feature", geometry: sl.geometry, properties: { fir: "EPWW", name: sl.name } })?.at;
           const owners = s.owner ? [s.owner] : [];
-          if (at) out.push({ at, prio: 0, kind: "acc", lb: { cls: "acc", state: owners.length ? "on" : "off", id: s.id, cid: s.id, k: s.letter,
-            ls: lines(s.nominal, owners), rt: accTip(s) } });
+          if (at) out.push({ at, kind: "acc", lb: { cls: "acc", state: owners.length ? "on" : "off", id: s.id, k: s.letter,
+            ls: lblLines(s.nominal, owners, x), rt: accTip(s) } });
         });
       }
       if (m.key !== "LOW") return out;  // APP, TWR i FIS to przestrzeń dolna: na podglądzie LOW
-      const local = (g) => ({ ls: lines(g.nominal, g.owners), more: Math.max(0, g.owners.length - 2) });
       if (layers.has("app")) {
-        // etykieta na część TMA (stanowisko części: WA APP, WA N APP, WA S APP; TMA proceduralna: wieża, np. SC TWR).
-        // Ta sama częstotliwość w kilku etykietach (WA APP przejmuje WA N i WA S; WA S APP w TMA Łódź i Radom): tylko
-        // w części tego stanowiska (najpierw przy jego lotnisku), potem w TMA jego lotniska, potem w pierwszej;
-        // w pozostałych sama nazwa (↑WA APP), reszta w dymku; część bez nikogo: samo ID
-        const tma = d.tma.filter((g) => g.at);
-        const keeper = new Map();  // znak → id części, w której etykieta ma jego częstotliwość
-        [(g, cs) => cs === g.nominal && cs.slice(0, 4) === g.icao, (g, cs) => cs === g.nominal, (g, cs) => cs.slice(0, 4) === g.icao]
-          .forEach((ok) => tma.forEach((g) => { const cs = g.owners[0]; if (cs && ok(g, cs) && !keeper.has(cs)) keeper.set(cs, g.id); }));
+        // etykieta na część TMA (stanowisko części: WA APP, WA N APP, WA S APP; TMA proceduralna: wieża, np. SC TWR);
+        // linijki i jedna częstotliwość przejmującego na kilka części: tmaLines
+        const tma = d.tma.filter((g) => g.at), parts = tmaLines(tma, x);
         tma.forEach((g) => {
-          const { ls, more } = local(g);
-          ls.forEach((l, i) => {
-            const cs = g.owners[i];
-            if (!keeper.has(cs)) keeper.set(cs, g.id);
-            if (keeper.get(cs) !== g.id) l.fq = "";
-          });
+          const { ls, more } = parts.get(g.id);
           const id = nm(g.nominal), proc = /_TWR$/.test(g.nominal);
           const title = `${g.tma}${g.id !== g.tma ? ` – część ${id}` : ""} (${g.lo ? flText(g.lo) : "GND"}–${flText(g.hi)})`;
           const extra = [...(proc ? [`TMA proceduralna (bez APP): częstotliwość wieży ${id}`] : []),
             ...(g.apps.length > 1 ? [`APP w tej części: ${g.apps.map((c) => `${nm(c)} ${d.pos[c]?.frequency || ""}`).join(", ")}`] : [])];
-          // bez częstotliwości (podana w innej etykiecie, nikt) mniejsze odmiany z pełnym ID: samo „GD” czytałoby się
-          // jak lotnisko
-          out.push({ at: g.at, box: g.box, prio: g.owners.length ? 1 : 1.5, kind: "app", dot: "app", lb: { cls: "app",
-            state: g.owners.length ? "on" : "off", id, cid: ls[0]?.fq ? shortId(id) : id, ls, more, rt: groupTip(g, title, extra) } });
+          out.push({ at: g.at, box: g.box, kind: "app", dot: "app", lb: { cls: "app",
+            state: g.owners.length ? "on" : "off", id, ls, more, rt: groupTip(g, title, extra) } });
         });
       }
       const twra = layers.has("twra");
       if (twra || layers.has("twr")) {
         d.twr.forEach((g) => {
           if (!g.at) return;
-          // TWR: częstotliwość wieży online; wieżę przejmuje inne stanowisko (np. APP) → częstotliwość wieży z ↑APP,
-          // dymek mówi kto; nikt → samo ID. TWR/ATIS: linia ATIS tylko, gdy ATIS jest online
-          const tw = g.owners.find((o) => /_TWR$/.test(o)), cover = tw ? null : g.owners[0];
-          const ls = tw ? [{ fq: freqOf(tw), by: tw === g.nominal ? "" : nm(tw) }]
-            : cover ? [{ fq: d.pos[g.nominal]?.frequency || "—", by: `↑${byShort(nm(cover))}` }] : [];
+          const { tw, cover, ls, atl } = twrLines(g, x, twra);
           const a = g.atis ? on(g.atis) : null;
-          const atl = twra && a ? `<span class="rb-ln rb-atl"><i class="rb-by">ATIS</i><span class="rb-fq">${esc(freqOf(g.atis))}</span>${a.atis_code ? `<b class="rb-code">${esc(a.atis_code)}</b>` : ""}</span>` : "";
           const extra = g.atis ? [`ATIS: ${posLine(g.atis)}${a ? ` – online${a.atis_code ? `, informacja ${a.atis_code}` : ""}` : " – offline"}`] : [];
           const id = nm(g.nominal);
-          out.push({ at: g.at, box: g.box, prio: tw ? 2 : 2.5, kind: "twr", dot: "twr", lb: { cls: "twr", state: tw ? "on" : cover ? "cov" : "off", id,
-            cid: ls[0]?.fq ? shortId(id) : id, ls, extra: atl,
+          out.push({ at: g.at, box: g.box, kind: "twr", dot: "twr", lb: { cls: "twr", state: tw ? "on" : cover ? "cov" : "off", id,
+            ls, extra: atl,
             icao: g.icao, k: g.icao, rt: groupTip(g, `${g.id} · ${g.icao}`, [...extra, "Kliknij: AERODROME"],
               cover ? `Wieża offline – przejmuje ${g.owners.map((o) => who(o) || o).join(", ")}` : null) } });
         });
@@ -314,10 +340,9 @@ export default {
       if (layers.has("fis")) {
         d.fis.forEach((g) => {
           if (!g.at) return;
-          const { ls, more } = local(g);
-          const id = nm(g.nominal);
-          out.push({ at: g.at, prio: g.owners.length ? 3 : 3.5, kind: "fis", dot: "fis", lb: { cls: "fis", state: g.owners.length ? "on" : "off", id,
-            cid: ls[0]?.fq ? shortId(id) : id, ls, more,
+          const ls = lblLines(g.nominal, g.owners, x), id = nm(g.nominal);
+          out.push({ at: g.at, kind: "fis", dot: "fis", lb: { cls: "fis", state: g.owners.length ? "on" : "off", id,
+            ls, more: Math.max(0, g.owners.length - 2),
             rt: groupTip(g, `${g.id} (do ${flText(g.hi)})`) } });
         });
       }
@@ -347,7 +372,7 @@ export default {
         + `<path class="rb-border" d="${pathOf(geo.border, P)}"/>`;
       renderTitle(m, { top: fr.top - pr.top, left: fr.left - pr.left, right: pr.right - fr.right });
       // etykiety: wstawiamy wszystkie odmiany, mierzymy, układamy (ważniejsze pierwsze), zostawiamy wybraną odmianę
-      const items = labelsFor(m, accs).sort((a, b) => a.prio - b.prio);
+      const items = labelsFor(m, accs).map((it) => ({ ...it, prio: lblPrio(it.kind, it.lb) })).sort((a, b) => a.prio - b.prio);
       const vs = items.map((it) => lblVariants(it.lb, it.kind !== "acc"));
       m.lbls.innerHTML = items.map((it, i) => vs[i].map((v) => lblHtml(it.lb, v)).join("")).join("");
       const els = [...m.lbls.children];
