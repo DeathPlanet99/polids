@@ -178,6 +178,8 @@ function runwayTable(st) {
 // Wiatr przy ziemi i na 3000 ft w punkcie podejścia każdego pasa (jak METEO › WIND, bez mapy): METAR i model 10 m
 // (Open-Meteo) w punkcie lotniska, 3000 ft AMSL w punkcie FAF/IF z procedury albo na przedłużeniu osi (3°)
 function approachWind(aw, st, err) {
+  // lotnisko bez pasów w bazie (część lądowisk z listy EPWW, np. EPGM): nie ma czego liczyć, to nie błąd
+  if (!aw && st && Array.isArray(st.runways) && !st.runways.length) return `<span class="hint">Brak danych o pasach tego lotniska.</span>`;
   if (!aw) return `<span class="${err ? "error" : "hint"}">${esc(err || "Ładowanie prognozy…")}</span>`;
   const { active, sugg } = roleSets(st || {});
   const rolesOf = (d) => ["arr", "dep"].filter((k) => active[k] === d || sugg[k] === d);

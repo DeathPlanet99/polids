@@ -81,8 +81,11 @@ Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone albo pierwsze trafienie), 
     sel.classList.add("sel");
     if (scroll) sel.scrollIntoView({ block: "nearest" });
   };
-  // najlepsze trafienie: dokładny ICAO, potem początek ICAO, potem pierwsza pasująca nazwa (kolejność listy po ICAO)
-  const best = (q, vis) => vis.find((r) => r.dataset.icao === q) || vis.find((r) => r.dataset.icao.startsWith(q)) || vis[0];
+  // najlepsze trafienie: dokładny ICAO, początek ICAO, nazwa od tego słowa, słowo w nazwie, dowolne miejsce
+  // ("BER" → BERLIN BRANDENBURG przed EBERSWALDE); w każdej grupie pierwsze w kolejności listy (po ICAO)
+  const wordStart = (key, q) => (" " + key.replace(/[-/(),.]/g, " ")).includes(" " + q);
+  const best = (q, vis) => vis.find((r) => r.dataset.icao === q) || vis.find((r) => r.dataset.icao.startsWith(q))
+    || vis.find((r) => r.dataset.key.startsWith(q)) || vis.find((r) => wordStart(r.dataset.key, q)) || vis[0];
   const filter = ({ keepSel = false } = {}) => {
     if (!data) return;
     const q = fold(input.value);
