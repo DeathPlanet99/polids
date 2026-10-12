@@ -1,4 +1,4 @@
-import { api, esc, hashOf, navPath, parseHash, selectNavPath, setRouter } from "./api.js";
+import { api, clearNavPath, esc, hashOf, navPath, parseHash, presetNavPath, selectNavPath, setRouter } from "./api.js";
 import home from "./tabs/home.js";
 import meteo from "./tabs/meteo.js";
 import { adciv, admil, advfr } from "./tabs/aip.js";
@@ -48,8 +48,10 @@ const sameHash = (a, b) => { const x = parseHash(a), y = parseHash(b); return x.
 function write(tab, arg, push) {
   const hash = hashOf(tab, arg);
   lastArg[tab] = arg;
-  if (push && !sameHash(hash, location.hash)) history.pushState({ n: ++depth }, "", hash);
-  else history.replaceState({ n: depth }, "", hash);
+  const same = sameHash(hash, location.hash);
+  if (push && !same) history.pushState({ n: ++depth }, "", hash);
+  // ten sam ekran: dane przypięte do wpisu (stash) zostają; inny ekran w tym wpisie: bez nich
+  else history.replaceState({ ...(same && history.state?.s ? { s: history.state.s } : {}), n: depth }, "", hash);
   shown = location.hash;
   back.disabled = depth <= 0;
 }
@@ -66,11 +68,13 @@ function open(tab, arg, push = false) {
   try {
     if (!mounted[tab]) {
       const el = document.createElement("section");
-      el.className = "view";
+      el.className = "view active";   // widoczna już w mount(): podzakładka z adresu (np. mapa QNH) liczy wymiary
       el.dataset.tab = tab;
       views.append(el);
       mounted[tab] = { el, api: {} };
+      presetNavPath(el, arg);   // podzakładka z adresu od pierwszego rysowania (bez zbędnego wczytania pierwszej)
       mounted[tab].api = TABS[tab].mount(el, ctx) || {};
+      if (mounted[tab].api.activate) clearNavPath(el);
     }
     const m = mounted[tab];
     m.el.classList.add("active");
@@ -95,7 +99,15 @@ function remember(tab, arg, { replace = false } = {}) {
   }
   if (tab === current) write(tab, arg, !replace);
 }
-setRouter({ open: (tab, arg) => open(tab, arg, true), remember });
+// dane ekranu w jego wpisie historii (history.state.s[zakładka]); zapis tylko dla ekranu na wierzchu, poza activate()
+let restoring = false;   // open() z ←/Wstecz/Dalej: activate() może odczytać dane wpisu, do którego wraca
+function stash(tab, data) {
+  if (activating || tab !== current) return;
+  const st = history.state || { n: depth };
+  history.replaceState({ ...st, s: { ...(st.s || {}), [tab]: data } }, "");
+}
+const stashed = (tab) => (restoring && activating?.tab === tab ? history.state?.s?.[tab] : undefined);
+setRouter({ open: (tab, arg) => open(tab, arg, true), remember, stash, stashed });
 
 // Wstecz / Dalej przeglądarki, ← w menu, link <a href="#..."> i location.hash = "..." (nowy wpis bez stanu)
 function fromLocation() {
@@ -105,7 +117,8 @@ function fromLocation() {
   else history.replaceState({ n: depth }, "", location.href);   // ten sam adres: przeglądarka podmieniła wpis
   if (sameHash(location.hash, shown)) { back.disabled = depth <= 0; return; }
   const { tab, arg } = parseHash(location.hash);
-  open(tab, arg);
+  restoring = true;
+  try { open(tab, arg); } finally { restoring = false; }
 }
 
 let ready = false;   // menu działa po wczytaniu konfiguracji i otwarciu HOME

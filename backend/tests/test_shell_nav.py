@@ -71,7 +71,7 @@ console.log(JSON.stringify({
   hello: [null, { user: null }, { user: { cid: "1234567", name: "Jan Kowalski" } }, { user: { cid: "1234567", name: null } },
     { user: { cid: 7, name: "<b>X</b>" } }].map(home.greeting),
   // bez routera (app.js) navigate i remember nic nie robią
-  noop: [api.navigate("meteo", "qnh"), api.remember("meteo", "qnh")],
+  noop: [api.navigate("meteo", "qnh"), api.remember("meteo", "qnh"), api.stash("aerodrome", { q: "BER" }), api.stashed("aerodrome")],
 }));
 """
 
@@ -113,7 +113,7 @@ def test_home_greeting(js):
     assert js["hello"] == ["Witaj", "Witaj", "Witaj, Jan Kowalski (1234567)", "Witaj, 1234567", "Witaj, <b>X</b> (7)"]
     # HOME pokazuje powitanie przez esc() (imię z VATSIM to dane z zewnątrz)
     assert "${esc(greeting(ctx.me))}" in (FRONTEND / "js" / "tabs" / "home.js").read_text("utf-8")
-    assert js["noop"] == [None, None]
+    assert js["noop"] == [None, None, None, None]
 
 
 def test_aerodrome_uses_navigation_api():

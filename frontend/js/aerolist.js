@@ -2,7 +2,7 @@
 // Lista jak w PANDORZE: u góry wyszukiwarka z klawiatury z przyciskami WYŚWIETL i WYCZYŚĆ, niżej wiersze
 // "ICAO NAZWA" w kilku kolumnach, przewijane w swoim okienku. Backend: GET /api/aerodromes/fir/{klucz}
 // (services/aerolist.py) i GET /api/aerodromes/{icao}/card (METAR, TAF, stanowiska ze stanem VATSIM).
-import { api, atisHtml, esc, hhmm, vatsimAtc } from "./api.js";
+import { api, atisHtml, debounce, esc, hhmm, vatsimAtc } from "./api.js";
 import { colorize, wxLines } from "./tabs/meteo.js";
 
 export const FIR_KEYS = ["EPWW", "ESAA", "ED", "ET", "LKAA", "LZBB", "UMKK", "EYVL", "UMMV", "UKLV"];
@@ -130,9 +130,14 @@ export function blockLayout(n, maxCols, fitRows) {
   return { cols, cells: out };
 }
 
+// Na ekranie: karta przeglądarki widoczna i element w pokazanej zakładce (ukryta zakładka ma display: none). Listy i karta
+// odświeżają się tylko wtedy; po powrocie (focus/resume, widoczna karta przeglądarki) od razu, jeśli dane są starsze niż okres.
+const onScreen = (el) => !document.hidden && el.isConnected && el.offsetParent !== null;
+
 // Strona listy jednego FIR-u. state: {q, sel, scroll} (zapamiętane w aerodrome.js, ← wraca do tej samej listy z tym
-// samym filtrem); onOpen(icao) otwiera lotnisko (krok w historii). Zwraca {focus(), save(), destroy()}.
-export function mountFirList(el, key, state, { onOpen }) {
+// samym filtrem); onOpen(icao) otwiera lotnisko (krok w historii); onChange(state) po zmianie filtra, wyboru albo
+// przewinięcia przez użytkownika (z opóźnieniem). Zwraca {focus(), save(), destroy()}.
+export function mountFirList(el, key, state, { onOpen, onChange }) {
   el.innerHTML = `<div class="alist">
     <div class="alist-bar">
       <input class="alist-q" type="text" autocomplete="off" spellcheck="false" maxlength="40"
@@ -151,7 +156,7 @@ Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnis
   const $ = (s) => el.querySelector(s);
   const input = $(".alist-q"), box = $(".alist-box"), cols = $(".alist-cols"), msg = $(".alist-msg");
   // items: {i, icao, name, rank, keys, el, tier}; vis: widoczne po filtrze, w kolejności czytania
-  let items = [], byIcao = new Map(), vis = [], data = null, sel = null, destroyed = false, atcTimer = null, dirty = true;
+  let items = [], byIcao = new Map(), vis = [], data = null, sel = null, destroyed = false, atcTimer = null, dirty = true, atcAt = 0;
 
   const select = (it, scroll = true) => {
     sel?.el.classList.remove("sel");
@@ -215,9 +220,13 @@ Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnis
     filter();
     box.scrollTop = 0;
     input.focus();
+    changed();
   };
 
-  input.addEventListener("input", () => filter());
+  const save = () => ({ q: input.value, sel: sel?.icao || null, scroll: box.scrollTop });
+  const changed = debounce(() => { if (!destroyed) onChange?.(save()); }, 400);
+  input.addEventListener("input", () => { filter(); changed(); });
+  box.addEventListener("scroll", changed, { passive: true });
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); open(); return; }
     if (e.key === "Escape") { e.preventDefault(); clear(); return; }
@@ -226,6 +235,7 @@ Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnis
       if (!vis.length) return;
       const i = vis.indexOf(sel);
       select(vis[e.key === "ArrowDown" ? (i < 0 ? 0 : Math.min(vis.length - 1, i + 1)) : Math.max(0, i - 1)]);
+      changed();
     }
   });
   $(".alist-go").addEventListener("click", open);
@@ -247,8 +257,11 @@ Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnis
   const ro = new ResizeObserver(() => layout());
   ro.observe(box);
 
-  // kontrola online: plakietki D/G/T/A/APP przy lotniskach (ten sam cache co MAP, co 30 s)
+  // kontrola online: plakietki D/G/T/A/APP przy lotniskach (ten sam cache co MAP, co 30 s, tylko gdy lista jest na ekranie)
+  const ATC_MS = 30000;
   const drawAtc = async () => {
+    if (destroyed || !data || !onScreen(box)) return;
+    atcAt = Date.now();
     let d;
     try { d = await vatsimAtc(); } catch { return; }
     if (destroyed) return;
@@ -275,21 +288,25 @@ Enter = WYŚWIETL (dokładny ICAO, inaczej zaznaczone trafienie: główne lotnis
     box.scrollTop = state.scroll || 0;
     if (back && !back.el.hidden && !state.scroll) back.el.scrollIntoView({ block: "nearest" });
     drawAtc();
-    atcTimer = setInterval(drawAtc, 30000);
+    atcTimer = setInterval(drawAtc, ATC_MS);
   }).catch((e) => {
     if (destroyed) return;
     msg.hidden = false;
     msg.innerHTML = `<span class="error">${esc(e.message)}</span>`;
   });
 
+  const atcDue = () => { if (Date.now() - atcAt > ATC_MS) drawAtc(); };
+  document.addEventListener("visibilitychange", atcDue);
+
   return {
-    focus: () => { if (dirty) layout(); input.focus(); input.select(); },
-    save: () => ({ q: input.value, sel: sel?.icao || null, scroll: box.scrollTop }),
+    focus: () => { if (dirty) layout(); input.focus(); input.select(); atcDue(); },
+    save,
     destroy: () => {
       destroyed = true;
       clearInterval(atcTimer);
       ro.disconnect();
       document.removeEventListener("keydown", onKey);
+      document.removeEventListener("visibilitychange", atcDue);
     },
   };
 }
@@ -334,7 +351,7 @@ function positionsTable(ps, unknown) {
 }
 
 // onInfo(d): dane wczytane (nagłówek w pasku AERODROME, zapamiętanie lotniska) po każdym udanym odświeżeniu;
-// onMissing(): takiego lotniska nie ma w danych. Zwraca {destroy()}.
+// onMissing(): takiego lotniska nie ma w danych. Odświeżanie co minutę tylko na ekranie. Zwraca {resume(), destroy()}.
 export function mountAeroCard(el, icao, { onInfo, onMissing } = {}) {
   el.innerHTML = `<div class="acard">
     <div class="acard-head"><b>${esc(icao)}</b><span class="acard-name"></span><span class="acard-fir hint"></span></div>
@@ -349,9 +366,14 @@ export function mountAeroCard(el, icao, { onInfo, onMissing } = {}) {
     </div>
   </div>`;
   const $ = (s) => el.querySelector(s);
-  let timer = null, destroyed = false, loaded = false;
-  const stop = () => { destroyed = true; clearInterval(timer); };
+  const CARD_MS = 60000;
+  let timer = null, destroyed = false, loaded = false, at = 0;
+  const due = () => { if (!destroyed && Date.now() - at > CARD_MS) load(); };
+  const stop = () => { destroyed = true; clearInterval(timer); document.removeEventListener("visibilitychange", due); };
   const load = async () => {
+    // pierwsze wczytanie zawsze; potem tylko na ekranie (każde zapytanie to METAR, TAF i VATSIM na serwerze)
+    if (destroyed || (at && !onScreen(el))) return;
+    at = Date.now();
     let d;
     try { d = await api(`/api/aerodromes/${encodeURIComponent(icao)}/card`); } catch (e) {
       if (destroyed) return;
@@ -397,6 +419,7 @@ export function mountAeroCard(el, icao, { onInfo, onMissing } = {}) {
     $(".acard-upd").textContent = `VATSIM ${d.updated ? hhmm(d.updated) : "–"}`;
   };
   load();
-  timer = setInterval(load, 60000);
-  return { destroy: stop };
+  timer = setInterval(load, CARD_MS);
+  document.addEventListener("visibilitychange", due);
+  return { resume: due, destroy: stop };
 }

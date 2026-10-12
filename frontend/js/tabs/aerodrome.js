@@ -1,4 +1,4 @@
-import { api, atisHtml, esc, fmt, h, hhmm, positionTip, remember, vatsimBookings, vatsimOnline, lsGet, lsSet, ONLINE_EVENT } from "../api.js";
+import { api, atisHtml, esc, fmt, h, hhmm, positionTip, remember, stash, stashed, vatsimBookings, vatsimOnline, lsGet, lsSet, ONLINE_EVENT } from "../api.js";
 import { colorize, wxLines, windVec, hwTxt, xwTxt, kt, validTxt, pointTip } from "./meteo.js";
 import { FIR_KEYS, FIR_LABELS, aeroArg, firOf, mountAeroCard, mountFirList, obsInfo, splitArg } from "../aerolist.js";
 import { mountAwos } from "../awos.js";
@@ -263,7 +263,10 @@ export default {
     let view = "overview", awos = null, strips = null;
     // tryb ekranu: "ov" (0 = OVERVIEW), "list" (lista FIR-u), "page" (lotnisko z bazy: PRZEGLĄD/AWOS/RUCH), "card" (karta)
     let mode = null, state = null, ov = null, list = null, listKey = null, card = null, cardIcao = null;
-    const listState = {};   // filtr, wybrany wiersz i przewinięcie każdej listy: ← wraca do listy w tym samym miejscu
+    // filtr, wybrany wiersz i przewinięcie listy: każdy wpis historii z listą ma swoje (stash w api.js, ← i Wstecz wracają
+    // do listy z jej filtrem, także gdy tę samą listę otwarto później z innym); listState: ostatni stan każdej listy
+    // (powrót bez wpisu historii, np. odnośnik do listy z karty)
+    const listState = {};
 
     // lotniska z bazy (pełna strona); lista podpowiedzi ICAO; bez niej pole działa dalej (wpisany kod)
     let adSet = null;
@@ -495,18 +498,22 @@ export default {
       if (mode === "list" && listKey === key && list && !fresh) { list.focus(); return; }
       leave();
       if (fresh) listState[key] = {};
+      const saved = fresh ? null : stashed("aerodrome");
       setMode("list");
       listKey = key;
       $(".title").textContent = $(".upd").textContent = "";
       $(".content").innerHTML = "";
-      list = mountFirList($(".content"), key, listState[key] || {}, { onOpen: (code) => goto(code) });
+      list = mountFirList($(".content"), key, saved?.key === key ? saved : listState[key] || {}, {
+        onOpen: (code) => goto(code),
+        onChange: (st) => { if (mode === "list" && listKey === key) stash("aerodrome", { key, ...st }); },
+      });
       list.focus();
     };
 
     // lotnisko zagraniczne (i polskie spoza bazy): karta z METAR, TAF i stanowiskami
     const showCard = (code) => {
       markSub(firOf(code));
-      if (mode === "card" && cardIcao === code && card) return;
+      if (mode === "card" && cardIcao === code && card) { card.resume(); return; }   // powrót: odświeżenie, gdy dane starsze niż minuta
       leave();
       setMode("card");
       cardIcao = code;
@@ -601,6 +608,7 @@ export default {
         $(".title").textContent = `Niepoprawny kod ICAO: ${String(arg ?? "").trim().slice(0, 10)}`;
         return;
       }
+      if (mode === "list" && list) stash("aerodrome", { key: listKey, ...list.save() });   // stan listy w jej wpisie, przed krokiem dalej
       a = show(a, opts);
       remember("aerodrome", a);
     };

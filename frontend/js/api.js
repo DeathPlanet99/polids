@@ -82,6 +82,11 @@ export function navigate(tab, arg) { router?.open(tab, arg); }
 // { replace: true } podmienia bieżący wpis zamiast dodawać krok. Wywołane z activate() tej zakładki tylko
 // uzupełnia adres otwieranego właśnie ekranu (bez dodatkowego kroku); dla zakładki w tle nie robi nic.
 export function remember(tab, arg, opts = {}) { router?.remember(tab, arg, opts); }
+// Dane ekranu przypięte do jego wpisu historii (np. filtr, zaznaczenie i przewinięcie listy lotnisk FIR-u): stash zapisuje
+// je w bieżącym wpisie, gdy ekran tej zakładki jest na wierzchu; stashed(tab) w activate() zwraca je tylko przy powrocie
+// do istniejącego wpisu (←, Wstecz, Dalej), więc dwa wpisy tej samej listy pamiętają każdy swój filtr.
+export function stash(tab, data) { router?.stash?.(tab, data); }
+export function stashed(tab) { return router?.stashed?.(tab); }
 // klucz zakładki, do której należy element (section.view[data-tab] tworzy app.js)
 export const tabOf = (el) => el?.closest?.(".view")?.dataset.tab || null;
 
@@ -110,6 +115,12 @@ export function selectNavPath(view, arg) {
     if (ctl.current() !== id) ctl.show(id);
   }
 }
+
+// Zakładka otwierana pierwszy raz od razu z adresem (np. #meteo/turb po Wstecz albo z odnośnika): podmenu budowane
+// w mount() pokazują od razu podzakładkę z adresu, bez wczytywania pierwszej (METAR PL przed TURB). app.js woła przed
+// mount(); dla zakładki z własnym activate(arg) zapis jest potem usuwany (clearNavPath), bo arg czyta ona sama.
+export function presetNavPath(view, arg) { if (arg) WANT.set(view, String(arg).split("/")); }
+export function clearNavPath(view) { WANT.delete(view); }
 
 // Podmenu PANDORY: kolumna zielonych przycisków obok menu głównego.
 // tabs: [{id, label, render(pane), fill?}] albo {sep: true} jako odstęp.

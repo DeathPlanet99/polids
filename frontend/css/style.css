@@ -311,8 +311,11 @@ td.tags .tag { padding: 0 4px; margin-right: 2px; font-size: 11px; }
 /* MAP: panel boczny */
 .mapside { width: 310px; flex: none; background: #050705; border-right: 1px solid var(--line); padding: 8px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
 .mapwrap.collapsed .mapside { display: none; }
-.ms-show { display: none; position: absolute; z-index: 500; left: 8px; bottom: 24px; padding: 4px 10px; }
+/* » nad kontrolkami Leaflet (z-index 1000), a kontrolki z lewego dolnego rogu (wykres vIFF) przesunięte w prawo:
+   przycisk nie chowa się pod wykresem i nic go nie zasłania */
+.ms-show { display: none; position: absolute; z-index: 1001; left: 8px; bottom: 24px; padding: 4px 10px; }
 .mapwrap.collapsed .ms-show { display: block; }
+.mapwrap.collapsed .leaflet-bottom.leaflet-left { left: 40px; }
 .ms-head { display: flex; align-items: center; gap: 8px; padding: 2px 4px; }
 .ms-head b { font: 700 14px var(--sans); letter-spacing: 2px; color: #fff; }
 .ms-head .ms-hide { margin-left: auto; padding: 1px 9px; }
