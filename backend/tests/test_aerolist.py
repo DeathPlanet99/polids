@@ -274,7 +274,6 @@ const ed = mk([["EDAV", "EBERSWALDE-FINOW", 2], ["EDDB", "BERLIN BRANDENBURG", 0
 const pick = (items, q) => m.bestMatch(items, m.queryForms(q))?.icao ?? null;
 const qs = ["warszawa", "krakow", "Kraków", "poznan", "katowice", "rzeszow", "olsztyn", "łódź", "EPKS", "epk", "modlin", "zzzz"];
 const dq = ["BER", "münchen", "munchen", "nürnberg", "nurnberg", "düsseldorf", "köln", "koln", "kolonia", "hof plauen", "EDD"];
-const lay = (n, c, r) => { const L = m.blockLayout(n, c, r); return [L.cols, L.cells.map((x) => [x.row, x.col, x.block].join(":")).join(" ")]; };
 console.log(JSON.stringify({
   arg: args.map(m.aeroArg),
   fold: ["Łódź", "gdańsk  lech wałęsa", "Jeżów Sudecki", "KRAKÓW"].map(m.fold),
@@ -284,7 +283,8 @@ console.log(JSON.stringify({
   ep: Object.fromEntries(qs.map((q) => [q, pick(ep, q)])),
   ed: Object.fromEntries(dq.map((q) => [q, pick(ed, q)])),
   plural: [1, 2, 4, 5, 12, 22, 32, 33, 93, 119, 469].map((n) => n + " " + m.lotnisk(n)),
-  layout: [lay(30, 4, 34), lay(119, 4, 34), lay(10, 4, 34), lay(5, 4, 2), lay(0, 4, 10), lay(300, 4, 34)],
+  step: [[-1, 10, 1], [-1, 10, -1], [-1, 10, 18], [0, 10, -1], [3, 10, 1], [3, 10, -1], [9, 10, 1], [2, 10, 18],
+    [9, 10, -18], [5, 0, 1], [-1, 0, -1]].map(([i, n, d]) => m.stepSel(i, n, d)),
 }));
 """
 
@@ -348,20 +348,7 @@ def test_js_plural(aerojs):
                                 "32 lotniska", "33 lotniska", "93 lotniska", "119 lotnisk", "469 lotnisk"]
 
 
-def test_js_block_layout(aerojs):
-    """Lista mieszcząca się w okienku: kolumny wyrównane; dłuższa: bloki wysokości okienka jeden pod drugim, w bloku
-    kolumna po kolumnie, więc kolejność czytania zgadza się z przewijaniem."""
-    def cells(s):
-        return [tuple(map(int, x.split(":"))) for x in s.split()]
-    fits, mid, short, tiny, empty, long_ = aerojs["layout"]
-    c = cells(fits[1])                       # 30 wierszy, 4 kolumny: 8 + 8 + 8 + 6
-    assert fits[0] == 4 and c[0] == (0, 0, 0) and c[8] == (0, 1, 0) and c[29] == (5, 3, 0)
-    c = cells(mid[1])                        # 119 ≤ 4 × 34: jeden blok, 30 wierszy w kolumnie
-    assert mid[0] == 4 and c[29] == (29, 0, 0) and c[30] == (0, 1, 0) and c[118] == (28, 3, 0)
-    assert short[0] == 2 and cells(short[1])[5] == (0, 1, 0)        # 10 → 2 kolumny po 5
-    assert tiny[0] == 3 and cells(tiny[1]) == [(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0), (0, 2, 0)]  # mieszczą się 2
-    assert empty == [1, ""]
-    c = cells(long_[1])                      # 300 > 4 × 34 = 136: bloki 136, 136, 28 (7 wierszy × 4)
-    assert long_[0] == 4 and c[33] == (33, 0, 0) and c[34] == (0, 1, 0) and c[135] == (33, 3, 0)
-    assert c[136] == (34, 0, 1) and c[169] == (67, 0, 1) and c[170] == (34, 1, 1) and c[271] == (67, 3, 1)
-    assert c[272] == (68, 0, 2) and c[279] == (68, 1, 2) and c[299] == (74, 3, 2)
+def test_js_step_selection(aerojs):
+    """Lista w jednej kolumnie: ↑ ↓ o jeden wiersz, PgUp PgDn o ekran, bez wyjścia poza listę; bez wyboru pierwszy
+    wiersz (jak dotąd ↓ i ↑), pusta lista: nic."""
+    assert aerojs["step"] == [0, 0, 0, 0, 4, 2, 9, 9, 0, -1, -1]
