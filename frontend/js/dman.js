@@ -28,7 +28,7 @@ const SRC_TXT = {
 // lotnisko bez A-CDM: EOBT i ETOT to właściwe wartości drabin, nie zastępstwo za TSAT i TTOT
 const SRC_NOCDM = {
   EOBT: "EOBT z vIFF albo z planu lotu (lotnisko bez A-CDM)", ETOT: "ETOT = off-block (AOBT albo EOBT) + czas kołowania",
-  CTOT: "CTOT (slot ATFM) z vIFF, później niż ETOT",
+  CTOT: "CTOT (slot ATFM) z vIFF, później niż ETOT albo bez ETOT",
 };
 
 const dash = (v) => (v === null || v === undefined || v === "" ? "–" : String(v));
@@ -213,8 +213,11 @@ export function mountDman(el, icao, { onUpdate, view, onView } = {}) {
 
   const depTitle = (s, t) => {
     const v = s.viff || {};
+    // etykieta na CTOT: zamiast powtórki CTOT pokazujemy ETOT, z którym go porównano (bez A-CDM)
     return [`${s.callsign}  ${s.aircraft || ""} → ${s.arrival || "?"}`, `${t.tsatSrc ? srcTxt(t.tsatSrc) : cdm() ? "brak TSAT, TOBT i EOBT" : "brak EOBT"}`,
-      t.ttotSrc ? `${t.ttotSrc} ${hmAt(nowMs(), t.ttot)} (${srcTxt(t.ttotSrc)})` : "", v.ctot ? `CTOT ${hm(v.ctot)}${v.regulation ? " · " + v.regulation : ""}` : "",
+      t.ttotSrc ? `${t.ttotSrc} ${hmAt(nowMs(), t.ttot)} (${srcTxt(t.ttotSrc)})` : "",
+      t.ttotSrc === "CTOT" ? [t.etot !== null && !cdm() ? `ETOT ${hmAt(nowMs(), t.etot)}` : "", v.regulation].filter(Boolean).join(" · ")
+        : v.ctot ? `CTOT ${hm(v.ctot)}${v.regulation ? " · " + v.regulation : ""}` : "",
       t.late ? "Spóźniony: TSAT minął, brak AOBT i ruchu." : "", s.planned ? "Lot planowany: pilot jeszcze nie połączony." : "",
       "Klik: szczegóły · dwuklik: mapa"].filter(Boolean).join("\n");
   };
@@ -326,8 +329,8 @@ export function mountDman(el, icao, { onUpdate, view, onView } = {}) {
       const opt = (on, ...a) => (c || on ? R(...a) : "");
       const lad = (k) => !c && t.ttotSrc === k;
       const LAD = "to samo co etykieta na drabinie ETOT";
-      const reg = v.regulation ? `Regulacja ${v.regulation}${v.delay ? `, opóźnienie ${v.delay} min` : ""}` : "";
-      const ctotTip = [reg, lad("CTOT") ? `później niż ETOT: ${LAD}`
+      const reg = v.regulation ? `Regulacja ${v.regulation}${v.delay > 0 ? `, opóźnienie ${v.delay} min` : ""}` : "";
+      const ctotTip = [reg, lad("CTOT") ? `${t.etot === null ? "brak ETOT" : "później niż ETOT"}: ${LAD}`
         : lad("ETOT") && v.ctot ? "nie później niż ETOT: etykieta drabiny ETOT stoi na ETOT" : ""];
       const taxiSrc = v.taxi ? "Czas kołowania lotu z vIFF" : data.cad?.taxi ? `Domyślny czas kołowania lotniska z vIFF${c ? " (A-CDM)" : ""}`
         : "Brak czasu kołowania w vIFF: przyjęte 10 min";

@@ -364,7 +364,7 @@ function manualPick(m, st, k, v, now = Date.now()) {
 // Zapamiętany ręczny wybór po wczytaniu statusu: wraca do automatu ({}), gdy zmieniły się pasy w użyciu z ATIS / sugestii
 // albo minęło 12 h od kliknięcia (wybór z wczoraj nie przykrywa dzisiejszego ATIS); pas spoza listy i nieznany układ odpadają
 function manualKeep(m, st, now = Date.now()) {
-  if (!m || m.base !== autoBase(st?.runway_in_use) || !(now - m.t < MAN_TTL)) return {};
+  if (!m || m.base !== autoBase(st?.runway_in_use) || !(now - m.t >= 0 && now - m.t < MAN_TTL)) return {};
   const ok = (k, v) => (k === "mode" ? MODES.some(([x]) => x === v) : (st?.runways || []).some((r) => r.designator === v));
   const out = Object.fromEntries(MAN_KEYS.filter((k) => ok(k, m[k])).map((k) => [k, m[k]]));
   return Object.keys(out).length ? { ...out, base: m.base, t: m.t } : {};
