@@ -48,6 +48,8 @@ def test_aerodrome_status(client):
     assert st["suggested_runway"] == "29" and st["preferred"]["arr"] == "29"
     # kontrola online z ATIS: pas w użyciu z ATIS, litera B
     assert st["runway_in_use"] == {"arr": "33", "dep": "29", "source": "ATIS", "reason": "Z ATIS B"}
+    # typowy rozdział pasów z runway_config.json (AWOS › 2 PASY przy ATIS z jednym pasem)
+    assert st["runway_config"] == {"arr": "33", "dep": "29"}
     assert st["atis"]["letter"] == "B" and st["atc_online"][0]["callsign"] == "EPWA_TWR"
     assert "ILS" in next(r for r in st["runways"] if r["designator"] == "33")["equipment"]
     chk = client.get("/api/aerodromes/EPWA/checklist").json()
