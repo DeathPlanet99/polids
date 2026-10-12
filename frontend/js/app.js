@@ -30,8 +30,9 @@ if (window.L) {
 
 const TABS = { home, about, radio, meteo, aerodrome, adciv, admil, advfr, inop, callsign, aircraft, map, phraseology, checklist,
   sytop, aup, strip, other, emergency, admin };
-// stare adresy zakładek przeniesionych do podmenu: #docs/<plik> → OTHER › DOCS (#other/docs/<plik>)
-const MOVED = { docs: (arg) => ["other", arg ? "docs/" + arg : "docs"] };
+// stare adresy zakładek przeniesionych do podmenu: #docs/<plik> → OTHER › DOCS (#other/docs/<plik>);
+// bez arg (link #docs, navigate("docs")) OTHER zostaje w swoim stanie, z otwartym dokumentem
+const MOVED = { docs: (arg) => ["other", arg === undefined ? undefined : arg ? "docs/" + arg : "docs"] };
 const views = document.getElementById("views");
 const back = document.getElementById("nav-back");
 const mounted = {};
