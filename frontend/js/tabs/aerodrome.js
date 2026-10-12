@@ -567,10 +567,12 @@ export default {
       if (view === "ruch") {
         $(".title").textContent = icao;
         $(".upd").textContent = "";
-        // przycisk widoku DMAN/AMAN ↔ AMAN w dman.js = krok do cofnięcia (#aerodrome/EPWA/aman)
+        // przycisk widoku DMAN/AMAN ↔ AMAN w dman.js = krok do cofnięcia (#aerodrome/EPWA/aman). Zgłoszenie z montowania
+        // i resume() ({replace: true}) tylko uzupełnia stan: adres zapisuje goto() albo activate() z wyniku show(),
+        // już po zmianie ekranu (remember tutaj podmieniłby wpis ekranu, z którego przyszliśmy, i ← by go pominęło)
         strips = mountDman($(".content"), icao, { view: rv, onView: (vv, o) => {
           state = `${code}/${vv}`;
-          remember("aerodrome", state, o);
+          if (!o?.replace) remember("aerodrome", state);
           saveLast();
         }, onUpdate: (d) => {
           $(".title").textContent = `${d.icao} · ${d.name}  (elev ${fmt(d.elevation_ft, 0)} ft)`;

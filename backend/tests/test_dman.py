@@ -443,7 +443,10 @@ def test_strip_tab_and_ruch_wiring():
     # widok DMAN/AMAN ↔ AMAN w adresie AERODROME (#aerodrome/EPWA/aman): kliknięcie = krok do cofnięcia
     ad = (FRONTEND / "js" / "tabs" / "aerodrome.js").read_text("utf-8")
     assert "onView?.(v, {})" in dm and "onView?.(st.view, { replace: true })" in dm and "setView(v) {" in dm
-    assert "state = `${code}/${vv}`" in ad and "remember(\"aerodrome\", state, o)" in ad and "strips.setView(rv)" in ad
+    assert "state = `${code}/${vv}`" in ad and "strips.setView(rv)" in ad
+    # zgłoszenie widoku przy montowaniu i resume() (replace) nie zapisuje adresu: robią to goto()/activate() po zmianie
+    # ekranu; remember z replace tutaj podmieniał wpis PRZEGLĄDU/AWOS, z którego wchodzi się do RUCH (← go pomijało)
+    assert "if (!o?.replace) remember(\"aerodrome\", state);" in ad and "remember(\"aerodrome\", state, o)" not in ad
     assert "DMAN/AMAN ›" in ad
     # nieznany typ samolotu: "–", nie "null"
     assert 'R("AC TYPE", acType(s))' in dm and 'R("AC TYPE", s.aircraft' not in dm
