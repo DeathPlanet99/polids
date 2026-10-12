@@ -94,7 +94,7 @@ export function createAman(host, { icao, st, nowMs, getData }) {
       + `<div class="am-legend"><span><s class="ok"></s>na czas</span><span><s class="late"></s>musi stracić czas</span></div>`
       + `<div class="am-fill"></div>` + flowBox(rw[0]);
     const n = flights.length;
-    el.querySelector(".am-r").innerHTML = (rw[1] ? box("rwy", "RWY", rw[1], "", `Drugi pas do lądowania`) : box("cnt", esc(icao), n, "", `Przyloty w sekwencji: ${n}`))
+    el.querySelector(".am-r").innerHTML = (rw[1] ? box("rwy", "RWY", rw[1], "", `Drugi pas do lądowania`) : box("cnt", "PRZYLOTY", n, "", `Przyloty ${icao} w sekwencji: ${n}`))
       + `<label class="am-hor" title="Horyzont drabiny: ile minut od teraz (u dołu) do góry">HORYZONT <input type="range" min="20" max="120" step="5" value="${hor}"><span>${hor}'</span></label>`
       + infoBox(d) + rw.map(lndTable).join("") + (rw[1] ? flowBox(rw[1]) : "");
   };
