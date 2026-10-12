@@ -161,18 +161,29 @@ table.data td.num { text-align: right; font-family: var(--mono); }
 .freq.booked { border: 2px dashed #ffb020; }
 .radio-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; position: relative; }
 .radio-row .cs { color: var(--cyan); font: 12px var(--mono); width: 120px; }
-/* AERODROME › częstotliwości: znak wywoławczy wg długości, nazwa stacji dostaje resztę wiersza */
+/* AERODROME › częstotliwości: obok ramki pos-txt (znak, nazwa stacji, kto). Nazwa stacji ustępuje pierwsza (wielokropek) i rośnie
+   najwyżej do najdłuższej w panelu (--nm-w z aerodrome.js), więc kto stoi w kolumnie tuż za nią; gdy kto nie mieści się
+   w wierszu, schodzi do drugiej linijki pod znak (nigdy ucięty, bez przewijania w poziomie) */
+.radio-row .pos-txt { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 1px 8px; }
+/* mały odstęp od prawej krawędzi (paska przewijania), żeby kto nie przylegał do brzegu panelu */
+.freqs .radio-row { padding-right: 6px; }
+/* ramka "-" (rezerwacja spoza listy stanowisk) tak szeroka jak częstotliwość: znaki i kolumna kto równo pod sobą */
+.freqs .radio-row .freq { flex: none; min-width: calc(7ch + 16px); text-align: center; }
 .freqs .radio-row .cs { width: 11ch; flex: none; }
-.freqs .radio-row .nm { flex: 1 1 auto; }
+.freqs .radio-row .nm { flex: 1 1 0; }
+/* nazwa stacji najmniej 6 znaków: zanim skurczy się do resztki ("K", "|"), kto schodzi do drugiej linijki */
+.freqs .pos-txt .nm { max-width: calc(var(--nm-w) + 1px); min-width: min(6ch, var(--nm-w)); }
 .radio-row .nm { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.radio-row .who, .radio-row .booked-txt { white-space: nowrap; }
-.radio-row .who { color: var(--green-hi); font-size: 12px; }
-.radio-row .booked-txt { color: #ffb020; font-size: 12px; }
+/* imię i nazwisko dłuższe niż cały panel zawija się w sobie, nie wychodzi za krawędź */
+.radio-row .who { color: var(--green-hi); font-size: 12px; overflow-wrap: anywhere; }
+.radio-row .booked-txt { color: #ffb020; font-size: 12px; white-space: nowrap; }
 
 /* dymek po najechaniu (data-tip): kto jest zalogowany / zarezerwował */
 [data-tip] { cursor: help; }
 [data-tip]:hover::after { content: attr(data-tip); position: absolute; left: 0; top: 100%; z-index: 1000; white-space: pre;
   background: #111; color: #fff; border: 1px solid var(--green-hi); padding: 6px 8px; font: 12px/1.45 var(--mono); box-shadow: 0 4px 12px #000; }
+/* w przewijanym panelu częstotliwości dymek najwyżej na szerokość wiersza (zawija się), nie rozpycha panelu w poziomie */
+.freqs [data-tip]:hover::after { white-space: pre-wrap; }
 
 /* etykiety na mapach (sektory, FIR-y) */
 .maplabel { background: none; border: 0; }

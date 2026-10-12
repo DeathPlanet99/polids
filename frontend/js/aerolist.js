@@ -325,11 +325,11 @@ function positionsTable(ps, unknown) {
   return `<table class="data acard-pos"><thead><tr><th>Typ</th><th>Stanowisko</th><th>Częst.</th><th>Stan</th></tr></thead><tbody>
     ${ps.map((p) => {
       const on = p.online;
-      const logged = on && on.callsign && on.callsign !== p.callsign ? ` jako ${esc(on.callsign)}` : "";
+      const logged = on && on.callsign && on.callsign !== p.callsign ? ` jako&nbsp;${esc(on.callsign)}` : "";
       const freq = (on && on.frequency) || p.frequency;
-      // bez danych z sieci VATSIM stan jest nieznany: nie "offline"
+      // bez danych z sieci VATSIM stan jest nieznany: nie "offline"; "od 16:34Z" i "jako X" z twardą spacją (nie rozrywa ich zawijanie)
       const state = unknown ? `<span class="acard-unk">brak danych</span>` : !on ? "offline"
-        : `<b>${esc(on.name || "?")}</b> · od ${esc(hhmm(on.logon_time))}${logged}${p.type === "ATIS" && on.atis_code ? ` · <b class="acard-letter">${esc(on.atis_code)}</b>` : ""}`;
+        : `<b>${esc(on.name || "?")}</b> · od&nbsp;${esc(hhmm(on.logon_time))}${logged}${p.type === "ATIS" && on.atis_code ? ` · <b class="acard-letter">${esc(on.atis_code)}</b>` : ""}`;
       return `<tr class="${on ? "on" : "off"}"><td><span class="ab ab-${esc(p.type.toLowerCase())}">${esc(TYPE_LABEL[p.type] || p.type)}</span></td>
         <td class="acard-cs">${esc(p.callsign)}${p.name ? `<span class="acard-pn">${esc(p.name)}</span>` : ""}</td>
         <td><span class="freq ${on ? "on" : ""}">${esc(freq || "–")}</span></td><td class="acard-st">${state}</td></tr>`;
@@ -399,7 +399,7 @@ export function mountAeroCard(el, icao, { onInfo, onMissing } = {}) {
     const atis = d.positions.filter((p) => p.type === "ATIS" && p.online);
     $(".acard-atis-h").textContent = `ATIS ${atis.map((p) => p.online.atis_code || "").filter(Boolean).join(" / ")}`;
     $(".acard-atis").innerHTML = atis.length ? atis.map((p) => `<div class="acard-atis-one">
-        <div class="hint">${esc(p.online.callsign || p.callsign)} ${esc(p.online.frequency || p.frequency)} · ${esc(p.online.name || "?")} · od ${esc(hhmm(p.online.logon_time))}</div>
+        <div class="hint">${esc(p.online.callsign || p.callsign)} ${esc(p.online.frequency || p.frequency)} · ${esc(p.online.name || "?")} · od&nbsp;${esc(hhmm(p.online.logon_time))}</div>
         <div class="mono atis-text">${atisHtml(p.online.text_atis) || '<span class="hint">bez tekstu</span>'}</div></div>`).join("")
       : `<span class="hint">${net ? "Brak danych z sieci VATSIM (błąd powyżej)." : "ATIS nie jest teraz nadawany w sieci VATSIM."}</span>`;
     $(".acard-upd").textContent = `VATSIM ${d.updated ? hhmm(d.updated) : "–"}`;
