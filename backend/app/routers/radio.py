@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..config import settings
 from ..database import get_db
-from ..models import Aerodrome, AtcPosition, ImportLog, NavPoint, NbSector, Sector
+from ..models import Aerodrome, AtcPosition, ImportLog, NavPoint, Sector
 from ..services import radioboard
 from ..services.http_cache import UpstreamError
 from ..services.neighbours import covered_firs, nb_owners, nb_sectors, owners_of
@@ -180,23 +180,24 @@ def _file_stamp(path) -> tuple:
 
 
 def _board_stamp(db: Session, positions: dict) -> tuple:
-    """Stan danych tablicy (ok. 2 ms): import plików (ImportLog), zawartość tabel sektorów (liczba, granice pionowe,
+    """Stan danych tablicy (ok. 2 ms): import plików (ImportLog), zawartość tabeli sektorów (liczba, granice pionowe,
     długość list OWNER i geometrii – import kasuje tabelę i wstawia ją od nowa z tymi samymi id), stanowiska,
-    ownership.json i granice VATSpy. Zmiana czegokolwiek = część stała liczona od nowa i nowa wersja geometrii."""
+    ownership.json, kafelki sąsiadów z VACS (vacs_epww.json) i granice VATSpy. Zmiana czegokolwiek = część stała
+    liczona od nowa i nowa wersja `ver` (strona pobiera wtedy geometrię jeszcze raz)."""
     def tbl(*cols):  # liczba wierszy i sumy kolumn jednej tabeli
         return tuple(db.execute(select(func.count(), *[func.total(c) for c in cols])).one())
 
     return (
         tbl(ImportLog.mtime), db.scalar(select(func.max(ImportLog.mtime))),
         tbl(Sector.id, Sector.lower_ft, Sector.upper_ft, func.length(Sector.owners), func.length(Sector.geometry)),
-        tbl(NbSector.id, NbSector.lower_ft, NbSector.upper_ft, func.length(NbSector.owners), func.length(NbSector.geometry)),
         tbl(func.length(AtcPosition.callsign) + func.length(AtcPosition.position_id)),
         db.scalar(select(func.count(Aerodrome.icao))), len(positions),
-        _file_stamp(settings.seed_dir / "ownership.json"), _file_stamp(settings.seed_dir / "vatspy_firs.geojson"))
+        _file_stamp(settings.seed_dir / "ownership.json"), _file_stamp(settings.seed_dir / "vacs_epww.json"),
+        _file_stamp(settings.seed_dir / "vatspy_firs.geojson"))
 
 
 def _board_static(db: Session, positions: dict) -> dict:
-    """Część tablicy niezależna od sieci; liczona od nowa po zmianie danych (import) albo ownership.json.
+    """Część tablicy niezależna od sieci; liczona od nowa po zmianie danych (import), ownership.json albo vacs_epww.json.
     Zimne liczenie trwa ok. 1 s – endpoint woła tę funkcję w wątku (run_in_threadpool), żeby nie blokować serwera."""
     stamp = _board_stamp(db, positions)
     if _BOARD.get("stamp") == stamp:
@@ -219,26 +220,21 @@ def _dumps(obj) -> str:
 
 def _build_static(db: Session, positions: dict) -> dict:
     own = seed_json(settings.seed_dir / "ownership.json")
+    # stosy sąsiadów: kafelki profilu VACS ACC_EPWW (sektory graniczące z EPWW); brak pliku = puste stosy
+    vacs = _seed_or_empty("vacs_epww.json").get("neighbours")
     by_id = {p.position_id: p.callsign for p in db.scalars(select(AtcPosition))}
-    covered = covered_firs(db)
-    epww, nb = [], []
-    for s in db.scalars(select(Sector).order_by(Sector.id)):
+    epww = []
+    for s in db.scalars(select(Sector).where(func.upper(Sector.fir) == "EPWW").order_by(Sector.id)):
         owners = [by_id[o] for o in s.owners.split(":") if o in by_id]
-        sl = radioboard.make_slice(s.fir, s.name, s.lower_ft, s.upper_ft, owners, json.loads(s.geometry))
-        if s.fir.upper() == "EPWW":
-            epww.append(sl)
-        elif s.fir.upper() not in covered:  # FIR bez własnego pliku .ese (Białoruś) – z pliku EPWW
-            nb.append(sl)
-    for s in nb_sectors(db):
-        nb.append(radioboard.make_slice(s.fir.upper(), s.name, s.lower_ft, s.upper_ft, owners_of(s), json.loads(s.geometry)))
+        epww.append(radioboard.make_slice(s.fir, s.name, s.lower_ft, s.upper_ft, owners, json.loads(s.geometry)))
     coords = {a.icao: (a.lat, a.lon) for a in db.scalars(select(Aerodrome).where(Aerodrome.icao.like("EP%")))}
     firs = fir_boundaries()
     border = next((f["geometry"] for f in firs.get("features", []) if f["properties"]["id"] == "EPWW"), None) or {}
     # same FIR-y (bez sektorów VATSpy typu ESMM-7), żeby tło było lekkie
     frame = [{"id": f["properties"]["id"], "geometry": f["geometry"]} for f in firs.get("features", [])
              if "-" not in f["properties"]["id"] and f["properties"]["id"] != "EPWW" and _in_frame(f["geometry"])]
-    return radioboard.build_static(own=own, epww_slices=epww, nb_slices=nb, positions=positions, coords=coords,
-                                   border_geom=border, firs_geo=frame)
+    return radioboard.build_static(own=own, epww_slices=epww, vacs_tiles=vacs if isinstance(vacs, list) else [],
+                                   positions=positions, coords=coords, border_geom=border, firs_geo=frame)
 
 
 def _board_data(db: Session) -> tuple[list[dict], dict, dict, set]:
@@ -250,12 +246,14 @@ def _board_data(db: Session) -> tuple[list[dict], dict, dict, set]:
 @router.get("/board")
 async def board(geo: bool = False, have: str = "", db: Session = Depends(get_db)):
     """Wszystko dla strony RADIO w jednym zapytaniu: sektory ACC EPWW (LOW/MID/HIGH) z właścicielem wg kolejności
-    przejmowania (ownership.json), TMA/APP, CTR/TWR, FIS, ATIS polskich lotnisk i stosy stanowisk sąsiadów przy
-    granicy (ESAA, EDWW, EDUU, EDMM, LKAA po lewej; UMKK, EYVL, UMMV, UKLV, LZBB po prawej) z granicami pionowymi.
-    owner/owners = pierwsze stanowisko online z kolejności (null/[] = nikt, pokazujemy częstotliwość nominalną).
+    przejmowania (ownership.json), TMA/APP, CTR/TWR, FIS, ATIS polskich lotnisk i stosy sąsiadów (ESAA, EDWW, EDUU,
+    EDMM, LKAA po lewej; UMKK, EYVL, UMMV, UKLV, LZBB po prawej): kafelki sektorów graniczących z EPWW jak w VACS
+    (bez FMP) z wysokością VACS (alt, lo/hi w stopach) i właścicielem (owner).
+    owner/owners = pierwsze stanowisko online z kolejności (null/[] = nikt: sektory EPWW z częstotliwością nominalną,
+    kafelek sąsiada bez częstotliwości).
     `ver`: wersja danych z importu. `geo=1` albo `have=<ver>` inne niż bieżąca: także geometria podglądów (granica
     EPWW, FIR-y w tle, wycinki ACC, TMA, CTR, FIS) – strona trzyma ją, dopóki `ver` się nie zmieni (np. po imporcie).
-    Błąd VATSIM nie psuje tablicy: `net.ok=false` i komunikat, wszystkie częstotliwości nominalne."""
+    Błąd VATSIM nie psuje tablicy: `net.ok=false` i komunikat, nikt online (EPWW nominalnie, sąsiedzi ADVISORY)."""
     # pozycje i część stała: praca CPU i bazy (zimna ok. 1 s) w wątku, żeby nie wstrzymać innych zapytań
     merged, positions, static, prefer = await run_in_threadpool(_board_data, db)
     net = {"ok": True, "error": None, "updated": None}

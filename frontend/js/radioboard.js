@@ -1,5 +1,5 @@
 // RADIO (jedna strona jak w PANDORZE): czyste funkcje bez DOM – adres (warstwy i przekrój LOW), rzutowanie map,
-// układ etykiet bez nakładania się, grupowanie stosów sąsiadów wg zakresów wysokości. Testowane w Node (test_radio_board.py).
+// układ etykiet bez nakładania się, pasma wysokości w stosach sąsiadów. Testowane w Node (test_radio_board.py).
 
 // Warstwy z kolumny przycisków (PANDORA: ATIS / LOW MID HIGH / APP / TWR / TWR/A / FIS; OAT pomijamy)
 export const LAYERS = [
@@ -159,16 +159,37 @@ export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26,
   return out;
 }
 
-// Stos sąsiada: wiersze (już od najwyższej górnej granicy) w poziomy o tym samym zakresie wysokości
-export function levelLines(rows) {
-  const out = [];
-  (rows || []).forEach((r) => {
-    const last = out[out.length - 1];
-    if (last && last.lo === r.lo && last.hi === r.hi) last.rows.push(r);
-    else out.push({ lo: r.lo, hi: r.hi, rows: [r] });
+// Stos sąsiada: kafelki VACS (już od najwyższego zakresu; lo/hi w stopach, null = bez wysokości) w pasma o tym samym
+// zakresie, ułożone w ciągi stykających się pasm. Każda granica raz: fl = poziom pod pasmem (ft), top = nad pasmem
+// (tylko na początku ciągu, gdy pasmo nie sięga FL660). Pasmo styka się z poprzednim, gdy zaczyna się dokładnie na jego
+// dolnej granicy (EYVL M 335-365 pod EYVL U +365) albo gdy poprzednie sięga ziemi, a to jest niżej (ESMM L -195 pod
+// ESMM 8 -365); inaczej nowy ciąg (gap: EDUU SPE +315 po OSE12/HVL12 285-365).
+export const TOP_FT = 66000;
+export function stackBands(tiles) {
+  const bands = [];
+  (tiles || []).forEach((t) => {
+    const lo = t.lo ?? 0, hi = t.hi ?? TOP_FT;
+    const b = bands.find((x) => x.lo === lo && x.hi === hi);
+    if (b) b.tiles.push(t);
+    else bands.push({ lo, hi, tiles: [t], top: null, fl: null, gap: false });
   });
+  const out = [];
+  let cur = null;
+  while (bands.length) {
+    const i = cur?.lo ? bands.findIndex((b) => b.hi === cur.lo) : -1;
+    const b = bands.splice(Math.max(0, i), 1)[0];
+    const joins = !!cur && (b.hi === cur.lo || (cur.lo === 0 && b.hi < cur.hi));
+    if (cur) cur.fl = joins ? b.hi : cur.lo || null;
+    b.gap = !!cur && !joins;
+    if (!joins && b.hi < TOP_FT) b.top = b.hi;
+    out.push(b);
+    cur = b;
+  }
+  if (cur) cur.fl = cur.lo || null;
   return out;
 }
+// UNICOM: sąsiad bez nikogo online w sektorach przy granicy (jedna linia pod nagłówkiem stosu)
+export const ADVISORY_FQ = "122.800";
 
 // Skrót stanowiska, które przejmuje pole stosu sąsiada: bez pierwszego członu (EDWW FLG → FLG, ESMM 6 → 6),
 // chyba że to cała nazwa (LKAA, UKLV)

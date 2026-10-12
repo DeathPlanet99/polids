@@ -3,11 +3,12 @@
 Trzy podglądy FIR EPWW: sektory ACC w warstwach LOW, MID i HIGH (data/seed/ownership.json), a do tego warstwy
 APP (TMA), TWR (CTR lotnisk), FIS i pasek ATIS. Każda etykieta ma kolejność przejmowania (chain); właściciel to
 pierwsze stanowisko z tej kolejności, które jest teraz online (dopasowanie z /api/radio/online, z aliasami sąsiadów).
-Sąsiedzi: stosy stanowisk z sektorów przy granicy Polski (pliki .ese sąsiadów, Białoruś z pliku EPWW) z granicami
-pionowymi, ułożone wokół podglądów tak jak leżą na mapie.
+Sąsiedzi: stosy sektorów graniczących z FIR EPWW jak w VACS (kafelki profilu ACC_EPWW z data/seed/vacs_epww.json,
+bez FMP) z zakresem wysokości, ułożone wokół podglądów tak jak leżą na mapie; kafelek obsługuje pierwsze stanowisko
+online z jego kolejności (controlled_by).
 
-Część zależna tylko od danych z importu (wycinki, stosy, punkty etykiet, geometria) jest liczona raz i trzymana
-w pamięci do zmiany bazy albo ownership.json; przy każdym odświeżeniu liczymy tylko, kto jest online."""
+Część zależna tylko od danych z importu (wycinki, kafelki, punkty etykiet, geometria) jest liczona raz i trzymana
+w pamięci do zmiany bazy, ownership.json albo vacs_epww.json; przy każdym odświeżeniu liczymy tylko, kto jest online."""
 
 import json
 import math
@@ -33,9 +34,10 @@ STACKS = (
     {"fir": "LZBB", "map": "right", "at": "s", "title": "BRATISLAVA"},
 )
 STACK_FIRS = {s["fir"] for s in STACKS}
-NEAR_KM = 12  # wycinek sąsiada "przy granicy": jakiś punkt jego obrysu najwyżej tyle od granicy FIR EPWW
-# stanowiska, które nie tworzą wiersza w stosie sąsiada (ziemia, ATIS, FMP)
-NO_ROW = {"GND", "DEL", "RMP", "ATIS", "FMP", "TMU", "OBS"}
+# kafelek VACS → stos: pierwszy człon etykiety (EYVL U → EYVL); lotniska i FIR-y bez własnego stosu do stosu obok
+STACK_ALIAS = {"EDDB": "EDWW", "ESMM": "ESAA", "LKMT": "LKAA", "UMBB": "UMMV", "UKR": "UKLV", "UKLU": "UKLV",
+               "UKLL": "UKLV", "LZTT": "LZBB"}
+ALT = re.compile(r"^(?:\+(\d{2,3})|-(\d{2,3})|(\d{2,3})-(\d{2,3}))$")  # wysokość kafelka VACS: +365, -165, 285-365
 APP_TYPES = {"APP", "DEP"}
 INFO = re.compile(r"_(?:I|IE|IW|IS|IN|FIS)_[A-Z]+$")  # stanowiska informacji (EPWA_I_APP, EPGD_IE_APP)
 ACC_CS = re.compile(r"^EPWW_[A-Z0-9_]*(?:CTR|FSS)$")
@@ -131,38 +133,6 @@ def label_point(geom: dict, n: int = 22) -> list[float] | None:
                 if inside and d > best_d:
                     best_d, best = d, [round(y, 4), round(x / k, 4)]
     return best
-
-
-KX, KY = 111.32 * math.cos(math.radians(52)), 110.57  # km na stopień w rejonie Polski
-
-
-def _densify(ring, step_km: float = 2.0):
-    for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1]):
-        n = max(1, int(math.hypot((x2 - x1) * KX, (y2 - y1) * KY) / step_km))
-        for i in range(n):
-            yield (x1 + (x2 - x1) * i / n) * KX, (y1 + (y2 - y1) * i / n) * KY
-
-
-class Border:
-    """Granica FIR EPWW jako punkty co ~2 km w siatce: szybkie "czy wycinek sąsiada dotyka Polski"."""
-
-    def __init__(self, geom: dict, near_km: float = NEAR_KM):
-        self.near = near_km
-        self.cells: dict[tuple[int, int], list[tuple[float, float]]] = {}
-        for ring in rings(geom):
-            for x, y in _densify(ring):
-                self.cells.setdefault((int(x // near_km), int(y // near_km)), []).append((x, y))
-
-    def touches(self, geom: dict) -> bool:
-        r2 = self.near * self.near
-        for ring in rings(geom):
-            for x, y in _densify(ring):
-                cx, cy = int(x // self.near), int(y // self.near)
-                for i in (cx - 1, cx, cx + 1):
-                    for j in (cy - 1, cy, cy + 1):
-                        if any((x - px) ** 2 + (y - py) ** 2 <= r2 for px, py in self.cells.get((i, j), ())):
-                            return True
-        return False
 
 
 def simplify(geom: dict, tol: float = 0.003, nd: int = 3) -> dict:
@@ -294,63 +264,63 @@ def fis_groups(slices: list[dict], own: dict) -> list[dict]:
     return sorted(out, key=lambda g: (g["id"], g["nominal"]))
 
 
-def stack_of(fir: str, name: str) -> str | None:
-    """Stos sąsiada dla wycinka: EDUU (Rhein) osobno, choć jego sektory są w plikach EDWW i EDMM."""
-    if name.upper().startswith("EDUU"):
-        return "EDUU"
-    fir = fir.upper()
-    return fir if fir in STACK_FIRS else None
+def alt_range(alt) -> tuple[int, int] | None:
+    """Wysokość kafelka VACS w stopach (dolna, górna): "+365" → (36500, TOP_FT), "285-365" → (28500, 36500),
+    "-165" → (0, 16500); brak albo nieczytelna → None (kafelek bez wysokości, np. EDWW MRZ, UMKK)."""
+    m = ALT.match(str(alt or "").strip())
+    if not m:
+        return None
+    up, down, lo, hi = (int(x) * 100 if x else None for x in m.groups())
+    return (up, TOP_FT) if up is not None else (0, down) if down is not None else (lo, hi)
 
 
-def _row_ok(r: dict) -> bool:
-    """Wieża tylko z przestrzenią ponad FL095 (LZTT TWR – Tatry), APP/DEP sięgające co najmniej FL095 (bez samych
-    podejść końcowych, np. EDDB AN APP do FL055); CTR/FSS (także informacja) zawsze."""
-    fac = facility(r["callsign"])
-    if fac == "TWR":
-        return r["hi"] > 9500
-    return fac in ("CTR", "FSS", "") or r["hi"] >= 9500
+def stack_key(label: str) -> str | None:
+    first = str(label or "").split(" ")[0].upper()
+    first = STACK_ALIAS.get(first, first)
+    return first if first in STACK_FIRS else None
 
 
-def stack_rows(slices: list[dict], border: Border) -> dict[str, list[dict]]:
-    """Wiersze stosów sąsiadów: stanowisko pierwsze w kolejności wycinka przy granicy Polski, z zakresem wysokości
-    (najniższa dolna i najwyższa górna granica tych wycinków). Wieże tylko, gdy ich przestrzeń sięga ponad FL095
-    (np. LZTT TWR – Tatry); stanowiska naziemne pomijamy."""
-    rows: dict[str, dict[str, dict]] = {}
-    for s in slices:
-        key = stack_of(s["fir"], s["name"])
-        if not key or not s["owners"] or s["lo"] >= TOP_FT:
+_RANK = {"CTR": 0, "FSS": 0, "APP": 1, "DEP": 1, "TWR": 2}
+
+
+def stack_tiles(items: list[dict]) -> dict[str, list[dict]]:
+    """Kafelki stosów sąsiadów z profilu VACS ACC_EPWW (vacs_epww.json, klucz neighbours): tylko sektory graniczące
+    z EPWW, bez FMP. Kafelek: etykieta i wysokość z VACS, stanowisko kafelka (callsign) i kolejność przejmowania
+    (chain = controlled_by). W stosie od najwyższego zakresu; bez wysokości jak do FL660 od ziemi, CTR przed APP i TWR."""
+    out: dict[str, list[dict]] = {}
+    seen = set()
+    for n in items or ():
+        if not isinstance(n, dict) or n.get("fmp"):
             continue
-        primary = s["owners"][0]
-        if facility(primary) in NO_ROW or not border.touches(s["geom"]):
+        key = stack_key(n.get("label"))
+        chain = [cs for cs in n.get("controlled_by") or () if cs] or ([n["callsign"]] if n.get("callsign") else [])
+        uid = (n.get("label"), n.get("alt"), n.get("station"), n.get("callsign"))
+        if not key or not chain or uid in seen:
             continue
-        r = rows.setdefault(key, {}).setdefault(primary, {"callsign": primary, "lo": s["lo"], "hi": s["hi"],
-                                                          "sectors": [], "chains": Counter()})
-        r["lo"], r["hi"] = min(r["lo"], s["lo"]), max(r["hi"], s["hi"])
-        if s["name"] not in r["sectors"]:
-            r["sectors"].append(s["name"])
-        r["chains"][tuple(s["owners"])] += 1
-    out = {}
-    for key, by in rows.items():
-        lst = [{**r, "chains": [list(c) for c, _ in r["chains"].most_common()]} for r in by.values() if _row_ok(r)]
-        out[key] = sorted(lst, key=lambda r: (-r["hi"], -r["lo"], r["callsign"]))
+        seen.add(uid)
+        rng = alt_range(n.get("alt"))
+        out.setdefault(key, []).append({"label": n["label"], "alt": n.get("alt") if rng else None,
+                                        "lo": rng[0] if rng else None, "hi": rng[1] if rng else None,
+                                        "callsign": n.get("callsign") or chain[0], "chain": chain})
+    for tiles in out.values():
+        tiles.sort(key=lambda t: (-(t["hi"] or TOP_FT), -(t["lo"] or 0), _RANK.get(facility(t["callsign"]), 3)))
     return out
 
 
-def build_static(*, own: dict, epww_slices: list[dict], nb_slices: list[dict], positions: dict, coords: dict,
+def build_static(*, own: dict, epww_slices: list[dict], vacs_tiles: list[dict], positions: dict, coords: dict,
                  border_geom: dict, firs_geo: list[dict]) -> dict:
     """Wszystko, co nie zależy od tego, kto jest online.
 
-    epww_slices: wycinki z pliku EPWW ({fir, name, lo, hi, owners (znaki), geom}); nb_slices: wycinki sąsiadów
-    (pliki sąsiadów + FIR-y bez własnego pliku z pliku EPWW); positions: znak → {frequency, name, ...};
-    coords: ICAO → (lat, lon); border_geom: granica FIR EPWW (VATSpy); firs_geo: [{id, geometry}] do tła."""
+    epww_slices: wycinki z pliku EPWW ({fir, name, lo, hi, owners (znaki), geom}); vacs_tiles: kafelki sąsiadów
+    z profilu VACS (vacs_epww.json, neighbours); positions: znak → {frequency, name, ...}; coords: ICAO → (lat, lon);
+    border_geom: granica FIR EPWW (VATSpy); firs_geo: [{id, geometry}] do tła."""
     kinds: dict[str, list[dict]] = {"acc": [], "tma": [], "ctr": [], "fis": []}
     for s in epww_slices:
         k = sector_kind(s["fir"], s["name"])
         if s["fir"].upper() == "EPWW" and k in kinds:
             kinds[k].append(s)
-    border = Border(border_geom)
-    rows = stack_rows(nb_slices, border)
-    stacks = [{**st, "rows": rows.get(st["fir"], [])} for st in STACKS]
+    tiles = stack_tiles(vacs_tiles)
+    stacks = [{**st, "tiles": tiles.get(st["fir"], [])} for st in STACKS]
     acc_geo, seen = [], set()
     for s in kinds["acc"]:
         m = re.match(r"^EPWW([A-Z])", s["name"])
@@ -392,9 +362,9 @@ def _referenced(static: dict) -> set[str]:
         if g.get("atis"):
             refs.add(g["atis"])
     for st in static["stacks"]:
-        for r in st["rows"]:
-            refs.add(r["callsign"])
-            refs.update(cs for ch in r["chains"] for cs in ch)
+        for t in st["tiles"]:
+            refs.add(t["callsign"])
+            refs.update(t["chain"])
     return refs
 
 
@@ -413,14 +383,9 @@ def board(static: dict, online: dict, positions: dict, feed_atis: list[dict] = (
     tma = [local(g) for g in static["tma"]]
     twr = [local(g) for g in static["twr"]]
     fis = [local(g) for g in static["fis"]]
-    stacks = []
-    for st in static["stacks"]:
-        rows = []
-        for r in st["rows"]:
-            own_on = is_on(r["callsign"], online)
-            owners = [r["callsign"]] if own_on else owners_of_chains(r["chains"], online)
-            rows.append({**r, "owners": owners})
-        stacks.append({**st, "rows": rows})
+    # stosy sąsiadów: kafelek obsługuje pierwsze stanowisko online z jego kolejności (null = nikt, bez częstotliwości)
+    stacks = [{**st, "tiles": [{**t, "owner": first_online(t["chain"], online)} for t in st["tiles"]]}
+              for st in static["stacks"]]
     # ATIS: polskie stanowiska ATIS z pliku .ese oraz zalogowane EP**_ATIS spoza niego (np. EPWA_D_ATIS)
     atis = [{"callsign": cs, "icao": cs[:4], "online": cs in online} for cs in static["atis"]]
     known = {online[a["callsign"]]["callsign"] for a in atis if a["online"]}

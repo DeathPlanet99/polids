@@ -2,14 +2,17 @@
 // FIR EPWW i stosami sąsiadów (ESAA, EDWW, EDUU, EDMM, LKAA), w środku przyciski warstw i mały podgląd MID, po prawej
 // duży podgląd HIGH ze stosami UMKK, EYVL, UMMV, UKLV, LZBB. Na podglądach: ID sektora (litera warstwy + litera sektora,
 // np. LB) i częstotliwość stanowiska, które teraz go obsługuje wg kolejności przejmowania (ownership.json); bez nikogo
-// online przygaszona częstotliwość stanowiska sektora. Dane: GET /api/radio/board co 30 s (geometria raz, potem tylko po
-// zmianie wersji danych `ver`, np. po imporcie nowego pliku .ese). Kliknięcie nagłówka stosu sąsiada (np. EDWW BREMEN):
-// panel z wyciągiem z LOA EPWW z tym FIR-em (GET /api/radio/loa) i odnośnikiem do PDF-u w DOCS › LOA.
+// online przygaszona częstotliwość stanowiska sektora. Stosy sąsiadów (runda 11): sektory graniczące z EPWW jak w VACS
+// (bez FMP), częstotliwość tylko, gdy ktoś je obsługuje; nikt w całym stosie → jedna linia ADVISORY 122.800.
+// Dane: GET /api/radio/board co 30 s (geometria raz, potem tylko po zmianie wersji danych `ver`, np. po imporcie nowego
+// pliku .ese). Kliknięcie nagłówka stosu sąsiada (np. EDWW BREMEN): panel z wyciągiem z LOA EPWW z tym FIR-em
+// (GET /api/radio/loa) i odnośnikiem do PDF-u w DOCS › LOA.
 import { api, esc, h, lsGet, lsSet, navigate, remember } from "../api.js";
 import { labelPoint } from "../coverage.js";
 import { displayName, loadDisplayNames, posName } from "../posname.js";
-import { DEFAULT_CUT, DEFAULT_LAYERS, EPWW_BBOX, LAYERS, LAYER_IDS, argOf, bboxOf, bboxOrDefault, byShort, controllersOn, cutBand,
-  cutBounds, cutOf, flNum, flText, levelLines, parseArg, pathOf, placeLabels, projection, ringsOf, sliceAt, utcHhmm } from "../radioboard.js";
+import { ADVISORY_FQ, DEFAULT_CUT, DEFAULT_LAYERS, EPWW_BBOX, LAYERS, LAYER_IDS, TOP_FT, argOf, bboxOf, bboxOrDefault, byShort,
+  controllersOn, cutBand, cutBounds, cutOf, flNum, flText, parseArg, pathOf, placeLabels, projection, ringsOf, sliceAt, stackBands,
+  utcHhmm } from "../radioboard.js";
 
 const LS_LAYERS = "radio.layers", LS_CUT = "radio.cut";
 const REFRESH_MS = 30000;
@@ -100,6 +103,36 @@ export function loaHtml(fir, title, f, radio, { msg = "", loading = false } = {}
   </div>`;
 }
 
+// --- stos sąsiada (runda 11, Marek): kafelki VACS sektorów graniczących z EPWW (bez FMP). Częstotliwość tylko, gdy ktoś
+// obsługuje sektor (owner: pierwsze stanowisko online z kolejności VACS), ze skrótem tego stanowiska, gdy to nie
+// stanowisko kafelka; nikt w całym stosie → jedna linia ADVISORY 122.800 pod nagłówkiem. Granice pionowe raz, na osi
+// między pasmami (stackBands). st: stos z /api/radio/board; x: {nm(cs), freq(cs), who(cs), pos(cs), sel, net} – nazwa,
+// częstotliwość i zalogowany z tablicy, opis stanowiska, FIR otwartego LOA, false = brak danych VATSIM (bez ADVISORY).
+const altText = (t) => (t.lo ? (t.hi < TOP_FT ? `${flText(t.lo)}–${flText(t.hi)}` : `od ${flText(t.lo)}`) : `do ${flText(t.hi)}`);
+const bdHtml = (ft) => `<div class="rb-bd" data-rt="${esc(flText(ft))}"><i>${esc(flNum(ft))}</i></div>`;
+function tileHtml(t, x) {
+  const o = t.owner, chain = arr(t.chain);
+  const rt = [`${t.label}${t.alt ? ` · ${altText(t)} (VACS ${t.alt})` : ""}`, `Stanowisko: ${x.pos(t.callsign)}`,
+    o ? `Teraz: ${x.who(o) || o}` : x.net === false ? "VATSIM: brak danych" : `Teraz nikt – ADVISORY ${ADVISORY_FQ}`,
+    ...(chain.length > 1 ? [`Kolejność: ${chain.map(x.nm).join(" › ")}`] : [])].join("\n");
+  const by = o && o !== t.callsign ? `<i class="rb-by">${esc(byShort(x.nm(o)))}</i>` : "";
+  return `<div class="rb-box ${o ? "on" : "off"}" data-rt="${esc(rt)}"><b class="rb-id">${esc(t.label)}</b>`
+    + `${o ? `<span class="rb-ln">${by}<span class="rb-fq">${esc(x.freq(o))}</span></span>` : ""}</div>`;
+}
+export function nbStackHtml(st, x) {
+  const tiles = arr(st.tiles), bands = stackBands(tiles);
+  const owners = [...new Set(tiles.map((t) => t.owner).filter(Boolean))];
+  const nobody = x.net !== false && tiles.length > 0 && !owners.length;
+  const tipH = [`${st.fir} ${st.title}: sektory graniczące z FIR EPWW jak w VACS (bez FMP)`, "liczby między polami: granice pionowe (FL)",
+    ...(nobody ? [`Nikt online – ADVISORY ${ADVISORY_FQ}`] : owners.map((o) => `Online: ${x.who(o) || o}`)), `Kliknij: LOA EPWW – ${st.fir}`].join("\n");
+  const flat = !bands.some((b) => b.top || b.fl);  // bez wysokości (UMMV, UKLV): bez osi z lewej
+  return `<div class="rb-nb${flat ? " flat" : ""}" data-fir="${esc(st.fir)}"><div class="rb-nbh${x.sel === st.fir ? " sel" : ""}" role="button" tabindex="0" data-title="${esc(st.title)}" data-rt="${esc(tipH)}"><b>${esc(st.fir)}</b> ${esc(st.title)}</div>`
+    + (nobody ? `<div class="rb-unicom">ADVISORY ${ADVISORY_FQ}</div>` : "")
+    + (bands.length ? bands.map((b) => `${b.gap ? `<div class="rb-gap"></div>` : ""}${b.top ? bdHtml(b.top) : ""}`
+      + `<div class="rb-bxs">${b.tiles.map((t) => tileHtml(t, x)).join("")}</div>${b.fl ? bdHtml(b.fl) : ""}`).join("")
+      : `<div class="rb-none">brak sektorów VACS</div>`) + "</div>";
+}
+
 export default {
   mount(root) {
     const el = h(`<div class="rb">
@@ -137,9 +170,9 @@ export default {
     };
     const posLine = (cs) => `${cs}${d?.pos?.[cs]?.name ? ` · ${d.pos[cs].name}` : ""} ${d?.pos?.[cs]?.frequency || ""}`.trim();
     const chainText = (ch) => ch.map(nm).join(" › ");
-    // linijki etykiety: właściciele (najwyżej dwaj) albo częstotliwość nominalna; by = skrót właściciela innego niż nominalny
-    const lines = (nominal, owners, short = false) => (owners.length
-      ? owners.slice(0, 2).map((o) => ({ fq: freqOf(o), by: o === nominal ? "" : short ? byShort(nm(o)) : nm(o) }))
+    // linijki etykiety: właściciele (najwyżej dwaj) albo częstotliwość nominalna; by = właściciel inny niż nominalny
+    const lines = (nominal, owners) => (owners.length
+      ? owners.slice(0, 2).map((o) => ({ fq: freqOf(o), by: o === nominal ? "" : nm(o) }))
       : [{ fq: d?.pos?.[nominal]?.frequency || "—", by: "" }]);
     const nowText = (owners, nominal) => (owners.length ? owners.map((o) => `Teraz: ${who(o) || o}`).join("\n")
       : `Teraz nikt – częstotliwość nominalna ${nm(nominal)} ${d?.pos?.[nominal]?.frequency || ""}`.trim());
@@ -157,14 +190,6 @@ export default {
         + `${l.fq ? `<span class="rb-fq">${esc(l.fq)}</span>` : ""}</span>`).join("")}${more}${lb.extra || ""}</div>`;
     }
 
-    function boxHtml({ cls, id, nominal, owners, rt, k = "", extra = "", short = false }) {
-      const ls = lines(nominal, owners, short);
-      const more = owners.length > 2 ? `<i class="rb-more">+${owners.length - 2}</i>` : "";
-      return `<div class="${cls} ${owners.length ? "on" : "off"}"${k ? ` data-k="${esc(k)}"` : ""} data-rt="${esc(rt)}">`
-        + `<b class="rb-id">${esc(id)}</b>${ls.map((l) => `<span class="rb-ln">${l.by ? `<i class="rb-by">${esc(l.by)}</i>` : ""}`
-        + `<span class="rb-fq">${esc(l.fq)}</span></span>`).join("")}${more}${extra}</div>`;
-    }
-
     // --- pasek ATIS
     function renderAtis() {
       const box = $(".rb-atis");
@@ -180,29 +205,18 @@ export default {
       }).join("") || `<span class="rb-none">Brak stanowisk ATIS w pliku .ese.</span>`;
     }
 
-    // --- stosy sąsiadów
-    function rowBox(r) {
-      const rt = [posLine(r.callsign), `${flText(r.lo)}–${flText(r.hi)} · sektory: ${r.sectors.slice(0, 8).join(", ")}${r.sectors.length > 8 ? " …" : ""}`,
-        nowText(r.owners, r.callsign), ...(r.chains[0]?.length > 1 ? [`Kolejność: ${chainText(r.chains[0])}`] : [])].join("\n");
-      return boxHtml({ cls: "rb-box", id: nm(r.callsign), nominal: r.callsign, owners: r.owners, rt, short: true });
-    }
-    function stackHtml(st) {
-      const lv = levelLines(st.rows);
-      const tipH = `${st.fir} ${st.title}: stanowiska z sektorów przy granicy FIR EPWW (plik .ese sąsiada)\nliczby po lewej: górna i dolna granica (FL)\nKliknij: LOA EPWW – ${st.fir}`;
-      return `<div class="rb-nb" data-fir="${esc(st.fir)}"><div class="rb-nbh${loaFir === st.fir ? " sel" : ""}" role="button" tabindex="0" data-title="${esc(st.title)}" data-rt="${esc(tipH)}"><b>${esc(st.fir)}</b> ${esc(st.title)}</div>`
-        + (lv.length ? lv.map((ln) => `<div class="rb-lv"><span class="rb-fl" data-rt="${esc(`${flText(ln.lo)}–${flText(ln.hi)}`)}"><i>${flNum(ln.hi)}</i><i>${flNum(ln.lo)}</i></span>`
-          + `<div class="rb-bxs">${ln.rows.map(rowBox).join("")}</div></div>`).join("")
-          : `<div class="rb-none">brak sektorów przy granicy</div>`) + "</div>";
-    }
+    // --- stosy sąsiadów (nbStackHtml): nazwy, częstotliwości i zalogowani z tablicy
+    const nbCtx = () => ({ nm, freq: freqOf, who, pos: posLine, sel: loaFir, net: d?.net?.ok !== false });
     function renderStacks() {
       if (!d) return;
       ["left", "right"].forEach((side) => {
         const m = MAPS.find((x) => x.side === side);
         const p = maps[m.key].el;
         const sts = d.stacks.filter((s) => s.map === side);
-        p.querySelector(".rb-top").innerHTML = sts.filter((s) => AREA[s.at] === "top").map(stackHtml).join("");
-        p.querySelector(".rb-bot").innerHTML = sts.filter((s) => AREA[s.at] === "bot").map(stackHtml).join("");
-        p.querySelector(".rb-col").innerHTML = sts.filter((s) => AREA[s.at] === "col").sort((a, b) => COL_ORDER[a.at] - COL_ORDER[b.at]).map(stackHtml).join("");
+        const html = (list) => list.map((st) => nbStackHtml(st, nbCtx())).join("");
+        p.querySelector(".rb-top").innerHTML = html(sts.filter((s) => AREA[s.at] === "top"));
+        p.querySelector(".rb-bot").innerHTML = html(sts.filter((s) => AREA[s.at] === "bot"));
+        p.querySelector(".rb-col").innerHTML = html(sts.filter((s) => AREA[s.at] === "col").sort((a, b) => COL_ORDER[a.at] - COL_ORDER[b.at]));
       });
     }
 
@@ -364,7 +378,7 @@ export default {
       const net = d?.net;
       s.innerHTML = !d ? (err ? `<span class="error">${esc(err)}</span>` : "Wczytywanie…")
         : `${net?.ok ? `VATSIM ${esc(utcHhmm(net.updated))} · ${n} na tablicy` : `<span class="error">${esc(net?.error || "VATSIM: brak danych")}</span>`}`
-          + (noBorder ? ` <span class="error">Brak granicy FIR EPWW (VATSpy): podglądy bez obrysu FIR, stosy sąsiadów mogą być puste.</span>` : "")
+          + (noBorder ? ` <span class="error">Brak granicy FIR EPWW (VATSpy): podglądy bez obrysu FIR.</span>` : "")
           + (err ? ` <span class="error">${esc(err)}</span>` : "");
       s.title = d?.source ? `Kolejność przejmowania: ${d.source}` : "";
     }
