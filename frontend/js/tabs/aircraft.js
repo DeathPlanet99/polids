@@ -1,4 +1,4 @@
-import { api, debounce, esc, fmt, h, letterMenu } from "../api.js";
+import { api, debounce, esc, fmt, h, letterMenu, remember } from "../api.js";
 
 const RECAT = {
   A: "Super Heavy", B: "Upper Heavy", C: "Lower Heavy", D: "Upper Medium", E: "Lower Medium", F: "Light",
@@ -141,11 +141,22 @@ export default {
       if (b.dataset.m === maker) { prefix = ""; setMaker(""); letters.set(""); } else { $(".q").value = ""; setMaker(b.dataset.m); }
       $(".list").scrollTop = 0;
       load();
+      remember("aircraft", maker ? "maker/" + maker : "");   // krok do cofnięcia (←), jak litery
     });
     $(".q").addEventListener("input", debounce(load));
     $(".wtc").addEventListener("change", load);
     $(".recat").addEventListener("change", load);
     load();
-    return { activate: (arg) => { if (arg) { $(".q").value = arg; prefix = ""; setMaker(""); letters.set(""); load(); } $(".q").focus(); } };
+    // arg z adresu (← i Wstecz): litera "A"–"Z", "" = wszystkie, "maker/airbus" = producent, inny tekst = szukany typ
+    // (np. #aircraft/B738); przycisk menu (arg undefined) zostawia bieżący widok
+    return { activate: (arg) => {
+      const mk = arg?.startsWith("maker/") ? arg.slice(6) : null;
+      if (arg === undefined) { /* bez zmian */ } else if (/^[A-Z]?$/.test(arg)) {
+        if (arg !== prefix || maker) { prefix = arg; setMaker(""); letters.set(arg); load(); }
+      } else if (mk && MAKERS.some(([k]) => k === mk)) {
+        if (mk !== maker) { $(".q").value = ""; setMaker(mk); load(); }
+      } else { $(".q").value = arg; prefix = ""; setMaker(""); letters.set(""); load(); }
+      $(".q").focus();
+    } };
   },
 };

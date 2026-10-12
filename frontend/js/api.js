@@ -71,28 +71,86 @@ export function debounce(fn, ms = 250) {
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
 
+// --- Nawigacja: przycisk ← w menu i Wstecz przeglądarki (Alt+←) wracają do poprzedniego ekranu tej sesji.
+// Adres ekranu: "#zakładka/arg", arg = wszystko po pierwszym "/" (np. "#aerodrome/fir/ED" → zakładka "aerodrome",
+// arg "fir/ED"). Historię prowadzi app.js (setRouter); bez niego (testy w Node) navigate i remember nic nie robią.
+let router = null;
+export function setRouter(r) { router = r; }
+// otwiera inną zakładkę (albo inny stan bieżącej) z wnętrza zakładki; zapisuje krok do cofnięcia
+export function navigate(tab, arg) { router?.open(tab, arg); }
+// zakładka sama zmieniła stan (podzakładka, wybrane lotnisko): nowy wpis historii bez ponownego activate();
+// { replace: true } podmienia bieżący wpis zamiast dodawać krok. Wywołane z activate() tej zakładki tylko
+// uzupełnia adres otwieranego właśnie ekranu (bez dodatkowego kroku); dla zakładki w tle nie robi nic.
+export function remember(tab, arg, opts = {}) { router?.remember(tab, arg, opts); }
+// klucz zakładki, do której należy element (section.view[data-tab] tworzy app.js)
+export const tabOf = (el) => el?.closest?.(".view")?.dataset.tab || null;
+
+const decodeArg = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
+// "#aerodrome/fir/ED" → {tab: "aerodrome", arg: "fir/ED"}; brak "/" → arg ""
+export function parseHash(hash) {
+  const s = String(hash || "").replace(/^#/, "");
+  const i = s.indexOf("/");
+  return i < 0 ? { tab: decodeArg(s), arg: "" } : { tab: decodeArg(s.slice(0, i)), arg: decodeArg(s.slice(i + 1)) };
+}
+export const hashOf = (tab, arg) => "#" + tab + (arg ? "/" + encodeURI(String(arg)).replace(/#/g, "%23") : "");
+
+// Podmenu zakładki (subtabs) zarejestrowane przy swoim <nav>: ścieżka wybranych id od zewnętrznego do
+// zagnieżdżonego ("sat/eur") to arg w adresie zakładki bez własnego activate().
+const NAVS = new WeakMap();
+const WANT = new WeakMap();   // ścieżka z adresu dla podmenu, które dopiero powstaną (dane wczytywane asynchronicznie)
+const navList = (view) => [...view.querySelectorAll("nav.submenu")].filter((n) => NAVS.has(n));
+export const navPath = (view) => navList(view).map((n) => NAVS.get(n).current()).join("/");
+// wybiera podzakładki wg ścieżki (bez zapisu w historii); "" = pierwsza podzakładka na każdym poziomie
+export function selectNavPath(view, arg) {
+  const segs = arg ? String(arg).split("/") : [];
+  WANT.set(view, segs);
+  for (let i = 0; i < navList(view).length; i++) {   // lista od nowa: wybór może zbudować zagnieżdżone podmenu
+    const ctl = NAVS.get(navList(view)[i]);
+    const id = ctl.has(segs[i]) ? segs[i] : ctl.first;
+    if (ctl.current() !== id) ctl.show(id);
+  }
+}
+
 // Podmenu PANDORY: kolumna zielonych przycisków obok menu głównego.
 // tabs: [{id, label, render(pane), fill?}] albo {sep: true} jako odstęp.
-export function subtabs(root, tabs) {
-  const nav = h(`<nav class="submenu">${tabs.map((t) => t.sep ? `<div class="sep"></div>` : `<button data-id="${t.id}">${esc(t.label)}</button>`).join("")}</nav>`);
+// Kliknięcie podzakładki to krok do cofnięcia (remember z kluczem zakładki i ścieżką id podmenu);
+// opts.remember = false wyłącza, opts.arg(id) podaje własny arg adresu zamiast ścieżki id.
+export function subtabs(root, tabs, opts = {}) {
+  const nav = h(`<nav class="submenu">${tabs.map((t) => t.sep ? `<div class="sep"></div>` : `<button data-id="${esc(t.id)}">${esc(t.label)}</button>`).join("")}</nav>`);
   const pane = h(`<div class="pane"></div>`);
   root.append(nav, pane);
-  let current = null;
+  let current = null, currentId = null;
+  const first = tabs.find((x) => !x.sep).id;
   const show = (id) => {
     current?.destroy?.();
-    const t = tabs.find((x) => x.id === id) || tabs.find((x) => !x.sep);
+    const t = tabs.find((x) => !x.sep && x.id === id) || tabs.find((x) => !x.sep);
+    currentId = t.id;
     nav.querySelectorAll("button[data-id]").forEach((b) => b.classList.toggle("active", b.dataset.id === t.id));
     pane.className = "pane" + (t.fill ? " fill" : "");
     pane.innerHTML = "";
     current = t.render(pane) || null;
   };
-  nav.addEventListener("click", (e) => { const b = e.target.closest("button[data-id]"); if (b) show(b.dataset.id); });
-  show(tabs.find((x) => !x.sep).id);
-  return { nav, pane, show };
+  NAVS.set(nav, { first, current: () => currentId, show, has: (id) => !!id && tabs.some((x) => !x.sep && x.id === id) });
+  nav.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-id]");
+    if (!b) return;
+    const view = nav.closest(".view");
+    if (view) WANT.delete(view);
+    show(b.dataset.id);
+    const tab = tabOf(nav);
+    if (tab && opts.remember !== false) remember(tab, opts.arg ? opts.arg(currentId) : navPath(view));
+  });
+  // podmenu budowane po wczytaniu danych albo zagnieżdżone: podzakładka z adresu, jeśli ją wskazuje
+  const view = nav.closest(".view");
+  const want = view && WANT.get(view)?.[navList(view).indexOf(nav)];
+  show(want && NAVS.get(nav).has(want) ? want : first);
+  return { nav, pane, show, current: () => currentId };
 }
 
 // Podmenu z literami A–Z (jak w AIRCRAFT / CALLSIGN w PANDORZE). onPick("") = wszystkie.
-export function letterMenu(root, onPick) {
+// Kliknięcie litery to krok do cofnięcia: remember(zakładka, "A".."Z" albo "" dla wszystkich); activate(arg)
+// zakładki ustawia literę z adresu przez set(). opts.remember = false wyłącza.
+export function letterMenu(root, onPick, opts = {}) {
   const letters = ["*", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
   const nav = h(`<nav class="submenu letters">${letters.map((l) => `<button data-l="${l}">${l === "*" ? "∗" : l}</button>`).join("")}</nav>`);
   root.append(nav);
@@ -101,10 +159,24 @@ export function letterMenu(root, onPick) {
     const b = e.target.closest("button[data-l]");
     if (!b) return;
     set(b.dataset.l);
-    onPick(b.dataset.l === "*" ? "" : b.dataset.l);
+    const l = b.dataset.l === "*" ? "" : b.dataset.l;
+    onPick(l);
+    const tab = tabOf(nav);
+    if (tab && opts.remember !== false) remember(tab, l);
   });
   set("*");
   return { set: (l) => set(l || "*") };
+}
+
+// Nowy adres w ramce (iframe) bez kroku w historii przeglądarki: zmiana src w załadowanej ramce dodaje wpis, który
+// zabrałby najbliższe ← i Wstecz (cofnięcie samej ramki zamiast ekranu). Nowa ramka ładuje adres bez wpisu.
+// Zwraca nową ramkę (stara jest podmieniana w DOM, razem z atrybutami).
+export function frameGo(frame, url) {
+  if (!frame.getAttribute("src")) { frame.src = url; return frame; }
+  const f = frame.cloneNode(false);
+  f.src = url;
+  frame.replaceWith(f);
+  return f;
 }
 
 export function iframeWithFallback(pane, url, note = "") {

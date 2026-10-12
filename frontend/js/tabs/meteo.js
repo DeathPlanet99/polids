@@ -361,7 +361,8 @@ function windTab(pane) {
     const o = up && r ? { lat: r.lat, lon: r.lon, dlat: r.lat, dlon: r.lon, zoom: 8, level: "900h" }
       : { lat: 52.0, lon: 19.3, dlat: ad ? ad.lat : 52.166, dlon: ad ? ad.lon : 20.967, zoom: 6, level: up ? "900h" : "surface" };
     const url = windyUrl(o);
-    if (url !== src) $(".wnd-frame").src = src = url;
+    // nowa ramka zamiast zmiany src: bez kroku w historii przeglądarki (← i Wstecz cofają ekrany, nie ramkę Windy)
+    if (url !== src) { const f = $(".wnd-frame"), g = f.cloneNode(false); g.src = src = url; f.replaceWith(g); }
     const hint = $(".wnd-hint");
     hint.textContent = up
       ? `Windy 900 hPa ≈ 3000 ft AMSL · punkt prognozy ${r ? `RWY ${r.designator} ${r.fix || "oś 3°"}` : "– brak danych pasa"}`

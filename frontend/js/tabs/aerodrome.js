@@ -1,7 +1,7 @@
-import { api, atisHtml, esc, fmt, h, hhmm, positionTip, vatsimBookings, vatsimOnline, lsGet, lsSet, ONLINE_EVENT } from "../api.js";
+import { api, atisHtml, esc, fmt, h, hhmm, positionTip, remember, vatsimBookings, vatsimOnline, lsGet, lsSet, ONLINE_EVENT } from "../api.js";
 import { colorize, wxLines, windVec, hwTxt, xwTxt, kt, validTxt, pointTip } from "./meteo.js";
 import { mountAwos } from "../awos.js";
-import { mountStrips } from "../strips.js";
+import { mountDman } from "../dman.js";
 import { mountOverview } from "../overview.js";
 
 const TYPE_ORDER = ["CTR", "FSS", "APP", "DEP", "TWR", "GND", "DEL", "ATIS"];
@@ -464,7 +464,7 @@ export default {
       ovMode = true;
       lsSet("aerodrome.ov", "1");
       sub.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.icao === "OVERVIEW"));
-      history.replaceState(null, "", "#aerodrome/OVERVIEW");
+      remember("aerodrome", "OVERVIEW");   // wybór lotniska / OVERVIEW: krok do cofnięcia (←)
       clearInterval(timer);
       timer = null;
       awos?.destroy();
@@ -496,7 +496,7 @@ export default {
       $(".aero-icao").value = icao;
       lsSet("aerodrome.icao", icao);
       sub.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.icao === icao));
-      history.replaceState(null, "", "#aerodrome/" + icao);
+      remember("aerodrome", icao);
       ticks = 0;
       if (awFor !== icao) { aw = null; awErr = ""; awAt = 0; awFor = icao; lastSt = null; }
       clearInterval(timer);
@@ -513,7 +513,7 @@ export default {
       if (view === "ruch") {
         $(".title").textContent = icao;
         $(".upd").textContent = "";
-        strips = mountStrips($(".content"), icao, { onUpdate: (d) => {
+        strips = mountDman($(".content"), icao, { onUpdate: (d) => {
           $(".title").textContent = `${d.icao} · ${d.name}  (elev ${fmt(d.elevation_ft, 0)} ft)`;
           $(".upd").textContent = `Aktualizacja ${d.now.slice(0, 2)}:${d.now.slice(2)}Z · co 30 s`;
         } });

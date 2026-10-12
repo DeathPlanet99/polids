@@ -46,6 +46,14 @@ a { color: var(--green-text); }
 .menu nav button.active, .submenu button.active {
   background: linear-gradient(#8cff5a, #5fd23a); color: #0b2a06;
 }
+/* menu główne ciaśniej niż podmenu: 21 przycisków + logo, zegar i użytkownik mieszczą się bez przewijania od 900 px wysokości */
+.menu nav button { padding: 5px 6px; margin-bottom: 2px; line-height: 1.2; }
+@media (max-height: 820px) {
+  #tabs button { padding: 3px 6px; margin-bottom: 1px; }
+  #tabs button.red, #tabs button.admin { margin-top: 6px; }
+}
+.menu nav button.back { font-size: 22px; line-height: 16.8px; }
+.menu nav button.back:disabled { opacity: .35; cursor: default; background: linear-gradient(#45a832, #2f8a22); }
 .menu nav button.red { background: linear-gradient(#c8372d, #9c241c); border-color: #5c120d; margin-top: 10px; }
 .menu nav button.red.active { background: linear-gradient(#ff5a4a, #e0302a); color: #fff; }
 

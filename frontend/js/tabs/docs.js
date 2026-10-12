@@ -1,4 +1,4 @@
-import { api, esc, h } from "../api.js";
+import { api, esc, frameGo, h, remember } from "../api.js";
 
 // Dokumenty PDF zgromadzone w folderze data/docs/ (podfolder = kategoria). Tylko podgląd.
 export default {
@@ -14,10 +14,20 @@ export default {
     </div></div>`);
     root.append(wrap);
     const list = wrap.querySelector(".list");
-    const viewer = wrap.querySelector(".viewer");
+    let viewer = wrap.querySelector(".viewer");
+    // wybrany dokument w adresie: #docs/<plik w data/docs> (← i Wstecz wracają do poprzedniego dokumentu)
+    const PREFIX = "/files/docs/";
+    const argOf = (url) => (url.startsWith(PREFIX) ? url.slice(PREFIX.length) : url);
+    let docs = [], want = null;   // want: dokument z adresu, zanim lista się wczyta
+    const mark = () => list.querySelectorAll("a[data-url]").forEach((a) => a.classList.toggle("on", a.dataset.url === viewer.getAttribute("src")));
+    const pick = (arg) => {        // "" = pierwszy dokument
+      const d = docs.find((x) => argOf(x.url) === arg) || (arg ? null : docs[0]);
+      if (d && viewer.getAttribute("src") !== d.url) viewer = frameGo(viewer, d.url);
+      mark();
+    };
 
     const load = async () => {
-      const docs = await api("/api/docs");
+      docs = await api("/api/docs");
       if (!docs.length) {
         list.innerHTML = `<p class="hint">Brak dokumentów w data/docs/.</p>`;
         return;
@@ -26,16 +36,17 @@ export default {
       docs.forEach((d) => (groups[d.category] ||= []).push(d));
       list.innerHTML = Object.entries(groups).map(([cat, ds]) => `<div class="doc-cat">${esc(cat)}</div>` +
         ds.map((d) => `<a href="#" data-url="${esc(d.url)}">${esc(d.title)}</a>`).join("")).join("");
-      if (!viewer.getAttribute("src")) viewer.src = docs[0].url;
-      list.querySelectorAll("a[data-url]").forEach((a) => a.classList.toggle("on", a.dataset.url === viewer.getAttribute("src")));
+      if (want !== null) { pick(want); want = null; } else if (!viewer.getAttribute("src")) viewer.src = docs[0].url;
+      mark();
     };
     list.addEventListener("click", (e) => {
       const a = e.target.closest("a[data-url]");
       if (!a) return;
       e.preventDefault();
-      viewer.src = a.dataset.url;
+      viewer = frameGo(viewer, a.dataset.url);   // bez kroku w historii ramki: ← cofa wybór dokumentu
       list.querySelectorAll("a.on").forEach((x) => x.classList.remove("on"));
       a.classList.add("on");
+      remember("docs", argOf(a.dataset.url));
     });
     // ponowny import tylko dla admina, reszta po prostu przeładowuje listę
     wrap.querySelector(".refresh").addEventListener("click", async () => {
@@ -43,5 +54,9 @@ export default {
       load();
     });
     load();
+    return { activate: (arg) => {
+      if (arg === undefined) return;   // przycisk menu: zostaje otwarty dokument
+      if (docs.length) pick(arg); else want = arg;
+    } };
   },
 };
