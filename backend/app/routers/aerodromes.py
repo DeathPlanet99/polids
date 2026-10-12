@@ -185,6 +185,8 @@ async def status(icao: str, db: Session = Depends(get_db)):
         "metar": metar, "parsed": parsed.to_dict() if parsed else None, "taf": taf,
         "qfe": qfe, "runways": rwys, "lvp": lvp, "sun": sun_times(ad.lat, ad.lon),
         "preferred": pref, "runway_in_use": in_use, "atis": atis, "atc_online": atc, "network_error": net_error,
+        # typowy rozdział pasów lotniska z runway_config.json (AWOS › 2 PASY, gdy ATIS podaje jeden pas)
+        "runway_config": {"arr": cfg.get("arr"), "dep": cfg.get("dep")},
         # zgodność wstecz
         "suggested_runway": pref["arr"], "suggestion_reason": pref["reason"],
         "errors": errors,
