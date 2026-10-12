@@ -15,6 +15,7 @@ export const LAYERS = [
 export const LAYER_IDS = LAYERS.map((l) => l.id);
 export const DEFAULT_LAYERS = ["atis", "low", "mid", "high"];
 export const DEFAULT_CUT = 300;  // przekrój LOW (FL): na FL300 są wszystkie sektory LOW (F od FL285, T od FL195)
+export const CUT_STEP = 5;       // suwak wysokości LOW co 500 ft (granice wycinków w pliku .ese są co 500 ft)
 
 // adres "#radio/<warstwy>/fl<przekrój>": warstwy po przecinku w stałej kolejności, "none" = żadna
 export function argOf(layers, cut) {
@@ -51,8 +52,13 @@ export function cutBand(bounds, cut) {
   i = Math.max(0, Math.min(i, bounds.length - 2));
   return { i, lo: bounds[i], hi: bounds[i + 1], n: bounds.length - 1 };
 }
-// przekrój dla przedziału i: 5 FL nad dolną granicą (FL295–335 → FL300)
-export const cutOf = (bounds, i) => Math.round(bounds[i] / 100) + 5;
+// Suwak wysokości LOW (FL): od dolnej granicy warstwy do ostatniego poziomu pod górną (FL095–FL330; na FL335 są
+// już kształty MID), co CUT_STEP; cutAt wyrównuje dowolny poziom (adres, pamięć przeglądarki) do suwaka
+export function cutRange(layer) {
+  const min = Math.round((layer?.lower_ft ?? 9500) / 100), max = Math.round((layer?.upper_ft ?? 33500) / 100) - CUT_STEP;
+  return { min, max: Math.max(min, max), step: CUT_STEP };
+}
+export const cutAt = (cut, r) => Math.max(r.min, Math.min(r.max, r.min + Math.round(((Number(cut) || 0) - r.min) / r.step) * r.step));
 
 // wycinki ACC na podglądzie: przekrój poziomem ft (dolna granica włącznie)
 export const sliceAt = (acc, ft) => (acc || []).filter((s) => s.lo <= ft && s.hi > ft);
@@ -99,14 +105,68 @@ export function pathOf(g, P) {
   return ringsOf(g).map((r) => r.length > 2 ? "M" + r.map((c) => P(c).map((v) => v.toFixed(1)).join(",")).join("L") + "Z" : "").join("");
 }
 
-// Etykiety bez nakładania się. items [{x, y, w, h, alts?: [{w, h}], max?: px}] w kolejności priorytetu (najpierw
+// Siatka kształtów warstwy (CTR, TMA) w pikselach panelu do układu etykiet: komórki `cell` px, przez które biegnie
+// obrys (rings: [[x, y], …] już w pikselach) albo leży punkt (points: kropki lotnisk i TMA), z sumą prefiksową – coverOf
+// liczy w stałym czasie, ile pola prostokąta zasłania obrysy. Liczy się obrys, nie wnętrze: etykieta w pustym środku
+// dużej TMA nie chowa jej kształtu, etykieta na małym CTR – tak.
+export function coverGrid(rings, w, h, { cell = 3, points = [] } = {}) {
+  const nx = Math.max(1, Math.ceil(w / cell)), ny = Math.max(1, Math.ceil(h / cell)), g = new Uint8Array(nx * ny);
+  const mark = (x, y) => {
+    const i = Math.floor(x / cell), j = Math.floor(y / cell);
+    if (i >= 0 && j >= 0 && i < nx && j < ny) g[j * nx + i] = 1;
+  };
+  (rings || []).forEach((r) => {
+    (r || []).forEach(([ax, ay], k) => {
+      const [bx, by] = r[(k + 1) % r.length];
+      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / (cell / 2)));
+      for (let t = 0; t <= n; t++) mark(ax + ((bx - ax) * t) / n, ay + ((by - ay) * t) / n);
+    });
+  });
+  (points || []).forEach(([x, y]) => {
+    for (let dy = -4; dy <= 4; dy += cell / 2) for (let dx = -4; dx <= 4; dx += cell / 2) mark(x + dx, y + dy);
+  });
+  const S = new Int32Array((nx + 1) * (ny + 1));
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) S[(j + 1) * (nx + 1) + i + 1] = g[j * nx + i] + S[j * (nx + 1) + i + 1] + S[(j + 1) * (nx + 1) + i] - S[j * (nx + 1) + i];
+  }
+  return { cell, nx, ny, S };
+}
+// pole (px²) prostokąta {x0, y0, x1, y1}, które zasłania obrysy i punkty z coverGrid (null = nic)
+export function coverOf(gr, r) {
+  if (!gr) return 0;
+  const { cell, nx, ny, S } = gr, cl = (v, n) => Math.max(0, Math.min(n, v));
+  const i0 = cl(Math.round(r.x0 / cell), nx), i1 = cl(Math.round(r.x1 / cell), nx);
+  const j0 = cl(Math.round(r.y0 / cell), ny), j1 = cl(Math.round(r.y1 / cell), ny);
+  if (i1 <= i0 || j1 <= j0) return 0;
+  const W = nx + 1;
+  return (S[j1 * W + i1] - S[j0 * W + i1] - S[j1 * W + i0] + S[j0 * W + i0]) * cell * cell;
+}
+// czy odcinek (x0, y0)–(x1, y1) przecina prostokąt r (Liang–Barsky)
+function crosses(x0, y0, x1, y1, r) {
+  let t0 = 0, t1 = 1;
+  const dx = x1 - x0, dy = y1 - y0;
+  for (const [p, q] of [[-dx, x0 - r.x0], [dx, r.x1 - x0], [-dy, y0 - r.y0], [dy, r.y1 - y0]]) {
+    if (p === 0) { if (q < 0) return false; continue; }
+    const t = q / p;
+    if (p < 0) t0 = Math.max(t0, t); else t1 = Math.min(t1, t);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+// Etykiety bez nakładania się. items [{x, y, w, h, alts?: [{w, h}], near?, max?, wc?, wv?}] w kolejności priorytetu (najpierw
 // ważniejsze); x, y = punkt zakotwiczenia, w, h = rozmiar pełnej etykiety, alts = mniejsze odmiany (skrócona, samo ID).
-// Kandydaci leżą na pierścieniach coraz dalej od punktu (coraz więcej kierunków); wygrywa pierwszy bez kolizji
-// z już ułożonymi etykietami i przeszkodami (obstacles: stosy sąsiadów, tytuł podglądu; {x0, y0, x1, y1}) i w obrębie
-// bounds {x, y, w, h}. Pełna etykieta może odejść od punktu najwyżej o `near` px (krawędź etykiety od punktu),
-// mniejsza odmiana o `max` px (domyślnie `far`); gdy nic nie pasuje, najmniejsza odmiana w miejscu najmniejszego
-// nałożenia. Wynik: [{dx, dy, v, hit}] – przesunięcie środka, numer odmiany (0 = pełna) i czy coś zasłania.
-export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26, far = 90, rings = 14 } = {}) {
+// Kandydaci leżą na pierścieniach coraz dalej od punktu (coraz więcej kierunków); dozwolony jest tylko kandydat bez
+// kolizji z już ułożonymi etykietami i przeszkodami (obstacles: stosy sąsiadów, tytuł podglądu; {x0, y0, x1, y1}),
+// w obrębie bounds {x, y, w, h}. Spośród nich wygrywa najtańszy: odległość etykiety od punktu (px) + pole zasłoniętych
+// obrysów warstwy (cover z coverGrid, waga wc etykiety, domyślnie 1) × WC + kara za mniejszą odmianę (× wv) + kara za linię
+// prowadzącą przez inną etykietę. Bez kształtów etykieta zostaje na punkcie, gdy jest tam miejsce; z kształtami
+// (CTR, TMA) odchodzi obok nich, w wolne miejsce, z cienką linią do punktu. Pełna etykieta może odejść od punktu
+// najwyżej o `near` px (krawędź etykiety od punktu; it.near nadpisuje), mniejsza odmiana o `max` px (domyślnie `far`);
+// gdy nic nie pasuje, najmniejsza odmiana w miejscu najmniejszego nałożenia. Wynik: [{dx, dy, v, hit}] – przesunięcie
+// środka, numer odmiany (0 = pełna) i czy coś zasłania.
+const WC = 0.5, WV = [0, 25, 70], WX = 40;
+export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26, far = 90, rings = 14, cover = null } = {}) {
   const placed = obstacles.map((o) => ({ ...o })), out = [];
   const over = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
   const rectAt = (it, s, dx, dy) => ({ x0: it.x + dx - s.w / 2 - gap / 2, y0: it.y + dy - s.h / 2 - gap / 2,
@@ -117,21 +177,30 @@ export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26,
   const reach = (s, dx, dy) => Math.hypot(Math.max(0, Math.abs(dx) - s.w / 2), Math.max(0, Math.abs(dy) - s.h / 2));
   items.forEach((it) => {
     const sizes = [{ w: it.w, h: it.h }, ...(it.alts || [])];
-    let pick = null;
+    const wc = WC * (it.wc ?? 1);
+    let pick = null, best = Infinity;
     sizes.forEach((s, v) => {
-      if (pick) return;
-      const limit = v === 0 && sizes.length > 1 ? near : (it.max ?? far);
-      const sx = s.w * 0.3 + gap, sy = s.h * 0.55 + gap;
-      for (let k = 0; k <= rings && !pick; k++) {
+      const limit = v === 0 && sizes.length > 1 ? (it.near ?? near) : (it.max ?? far);
+      const sx = s.w * 0.3 + gap, sy = s.h * 0.55 + gap, pv = WV[Math.min(v, WV.length - 1)] * (it.wv ?? 1);
+      for (let k = 0; k <= rings; k++) {
         const n = k ? 8 * k : 1;
         let any = false;
         for (let a = 0; a < n; a++) {
           const t = (a * 2 * Math.PI) / n;
           const dx = Math.round(Math.cos(t) * k * sx), dy = Math.round(Math.sin(t) * k * sy);
-          if (reach(s, dx, dy) > limit) continue;
+          const d = reach(s, dx, dy);
+          if (d > limit) continue;
           any = true;
+          if (d + pv >= best) continue;  // już droższy niż najlepszy
           const r = rectAt(it, s, dx, dy);
-          if (!outside(r) && !placed.some((p) => over(r, p) > 0)) { pick = { dx, dy, v, r, hit: false }; break; }
+          if (outside(r) || placed.some((p) => over(r, p) > 0)) continue;
+          let cost = d + pv + coverOf(cover, r) * wc;
+          if (d > 0 && cost < best) {
+            // linia od punktu do najbliższego miejsca etykiety
+            const ex = Math.max(r.x0, Math.min(it.x, r.x1)), ey = Math.max(r.y0, Math.min(it.y, r.y1));
+            cost += placed.reduce((acc, p) => acc + (crosses(it.x, it.y, ex, ey, p) ? WX : 0), 0);
+          }
+          if (cost < best) { best = cost; pick = { dx, dy, v, r, hit: false }; }
         }
         if (!any && k > 1) break;  // cały pierścień poza zasięgiem
       }
@@ -140,7 +209,7 @@ export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26,
       // nic wolnego: najmniejsza odmiana tam, gdzie zasłania najmniej
       const v = sizes.length - 1, s = sizes[v];
       const sx = s.w * 0.3 + gap, sy = s.h * 0.55 + gap;
-      let best = Infinity;
+      let least = Infinity;
       for (let k = 0; k <= rings; k++) {
         const n = k ? 8 * k : 1;
         for (let a = 0; a < n; a++) {
@@ -149,7 +218,7 @@ export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26,
           if (reach(s, dx, dy) > (it.max ?? far)) continue;
           const r = rectAt(it, s, dx, dy);
           const cost = placed.reduce((acc, p) => acc + over(r, p), 0) + outside(r) * s.h * 4 + Math.hypot(dx, dy) * 0.05;
-          if (cost < best) { best = cost; pick = { dx, dy, v, r, hit: true }; }
+          if (cost < least) { least = cost; pick = { dx, dy, v, r, hit: true }; }
         }
       }
     }
@@ -159,33 +228,40 @@ export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26,
   return out;
 }
 
+// FL660: górna granica stosów sąsiadów – ta sama co TOP_FT w backend/app/services/radioboard.py (zmieniać razem)
+export const TOP_FT = 66000;
 // Stos sąsiada: kafelki VACS (już od najwyższego zakresu; lo/hi w stopach, null = bez wysokości) w pasma o tym samym
 // zakresie, ułożone w ciągi stykających się pasm. Każda granica raz: fl = poziom pod pasmem (ft), top = nad pasmem
-// (tylko na początku ciągu, gdy pasmo nie sięga FL660). Pasmo styka się z poprzednim, gdy zaczyna się dokładnie na jego
-// dolnej granicy (EYVL M 335-365 pod EYVL U +365) albo gdy poprzednie sięga ziemi, a to jest niżej (ESMM L -195 pod
-// ESMM 8 -365); inaczej nowy ciąg (gap: EDUU SPE +315 po OSE12/HVL12 285-365).
-export const TOP_FT = 66000;
+// (tylko na początku pierwszego ciągu, gdy pasmo nie sięga FL660). Pasmo styka się z poprzednim, gdy zaczyna się
+// dokładnie na jego dolnej granicy (EYVL M 335-365 pod EYVL U +365) albo gdy poprzednie sięga ziemi, a to jest niżej
+// (ESMM L -195 pod ESMM 8 -365); inaczej nowy ciąg (gap: EDUU SPE +315 po OSE12/HVL12 285-365): kreska i zakres
+// pasma jak w VACS (re: "+315", "-165", "165-245") nad nim zamiast granic, żeby oś nigdy nie czytała się wstecz
+// (365, 285, kreska, +315 SPE – bez 315 pod SPE).
+const reText = (lo, hi) => (hi >= TOP_FT ? `+${flNum(lo)}` : lo ? `${flNum(lo)}-${flNum(hi)}` : `-${flNum(hi)}`);
 export function stackBands(tiles) {
   const bands = [];
   (tiles || []).forEach((t) => {
     const lo = t.lo ?? 0, hi = t.hi ?? TOP_FT;
     const b = bands.find((x) => x.lo === lo && x.hi === hi);
     if (b) b.tiles.push(t);
-    else bands.push({ lo, hi, tiles: [t], top: null, fl: null, gap: false });
+    else bands.push({ lo, hi, tiles: [t], top: null, fl: null, gap: false, re: null });
   });
   const out = [];
   let cur = null;
+  // dolna granica pasma kończącego ciąg; po nowym ciągu jest już w jego zakresie (re)
+  const end = (b) => (b.re ? null : b.lo || null);
   while (bands.length) {
     const i = cur?.lo ? bands.findIndex((b) => b.hi === cur.lo) : -1;
     const b = bands.splice(Math.max(0, i), 1)[0];
     const joins = !!cur && (b.hi === cur.lo || (cur.lo === 0 && b.hi < cur.hi));
-    if (cur) cur.fl = joins ? b.hi : cur.lo || null;
+    if (cur) cur.fl = joins ? b.hi : end(cur);
     b.gap = !!cur && !joins;
-    if (!joins && b.hi < TOP_FT) b.top = b.hi;
+    if (b.gap) b.re = reText(b.lo, b.hi);
+    else if (!joins && b.hi < TOP_FT) b.top = b.hi;
     out.push(b);
     cur = b;
   }
-  if (cur) cur.fl = cur.lo || null;
+  if (cur) cur.fl = end(cur);
   return out;
 }
 // UNICOM: sąsiad bez nikogo online w sektorach przy granicy (jedna linia pod nagłówkiem stosu)

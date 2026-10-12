@@ -4,6 +4,8 @@
 // np. LB) i częstotliwość stanowiska, które teraz go obsługuje wg kolejności przejmowania (ownership.json); bez nikogo
 // online przygaszona częstotliwość stanowiska sektora. Stosy sąsiadów (runda 11): sektory graniczące z EPWW jak w VACS
 // (bez FMP), częstotliwość tylko, gdy ktoś je obsługuje; nikt w całym stosie → jedna linia ADVISORY 122.800.
+// Runda 11 (Marek): warstwa APP w częściach TMA wg stanowiska APP (WA APP, WA N APP, WA S APP) i z TMA proceduralnymi
+// (SC/LB/SY TWR); etykiety APP i TWR obok kształtów TMA/CTR z linią do punktu; LOW z suwakiem wysokości (FL095–FL330).
 // Dane: GET /api/radio/board co 30 s (geometria raz, potem tylko po zmianie wersji danych `ver`, np. po imporcie nowego
 // pliku .ese). Kliknięcie nagłówka stosu sąsiada (np. EDWW BREMEN): panel z wyciągiem z LOA EPWW z tym FIR-em
 // (GET /api/radio/loa) i odnośnikiem do PDF-u w DOCS › LOA.
@@ -11,8 +13,8 @@ import { api, esc, h, lsGet, lsSet, navigate, remember } from "../api.js";
 import { labelPoint } from "../coverage.js";
 import { displayName, loadDisplayNames, posName } from "../posname.js";
 import { ADVISORY_FQ, DEFAULT_CUT, DEFAULT_LAYERS, EPWW_BBOX, LAYERS, LAYER_IDS, TOP_FT, argOf, bboxOf, bboxOrDefault, byShort,
-  controllersOn, cutBand, cutBounds, cutOf, flNum, flText, parseArg, pathOf, placeLabels, projection, ringsOf, sliceAt, stackBands,
-  utcHhmm } from "../radioboard.js";
+  controllersOn, coverGrid, cutAt, cutBand, cutBounds, cutRange, flNum, flText, parseArg, pathOf, placeLabels, projection, ringsOf,
+  sliceAt, stackBands, utcHhmm } from "../radioboard.js";
 
 const LS_LAYERS = "radio.layers", LS_CUT = "radio.cut";
 const REFRESH_MS = 30000;
@@ -110,10 +112,14 @@ export function loaHtml(fir, title, f, radio, { msg = "", loading = false } = {}
 // częstotliwość i zalogowany z tablicy, opis stanowiska, FIR otwartego LOA, false = brak danych VATSIM (bez ADVISORY).
 const altText = (t) => (t.lo ? (t.hi < TOP_FT ? `${flText(t.lo)}–${flText(t.hi)}` : `od ${flText(t.lo)}`) : `do ${flText(t.hi)}`);
 const bdHtml = (ft) => `<div class="rb-bd" data-rt="${esc(flText(ft))}"><i>${esc(flNum(ft))}</i></div>`;
-function tileHtml(t, x) {
+// nowy ciąg pasm (gap): krótka kreska, a pod nią zakres pasma jak w VACS (+315) – należy do pasma poniżej
+const reHtml = (b) => `<div class="rb-sep"></div><div class="rb-bd rb-re" data-rt="${esc(`Nowy ciąg: ${altText(b)} (nie styka się z pasmami wyżej)`)}">`
+  + `<i>${esc(b.re)}</i></div>`;
+// nobody: nikt w całym stosie – tylko wtedy kafelek bez nikogo mówi o ADVISORY
+function tileHtml(t, x, nobody) {
   const o = t.owner, chain = arr(t.chain);
   const rt = [`${t.label}${t.alt ? ` · ${altText(t)} (VACS ${t.alt})` : ""}`, `Stanowisko: ${x.pos(t.callsign)}`,
-    o ? `Teraz: ${x.who(o) || o}` : x.net === false ? "VATSIM: brak danych" : `Teraz nikt – ADVISORY ${ADVISORY_FQ}`,
+    o ? `Teraz: ${x.who(o) || o}` : x.net === false ? "VATSIM: brak danych" : nobody ? `Teraz nikt – ADVISORY ${ADVISORY_FQ}` : "Teraz nikt",
     ...(chain.length > 1 ? [`Kolejność: ${chain.map(x.nm).join(" › ")}`] : [])].join("\n");
   const by = o && o !== t.callsign ? `<i class="rb-by">${esc(byShort(x.nm(o)))}</i>` : "";
   return `<div class="rb-box ${o ? "on" : "off"}" data-rt="${esc(rt)}"><b class="rb-id">${esc(t.label)}</b>`
@@ -123,13 +129,15 @@ export function nbStackHtml(st, x) {
   const tiles = arr(st.tiles), bands = stackBands(tiles);
   const owners = [...new Set(tiles.map((t) => t.owner).filter(Boolean))];
   const nobody = x.net !== false && tiles.length > 0 && !owners.length;
-  const tipH = [`${st.fir} ${st.title}: sektory graniczące z FIR EPWW jak w VACS (bez FMP)`, "liczby między polami: granice pionowe (FL)",
+  const flat = !bands.some((b) => b.top || b.fl || b.re);  // bez wysokości (UMMV, UKLV): bez osi z lewej
+  const tipH = [`${st.fir} ${st.title}: sektory graniczące z FIR EPWW jak w VACS (bez FMP)`,
+    ...(flat ? [] : ["liczby między polami: granice pionowe (FL)"]),
+    ...(bands.some((b) => b.re) ? ["kreska i zakres (np. +315): nowy ciąg pasm, który nie styka się z wyższymi"] : []),
     ...(nobody ? [`Nikt online – ADVISORY ${ADVISORY_FQ}`] : owners.map((o) => `Online: ${x.who(o) || o}`)), `Kliknij: LOA EPWW – ${st.fir}`].join("\n");
-  const flat = !bands.some((b) => b.top || b.fl);  // bez wysokości (UMMV, UKLV): bez osi z lewej
   return `<div class="rb-nb${flat ? " flat" : ""}" data-fir="${esc(st.fir)}"><div class="rb-nbh${x.sel === st.fir ? " sel" : ""}" role="button" tabindex="0" data-title="${esc(st.title)}" data-rt="${esc(tipH)}"><b>${esc(st.fir)}</b> ${esc(st.title)}</div>`
     + (nobody ? `<div class="rb-unicom">ADVISORY ${ADVISORY_FQ}</div>` : "")
-    + (bands.length ? bands.map((b) => `${b.gap ? `<div class="rb-gap"></div>` : ""}${b.top ? bdHtml(b.top) : ""}`
-      + `<div class="rb-bxs">${b.tiles.map((t) => tileHtml(t, x)).join("")}</div>${b.fl ? bdHtml(b.fl) : ""}`).join("")
+    + (bands.length ? bands.map((b) => `${b.re ? reHtml(b) : ""}${b.top ? bdHtml(b.top) : ""}`
+      + `<div class="rb-bxs">${b.tiles.map((t) => tileHtml(t, x, nobody)).join("")}</div>${b.fl ? bdHtml(b.fl) : ""}`).join("")
       : `<div class="rb-none">brak sektorów VACS</div>`) + "</div>";
 }
 
@@ -141,7 +149,7 @@ export default {
         ${MAPS.map((m) => m.key === "MID" ? `<div class="rb-mid">
             <div class="rb-btns">${LAYERS.map((l) => `<button type="button" data-ly="${l.id}" title="${esc(l.tip)}" aria-pressed="false">${esc(l.label)}</button>`).join("")}</div>
             <div class="rb-status"></div>
-            <div class="rb-legend"><span><i class="rb-sw on"></i>obsadzony</span><span><i class="rb-sw off"></i>nikt (nominalna)</span><span><i class="rb-sw cov"></i>↑ przejmuje inne (TWR)</span></div>
+            <div class="rb-legend"><span><i class="rb-sw on"></i>obsadzony</span><span title="Sektory, TMA i CTR EPWW bez nikogo online: przygaszona częstotliwość stanowiska; sąsiedzi bez częstotliwości"><i class="rb-sw off"></i>nikt (EPWW: nominalna)</span><span><i class="rb-sw cov"></i>↑ przejmuje inne (TWR)</span></div>
             ${panelHtml(m)}
           </div>` : panelHtml(m)).join("")}
         <div class="rb-loa" role="dialog" aria-label="LOA" hidden></div>
@@ -153,6 +161,8 @@ export default {
     const tip = $(".rb-tip"), loaBox = $(".rb-loa");
 
     let layers = readLayers(), cut = readCut();
+    // poziom przekroju LOW wyrównany do suwaka (adres i pamięć przeglądarki mogą mieć dowolny FL095–FL335)
+    const lowCut = () => cutAt(cut, cutRange(d?.layers?.LOW));
     let d = null, geo = null, geoVer = "", err = "", border = null, noBorder = false, timer = null, loading = false, lastLoad = 0;
     let loaFir = null;   // FIR, którego LOA jest otwarte (panel .rb-loa)
     const maps = Object.fromEntries(MAPS.map((m) => {
@@ -184,7 +194,9 @@ export default {
       const cls = `rb-lbl ${lb.cls} ${lb.state}${v ? " cmp" : ""}`;
       if (v === 2) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.cid)}</b></div>`;
       const fq = lb.ls[0]?.fq ? `<span class="rb-fq">${esc(lb.ls[0].fq)}</span>` : "";
-      if (v === 1) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.cid)}</b>${fq}</div>`;
+      // skrócona bez częstotliwości (podana w innej etykiecie): kto przejmuje zamiast pustej linii
+      const by = !fq && lb.ls[0]?.by ? `<i class="rb-by">↑${esc(lb.ls[0].by)}</i>` : "";
+      if (v === 1) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.cid)}</b>${fq || by}</div>`;
       const more = lb.more ? `<i class="rb-more">+${lb.more}</i>` : "";
       return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.id)}</b>${lb.ls.filter((l) => l.fq || l.by).map((l) => `<span class="rb-ln">${l.by ? `<i class="rb-by">${esc(l.by)}</i>` : ""}`
         + `${l.fq ? `<span class="rb-fq">${esc(l.fq)}</span>` : ""}</span>`).join("")}${more}${lb.extra || ""}</div>`;
@@ -247,12 +259,15 @@ export default {
       if (m.key !== "LOW") return out;  // APP, TWR i FIS to przestrzeń dolna: na podglądzie LOW
       const local = (g) => ({ ls: lines(g.nominal, g.owners), more: Math.max(0, g.owners.length - 2) });
       if (layers.has("app")) {
-        // ta sama częstotliwość w kilku TMA (WA APP w TMA Warszawa, Łódź i Radom; PO N APP w TMA Poznań N i Zielona Góra):
-        // z częstotliwością tylko w TMA "swojego" lotniska (albo w pierwszej), w pozostałych sama nazwa, reszta w dymku
+        // etykieta na część TMA (stanowisko części: WA APP, WA N APP, WA S APP; TMA proceduralna: wieża, np. SC TWR).
+        // Ta sama częstotliwość w kilku etykietach (WA APP przejmuje WA N i WA S; WA S APP w TMA Łódź i Radom): tylko
+        // w części tego stanowiska (najpierw przy jego lotnisku), potem w TMA jego lotniska, potem w pierwszej;
+        // w pozostałych sama nazwa, reszta w dymku
         const tma = d.tma.filter((g) => g.at);
         const station = (g, i) => (g.owners.length ? g.owners[i] : g.nominal);
-        const keeper = new Map();  // znak → id TMA, w której etykieta ma jego częstotliwość
-        tma.forEach((g) => { const cs = station(g, 0); if (cs && cs.slice(0, 4) === g.icao && !keeper.has(cs)) keeper.set(cs, g.id); });
+        const keeper = new Map();  // znak → id części, w której etykieta ma jego częstotliwość
+        [(g, cs) => cs === g.nominal && cs.slice(0, 4) === g.icao, (g, cs) => cs === g.nominal, (g, cs) => cs.slice(0, 4) === g.icao]
+          .forEach((ok) => tma.forEach((g) => { const cs = station(g, 0); if (cs && ok(g, cs) && !keeper.has(cs)) keeper.set(cs, g.id); }));
         tma.forEach((g) => {
           const { ls, more } = local(g);
           ls.forEach((l, i) => {
@@ -261,9 +276,12 @@ export default {
             if (!keeper.has(cs)) keeper.set(cs, g.id);
             if (keeper.get(cs) !== g.id) l.fq = "";
           });
-          const id = nm(g.nominal);
-          out.push({ at: g.at, prio: g.owners.length ? 1 : 1.5, dot: "app", lb: { cls: "app", state: g.owners.length ? "on" : "off", id, cid: shortId(id), ls, more,
-            rt: groupTip(g, `${g.id} (${g.lo ? flText(g.lo) : "GND"}–${flText(g.hi)})`, g.apps.length > 1 ? [`APP: ${g.apps.map((c) => `${nm(c)} ${d.pos[c]?.frequency || ""}`).join(", ")}`] : []) } });
+          const id = nm(g.nominal), proc = /_TWR$/.test(g.nominal);
+          const title = `${g.tma}${g.id !== g.tma ? ` – część ${id}` : ""} (${g.lo ? flText(g.lo) : "GND"}–${flText(g.hi)})`;
+          const extra = [...(proc ? [`TMA proceduralna (bez APP): częstotliwość wieży ${id}`] : []),
+            ...(g.apps.length > 1 ? [`APP w tej części: ${g.apps.map((c) => `${nm(c)} ${d.pos[c]?.frequency || ""}`).join(", ")}`] : [])];
+          out.push({ at: g.at, box: g.box, prio: g.owners.length ? 1 : 1.5, dot: "app", lb: { cls: "app", state: g.owners.length ? "on" : "off",
+            id, cid: shortId(id), ls, more, rt: groupTip(g, title, extra) } });
         });
       }
       const twra = layers.has("twra");
@@ -301,7 +319,7 @@ export default {
       const pr = p.getBoundingClientRect(), fr = m.free.getBoundingClientRect();
       const { P } = projection(border, { x: fr.left - pr.left, y: fr.top - pr.top, w: fr.width, h: fr.height }, 0.03,
         m.key === "MID" ? "bottom" : "middle");
-      const ft = m.key === "LOW" ? cut * 100 : LEVEL_FT[m.key];
+      const ft = m.key === "LOW" ? lowCut() * 100 : LEVEL_FT[m.key];
       const accs = sliceAt(geo.acc, ft);
       const staffed = new Set(d.sectors.filter((s) => s.layer === m.key && s.owner).map((s) => s.letter));
       const low = m.key === "LOW";
@@ -329,10 +347,24 @@ export default {
       // przeszkody: stosy sąsiadów i tytuł podglądu (współrzędne w panelu)
       const rel = (e) => { const r = e.getBoundingClientRect(); return { x0: r.left - pr.left - 2, y0: r.top - pr.top - 2, x1: r.right - pr.left + 2, y1: r.bottom - pr.top + 2 }; };
       const obstacles = [...p.querySelectorAll(".rb-nb, .rb-title")].filter((e) => e.offsetWidth && e.offsetHeight).map(rel);
+      // kształty, których etykiety nie zasłaniają (runda 11, Marek): TMA na warstwie APP, CTR na TWR i TWR/ATIS, kropki
+      // lotnisk i punktów TMA; etykieta APP/TWR staje obok nich z linią do punktu, sektora ACC przesuwa się mniej
+      const shapes = low ? [...(layers.has("app") ? geo.tma : []), ...(layers.has("twr") || layers.has("twra") ? geo.ctr : [])] : [];
+      const cover = shapes.length ? coverGrid(shapes.flatMap((x) => ringsOf(x.geometry).map((r) => r.map(P))), W, H,
+        { points: pts.filter((_, i) => items[i].dot && items[i].dot !== "fis") }) : null;
       const moves = placeLabels(items.map((it, i) => {
         const [full, ...alts] = vars[i].map(sz);
-        return { x: pts[i][0], y: pts[i][1], ...full, alts, max: it.max };
-      }), { x: 2, y: 2, w: W - 4, h: H - 4 }, { obstacles });
+        // część TMA: etykieta może odejść od punktu o pół przekątnej ramki części (poza TMA), najwyżej 160 px
+        let far = it.max;
+        if (it.box?.length === 4) {
+          const [a, b] = [P([it.box[0], it.box[3]]), P([it.box[2], it.box[1]])];
+          far = Math.max(50, Math.min(160, Math.hypot(b[0] - a[0], b[1] - a[1]) / 2 + 20));
+        }
+        // częstotliwość ważniejsza niż odległość i zasłonięte obrysy, najbardziej obsadzonych; samo ID w ostateczności
+        // (bez częstotliwości mniejsza odmiana nic nie traci: podana w innej etykiecie)
+        return { x: pts[i][0], y: pts[i][1], ...full, alts, max: far, near: it.box ? far : undefined, wc: it.prio ? 1 : 0.15,
+          wv: it.lb.state !== "off" || it.lb.ls?.[0]?.fq ? 4 : 1 };
+      }), { x: 2, y: 2, w: W - 4, h: H - 4 }, { obstacles, cover, near: cover ? 40 : 26 });
       // przesunięta etykieta: cienka linia do jej punktu; lotniska (TWR), TMA (APP) i FIS z kropką w punkcie
       let marks = "";
       items.forEach((it, i) => {
@@ -355,15 +387,26 @@ export default {
       if (m.key === "LOW") Object.assign(t.style, { top: `${Math.round(free.top)}px`, right: `${Math.round(free.right)}px` });
       if (m.key === "HIGH") Object.assign(t.style, { top: `${Math.round(free.top)}px`, left: `${Math.round(free.left)}px` });
       const ly = d?.layers?.[m.key];
-      let html = `<b>${m.key}</b> <span>${esc(ly?.label || "")}</span>`;
-      if (m.key === "LOW" && geo) {
-        const b = cutBounds(geo.acc.filter((s) => s.lo < (ly?.upper_ft ?? 33500) && s.hi > (ly?.lower_ft ?? 9500)), ly);
-        const c = cutBand(b, cut);
-        html += `<span class="rb-cut" title="Kształty sektorów LOW zmieniają się z wysokością: przekrój pokazuje przedział ${flText(c.lo)}–${flText(c.hi)}">`
-          + `<button type="button" data-step="-1" ${c.i <= 0 ? "disabled" : ""} title="Niższy przedział">◀</button>`
-          + `${flText(c.lo)}–${flNum(c.hi)}<button type="button" data-step="1" ${c.i >= c.n - 1 ? "disabled" : ""} title="Wyższy przedział">▶</button></span>`;
+      // szkielet raz: suwak LOW powstały od nowa przy każdym rysowaniu zgubiłby przeciąganie i fokus
+      if (!t.firstChild) {
+        t.innerHTML = `<b>${m.key}</b> <span class="rb-tl"></span>` + (m.key !== "LOW" ? ""
+          : `<span class="rb-lvl"><input type="range" class="rb-cut" aria-label="Wysokość przekroju LOW"><span class="rb-ticks" aria-hidden="true"></span></span>`
+            + `<output class="rb-cutv"></output>`);
       }
-      t.innerHTML = html;
+      t.querySelector(".rb-tl").textContent = ly?.label || "";
+      if (m.key !== "LOW" || !geo) return;
+      // suwak wysokości (runda 11, Marek): kreski pod suwakiem = granice wycinków ACC, na których zmieniają się kształty
+      const r = cutRange(ly), v = lowCut();
+      const b = cutBounds(geo.acc.filter((s) => s.lo < (ly?.upper_ft ?? 33500) && s.hi > (ly?.lower_ft ?? 9500)), ly);
+      const c = cutBand(b, v), inp = t.querySelector(".rb-cut");
+      Object.assign(inp, { min: r.min, max: r.max, step: r.step });
+      if (Number(inp.value) !== v) inp.value = v;
+      inp.setAttribute("aria-valuetext", flText(v * 100));
+      inp.title = `Przekrój LOW na ${flText(v * 100)}: kształty sektorów z przedziału ${flText(c.lo)}–${flText(c.hi)}`
+        + `\nKreski: granice wycinków ACC (tam zmieniają się kształty); strzałki: co 500 ft`;
+      t.querySelector(".rb-cutv").textContent = flText(v * 100);
+      t.querySelector(".rb-ticks").innerHTML = b.filter((x) => x / 100 > r.min && x / 100 <= r.max)
+        .map((x) => `<i style="left:${(((x / 100 - r.min) / Math.max(1, r.max - r.min)) * 100).toFixed(1)}%"></i>`).join("");
     }
     function renderButtons() {
       el.querySelectorAll(".rb-btns button[data-ly]").forEach((b) => {
@@ -417,6 +460,7 @@ export default {
           setTimeout(load, 0);
         }
         d = r;
+        cut = lowCut();
         err = "";
         lastLoad = Date.now();
       } catch (e) {
@@ -442,7 +486,7 @@ export default {
       const a = parseArg(arg);
       let changed = false;
       if (a.layers && argOf(a.layers, cut) !== argOf(layers, cut)) { layers = a.layers; changed = true; }
-      if (a.cut && a.cut >= 95 && a.cut <= 335 && a.cut !== cut) { cut = a.cut; changed = true; }
+      if (a.cut && a.cut >= 95 && a.cut <= 335 && a.cut !== cut) { cut = cutAt(a.cut, cutRange(d?.layers?.LOW)); changed = true; }
       if (changed) { save(); renderAll(); }
     };
     el.querySelector(".rb-btns").addEventListener("click", (e) => {
@@ -458,17 +502,19 @@ export default {
       renderAll();
       remember("radio", argOf(layers, cut));
     });
-    maps.LOW.el.addEventListener("click", (e) => {
-      const b = e.target.closest("button[data-step]");
-      if (!b || !geo) return;
-      const ly = d?.layers?.LOW;
-      const bounds = cutBounds(geo.acc.filter((s) => s.lo < (ly?.upper_ft ?? 33500) && s.hi > (ly?.lower_ft ?? 9500)), ly);
-      const c = cutBand(bounds, cut);
-      const i = Math.max(0, Math.min(c.n - 1, c.i + Number(b.dataset.step)));
-      cut = cutOf(bounds, i);
+    // suwak wysokości LOW: przeciąganie rysuje od razu tylko podgląd LOW; poziom do adresu (krok do cofnięcia) po
+    // puszczeniu suwaka, a seria strzałek z klawiatury to jeden krok
+    let rafLow = 0, cutT = 0;
+    maps.LOW.el.addEventListener("input", (e) => {
+      if (!e.target.matches(".rb-cut")) return;
+      cut = Number(e.target.value);
       save();
-      renderAll();
-      remember("radio", argOf(layers, cut));
+      if (!rafLow) rafLow = requestAnimationFrame(() => { rafLow = 0; safe(renderMap, maps.LOW); });
+    });
+    maps.LOW.el.addEventListener("change", (e) => {
+      if (!e.target.matches(".rb-cut")) return;
+      clearTimeout(cutT);
+      cutT = setTimeout(() => remember("radio", argOf(layers, cut)), 600);
     });
     // lotnisko z paska ATIS albo etykiety TWR → AERODROME (krok do cofnięcia)
     el.addEventListener("click", (e) => {
@@ -568,7 +614,10 @@ export default {
         if (Date.now() - lastLoad > REFRESH_MS) load();
         else later();
       },
-      destroy() { clearInterval(timer); ro.disconnect(); document.removeEventListener("visibilitychange", onVis); },
+      destroy() {
+        clearInterval(timer); clearTimeout(cutT); cancelAnimationFrame(rafLow); ro.disconnect();
+        document.removeEventListener("visibilitychange", onVis);
+      },
     };
   },
 };

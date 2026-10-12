@@ -40,6 +40,7 @@ STACK_ALIAS = {"EDDB": "EDWW", "ESMM": "ESAA", "LKMT": "LKAA", "UMBB": "UMMV", "
 ALT = re.compile(r"^(?:\+(\d{2,3})|-(\d{2,3})|(\d{2,3})-(\d{2,3}))$")  # wysokość kafelka VACS: +365, -165, 285-365
 APP_TYPES = {"APP", "DEP"}
 INFO = re.compile(r"_(?:I|IE|IW|IS|IN|FIS)_[A-Z]+$")  # stanowiska informacji (EPWA_I_APP, EPGD_IE_APP)
+DIR_SLICE = re.compile(r"^EP[A-Z]{2}_DIR\d")  # wycinki dyrektora przy pasie (EPWA_DIR11_A, EPKK_DIR07)
 ACC_CS = re.compile(r"^EPWW_[A-Z0-9_]*(?:CTR|FSS)$")
 FIS_NAME = re.compile(r"^FIS_|^[A-Z]{3}_FIS_|^EPWW-MIDSEA$")
 EP_ICAO = re.compile(r"EP[A-Z]{2}")
@@ -194,8 +195,99 @@ def _largest(slices: list[dict]) -> dict:
     return max(slices, key=lambda s: geom_area(s["geom"]))
 
 
+def _local(chain: list[str]) -> list[str]:
+    """Stanowiska z kolejności przed pierwszym sektorem ACC, bez informacji (EPWA_I_APP)."""
+    out = []
+    for cs in chain:
+        if ACC_CS.match(cs):
+            break
+        if not INFO.search(cs):
+            out.append(cs)
+    return out
+
+
+def directors(slices: list[dict]) -> set[str]:
+    """Stanowiska dyrektora (WA DIR = EPWA_F_APP, KK DIR, KT DIR): pierwsze tylko w wycinkach EPxx_DIRnn. To nie są
+    sektory podejścia – ich wycinki należą do części TMA następnego APP z kolejności."""
+    first: dict[str, set[bool]] = {}
+    for s in slices:
+        if loc := _local(s["chain"]):
+            first.setdefault(loc[0], set()).add(bool(DIR_SLICE.search(s["name"])))
+    return {cs for cs, k in first.items() if k == {True} and facility(cs) in APP_TYPES}
+
+
+def part_owner(chain: list[str], dirs: set[str]) -> str | None:
+    """Stanowisko części TMA: pierwsze APP z kolejności (bez dyrektora i informacji); TMA proceduralna (bez APP,
+    np. Szczecin: EPSC_TWR, potem ACC) – pierwsze stanowisko, czyli wieża lotniska."""
+    loc = _local(chain)
+    return next((cs for cs in loc if facility(cs) in APP_TYPES and cs not in dirs), loc[0] if loc else None)
+
+
+# siatka do punktu etykiety części TMA (stopnie: ok. 3,3 km × 3,4 km w rejonie Polski)
+GRID_LAT, GRID_LON = 0.03, 0.05
+
+
+def _cells(geoms: list[dict], box: tuple[float, float, float, float]) -> set[tuple[int, int]]:
+    """Komórki siatki w ramce box (lon0, lat0, lon1, lat1), których środek leży w którymś z wielokątów."""
+    x0, y0 = box[0], box[1]
+    out: set[tuple[int, int]] = set()
+    for g in geoms:
+        for ring in rings(g):
+            lats = [p[1] for p in ring]
+            for j in range(max(0, int((min(lats) - y0) / GRID_LAT) - 1), int((max(lats) - y0) / GRID_LAT) + 1):
+                y = y0 + (j + 0.5) * GRID_LAT
+                xs = sorted(ax + (y - ay) * (bx - ax) / (by - ay)
+                            for (ax, ay), (bx, by) in zip(ring, ring[1:] + ring[:1]) if (ay > y) != (by > y))
+                for a, b in zip(xs[::2], xs[1::2]):
+                    out.update((i, j) for i in range(math.ceil((a - x0) / GRID_LON - 0.5),
+                                                     math.floor((b - x0) / GRID_LON - 0.5) + 1))
+    return out
+
+
+def part_anchor(own: list[dict], other: list[dict]) -> list[float] | None:
+    """[lat, lon] punktu etykiety części TMA: najdalej od krawędzi jej własnego obszaru w rzucie (bez miejsc, które
+    zajmuje też inna część tej TMA, np. górne wycinki WA N nad WA APP); bez własnego obszaru – cała część."""
+    pts = [p for s in own + other for r in rings(s["geom"]) for p in r]
+    if not pts:
+        return None
+    box = (min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts))
+    mine = _cells([s["geom"] for s in own], box)
+    area = (mine - _cells([s["geom"] for s in other], box)) or mine
+    if not area:
+        return label_point(_largest(own)["geom"])
+    # odległość od krawędzi obszaru: mapa odległości (chamfer, dwa przejścia) na siatce z marginesem 1 komórki
+    k = math.cos(math.radians((box[1] + box[3]) / 2)) * GRID_LON / GRID_LAT  # komórka: szerokość / wysokość
+    i0, j0 = min(i for i, _ in area) - 1, min(j for _, j in area) - 1
+    nx, ny = max(i for i, _ in area) - i0 + 2, max(j for _, j in area) - j0 + 2
+    d = [[math.inf if (i + i0, j + j0) in area else 0.0 for i in range(nx)] for j in range(ny)]
+    steps = ((-1, 0, k), (0, -1, 1.0), (-1, -1, math.hypot(k, 1)), (1, -1, math.hypot(k, 1)))
+    for sgn, js, is_ in ((1, range(ny), range(nx)), (-1, range(ny - 1, -1, -1), range(nx - 1, -1, -1))):
+        for j in js:
+            row = d[j]
+            for i in is_:
+                if row[i]:
+                    for di, dj, w in steps:
+                        a, b = i + sgn * di, j + sgn * dj
+                        if 0 <= a < nx and 0 <= b < ny and d[b][a] + w < row[i]:
+                            row[i] = d[b][a] + w
+    cx = sum(i for i, _ in area) / len(area) - i0
+    cy = sum(j for _, j in area) / len(area) - j0
+    # najdalej od krawędzi; przy równych bliżej środka obszaru
+    _, _, i, j = max((d[j][i], -math.hypot((i - cx) * k, j - cy), i, j) for j in range(ny) for i in range(nx) if d[j][i])
+    return [round(box[1] + (j + j0 + 0.5) * GRID_LAT, 4), round(box[0] + (i + i0 + 0.5) * GRID_LON, 4)]
+
+
+def _box(sl: list[dict]) -> list[float]:
+    pts = [p for s in sl for r in rings(s["geom"]) for p in r]
+    return [round(min(p[0] for p in pts), 3), round(min(p[1] for p in pts), 3),
+            round(max(p[0] for p in pts), 3), round(max(p[1] for p in pts), 3)] if pts else []
+
+
 def tma_groups(slices: list[dict], own: dict) -> list[dict]:
-    """Warstwa APP: TMA z kolejnością APP; wspólne części kilku TMA (EPPO_EPGD_…) i CTA tylko rysujemy."""
+    """Warstwa APP: TMA podzielone na części wg stanowiska części (part_owner): TMA Warszawa = WA APP, WA N APP
+    i WA S APP, TMA Kraków = KK APP i KK E APP, TMA Gdańsk = GD L APP (TMA) i GD APP (UTMA); TMA proceduralne
+    (Szczecin, Lublin, Mazury) z wieżą lotniska. Jedna etykieta na część: punkt w jej własnym obszarze, ramka
+    (box) do odsunięcia etykiety poza TMA. Wspólne części kilku TMA (EPPO_EPGD_…) i CTA tylko rysujemy."""
     by: dict[str, list[dict]] = {}
     for s in slices:
         if len(set(EP_ICAO.findall(s["name"]))) > 1 or s["name"].startswith("CTA"):
@@ -204,23 +296,22 @@ def tma_groups(slices: list[dict], own: dict) -> list[dict]:
         group = sector_group("EPWW", s["name"], "tma")
         key = t["name"] if t and t["name"].replace("TMA ", "") not in group else group
         by.setdefault(key, []).append({**s, "chain": air_chain(s["name"], s["owners"], own)})
+    dirs = directors([s for sl in by.values() for s in sl])
     out = []
     for key, sl in by.items():
-        apps: Counter = Counter()
-        for s in sl:
-            for cs in s["chain"]:
-                if ACC_CS.match(cs):
-                    break
-                if facility(cs) in APP_TYPES and not INFO.search(cs):
-                    apps[cs] += 1
-        if not apps:
-            continue  # TMA bez APP (Szczecin, Lublin, Mazury): przejmuje ACC, nie ma czego pokazać w warstwie APP
         icao = _icao_of([s["name"] for s in sl])
-        ranked = [cs for cs, _ in apps.most_common()]
-        nominal = f"{icao}_APP" if f"{icao}_APP" in apps else ranked[0]
-        big = _largest(sl)
-        out.append({"id": key, "icao": icao, "at": label_point(big["geom"]), "nominal": nominal, "apps": ranked,
-                    "chains": _uniq_chains(sl), "lo": min(s["lo"] for s in sl), "hi": max(s["hi"] for s in sl)})
+        parts: dict[str, list[dict]] = {}
+        for s in sl:
+            if owner := part_owner(s["chain"], dirs):
+                parts.setdefault(owner, []).append(s)
+        for nominal, psl in parts.items():
+            # wszystkie APP części (z dyrektorem, np. WA DIR w części WA APP), od najczęstszego – do dymku
+            apps = Counter(cs for s in psl for cs in _local(s["chain"]) if facility(cs) in APP_TYPES)
+            other = [s for cs, p in parts.items() if cs != nominal for s in p]
+            out.append({"id": key if len(parts) == 1 else f"{key} · {nominal}", "tma": key, "icao": icao,
+                        "at": part_anchor(psl, other), "box": _box(psl), "nominal": nominal,
+                        "apps": [cs for cs, _ in apps.most_common()], "chains": _uniq_chains(psl),
+                        "lo": min(s["lo"] for s in psl), "hi": max(s["hi"] for s in psl)})
     return sorted(out, key=lambda g: g["id"])
 
 
@@ -281,12 +372,33 @@ def stack_key(label: str) -> str | None:
 
 
 _RANK = {"CTR": 0, "FSS": 0, "APP": 1, "DEP": 1, "TWR": 2}
+RADAR = ("CTR", "FSS")
 
 
-def stack_tiles(items: list[dict]) -> dict[str, list[dict]]:
+def first_chains(chains) -> dict[str, list[str]]:
+    """Kolejność z plików .ese dla stanowiska: najczęstsza lista OWNER wycinków, w których to stanowisko jest pierwsze."""
+    cnt: dict[str, Counter] = {}
+    for ch in chains or ():
+        if ch := [cs for cs in ch if cs]:
+            cnt.setdefault(ch[0], Counter())[tuple(ch)] += 1
+    return {cs: list(c.most_common(1)[0][0]) for cs, c in cnt.items()}
+
+
+def tile_chain(chain: list[str], own: str, ese: dict[str, list[str]], main: str | None) -> list[str]:
+    """Kolejność kafelka: controlled_by z VACS, a gdy nie ma w niej żadnego CTR poza samym kafelkiem (UMMV N, UKLV,
+    EDDB N APP), dalej lista OWNER z pliku .ese wycinka tego stanowiska (UMMV_W_CTR → UMMV_CTR, EDDB_N_APP → EDWW_…_CTR);
+    bez wycinka w .ese kafelek APP/TWR przejmuje główny CTR FIR-u (main). Kolejność VACS zostaje pierwsza."""
+    if any(facility(cs) in RADAR and cs != own for cs in chain):
+        return chain
+    extra = ese.get(own) or ([main] if main and facility(own) not in RADAR else [])
+    return chain + [cs for cs in extra if cs not in chain]
+
+
+def stack_tiles(items: list[dict], ese: dict[str, list[str]] | None = None, known=()) -> dict[str, list[dict]]:
     """Kafelki stosów sąsiadów z profilu VACS ACC_EPWW (vacs_epww.json, klucz neighbours): tylko sektory graniczące
     z EPWW, bez FMP. Kafelek: etykieta i wysokość z VACS, stanowisko kafelka (callsign) i kolejność przejmowania
-    (chain = controlled_by). W stosie od najwyższego zakresu; bez wysokości jak do FL660 od ziemi, CTR przed APP i TWR."""
+    (chain = controlled_by, uzupełniona top-down z plików .ese: tile_chain; ese = first_chains, known = znane znaki
+    do głównego CTR FIR-u). W stosie od najwyższego zakresu; bez wysokości jak do FL660 od ziemi, CTR przed APP i TWR."""
     out: dict[str, list[dict]] = {}
     seen = set()
     for n in items or ():
@@ -299,27 +411,30 @@ def stack_tiles(items: list[dict]) -> dict[str, list[dict]]:
             continue
         seen.add(uid)
         rng = alt_range(n.get("alt"))
+        own = n.get("callsign") or chain[0]
+        main = f"{key}_CTR" if f"{key}_CTR" in known else None
         out.setdefault(key, []).append({"label": n["label"], "alt": n.get("alt") if rng else None,
                                         "lo": rng[0] if rng else None, "hi": rng[1] if rng else None,
-                                        "callsign": n.get("callsign") or chain[0], "chain": chain})
+                                        "callsign": own, "chain": tile_chain(chain, own, ese or {}, main)})
     for tiles in out.values():
         tiles.sort(key=lambda t: (-(t["hi"] or TOP_FT), -(t["lo"] or 0), _RANK.get(facility(t["callsign"]), 3)))
     return out
 
 
 def build_static(*, own: dict, epww_slices: list[dict], vacs_tiles: list[dict], positions: dict, coords: dict,
-                 border_geom: dict, firs_geo: list[dict]) -> dict:
+                 border_geom: dict, firs_geo: list[dict], nb_chains=()) -> dict:
     """Wszystko, co nie zależy od tego, kto jest online.
 
     epww_slices: wycinki z pliku EPWW ({fir, name, lo, hi, owners (znaki), geom}); vacs_tiles: kafelki sąsiadów
     z profilu VACS (vacs_epww.json, neighbours); positions: znak → {frequency, name, ...}; coords: ICAO → (lat, lon);
-    border_geom: granica FIR EPWW (VATSpy); firs_geo: [{id, geometry}] do tła."""
+    border_geom: granica FIR EPWW (VATSpy); firs_geo: [{id, geometry}] do tła; nb_chains: listy OWNER (znaki)
+    wycinków sąsiadów z plików .ese – do kolejności kafelków bez CTR w controlled_by (tile_chain)."""
     kinds: dict[str, list[dict]] = {"acc": [], "tma": [], "ctr": [], "fis": []}
     for s in epww_slices:
         k = sector_kind(s["fir"], s["name"])
         if s["fir"].upper() == "EPWW" and k in kinds:
             kinds[k].append(s)
-    tiles = stack_tiles(vacs_tiles)
+    tiles = stack_tiles(vacs_tiles, first_chains(nb_chains), positions)
     stacks = [{**st, "tiles": tiles.get(st["fir"], [])} for st in STACKS]
     acc_geo, seen = [], set()
     for s in kinds["acc"]:
