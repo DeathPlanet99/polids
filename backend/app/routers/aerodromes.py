@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..models import Aerodrome, AircraftType, AtcPosition
+from ..services import dman as dman_service
 from ..services import viff as viff_service
 from ..services.http_cache import UpstreamError
 from ..services.lvp import evaluate as evaluate_lvp
@@ -126,9 +127,12 @@ async def status(icao: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{icao}/strips")
-async def strips(icao: str, db: Session = Depends(get_db)):
-    """Paski postępu lotu do AERODROME › RUCH (jak EFES): ruch VATSIM, pas w użyciu i litera ATIS (jak /status),
-    vIFF (EOBT, TSAT, CTOT, stan lotu), SID/STAR z pliku .ese i kategoria turbulencji z bazy typów."""
+async def strips(icao: str, dman: bool = False, db: Session = Depends(get_db)):
+    """Paski postępu lotu do STRIP i AERODROME › RUCH (jak EFES): ruch VATSIM, pas w użyciu i litera ATIS (jak /status),
+    vIFF (EOBT, TSAT, CTOT, stan lotu), SID/STAR z pliku .ese i kategoria turbulencji z bazy typów.
+
+    Każdy pasek ma też pola DMAN/AMAN (services/dman.py): registration, a przylot entry_fix, eta_s, eldt_s, eldt.
+    ?dman=1 (widok DMAN/AMAN) dodatkowo pyta vIFF o ELDT przylotów (/ifps/callsign) i ustawienia A-CDM lotniska."""
     ad = _ad(db, icao)
 
     async def from_viff():
@@ -156,8 +160,17 @@ async def strips(icao: str, db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
     board = strip_board(ad.icao, traffic, viff, use, wtc, now)
     procs = procedures().get(ad.icao, {})
+    viff_etas, cad = None, None
+    if dman:
+        # vIFF zna ELDT lotów w powietrzu i jeszcze na lotnisku odlotu; najbliższe najpierw
+        asked = sorted((s for s in board["arrivals"] if s["state"] == "air" or s["away"]),
+                       key=lambda s: (s["dist_nm"] is None, s["dist_nm"] or 0))
+        viff_etas, cad = await asyncio.gather(
+            viff_service.arrival_etas(ad.icao, [s["callsign"] for s in asked]), viff_service.cad_info(ad.icao))
+    dman_service.annotate(board, ad.icao, now, viff_etas)
     return {
         "icao": ad.icao, "name": ad.name, "elevation_ft": ad.elevation_ft, "now": now.strftime("%H%M"),
+        "now_ts": round(now.timestamp(), 1), "iafs": dman_service.iafs(ad.icao), "cad": cad,
         "runway_in_use": use, "atis": {"letter": atis["letter"], "callsign": atis["callsign"]} if atis else None,
         "cdm": bool(viff and viff.get("cdm")), "states": (viff or {}).get("states") or viff_service.FLIGHT_STATES,
         "procedures": {"sid": sorted(procs.get("sid", {})), "star": sorted(procs.get("star", {}))},
