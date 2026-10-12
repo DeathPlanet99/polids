@@ -185,21 +185,21 @@ export function labelOpts(kind, { box = null, on = false, fq = false, shapes = "
 
 // Etykiety bez nakładania się. items [{x, y, w, h, alts?: [{w, h}], near?, max?, wc?, wv?, pin?}] w kolejności priorytetu
 // (najpierw ważniejsze); x, y = punkt zakotwiczenia, w, h = rozmiar pełnej etykiety, alts = mniejsze odmiany (skrócona,
-// samo ID), pin = punkt to kropka na mapie (lotnisko, TMA), której etykiety nie zasłaniają.
+// samo ID), pin = punkt to kropka na mapie (lotnisko, TMA), której żadna etykieta nie zasłania.
 // Kandydaci leżą na pierścieniach coraz dalej od punktu (coraz więcej kierunków); dozwolony jest tylko kandydat bez
 // kolizji z już ułożonymi etykietami i przeszkodami (obstacles: stosy sąsiadów, tytuł podglądu; {x0, y0, x1, y1}),
-// w obrębie bounds {x, y, w, h}, a etykieta z pin – też bez żadnej kropki (swojej i cudzej) pod sobą. Spośród nich
-// wygrywa najtańszy: odległość etykiety od punktu (px) + pole zasłoniętych obrysów warstwy (cover z coverGrid, waga wc
-// etykiety, domyślnie 1) × WC + kara za mniejszą odmianę (× wv) + kara WX za linię prowadzącą przez inną etykietę, przez
-// inną linię albo tuż obok cudzej kropki i za etykietę na cudzej linii (WD za kropkę pod etykietą bez pin). Bez
-// kształtów etykieta zostaje na punkcie, gdy jest tam miejsce; z kształtami (CTR, TMA) odchodzi obok nich, w wolne
-// miejsce, z cienką linią do punktu. Pełna etykieta może odejść od punktu najwyżej o `near` px (krawędź etykiety od
-// punktu; it.near nadpisuje), mniejsza odmiana o `max` px (domyślnie `far`); gdy nic nie pasuje, najmniejsza odmiana
-// w miejscu najmniejszego nałożenia. Układ zachłanny; gdy etykieta z wv > 1 zmalała (np. straciła częstotliwość) albo
-// coś zasłania, kolejna runda układa ją przed innymi (w tłoku, np. Warszawa–Modlin–Łódź–Radom na 1366 px, najpierw ta
-// bez miejsca), a zostaje runda o najmniejszym koszcie. Wynik: [{dx, dy, v, hit}] – przesunięcie środka, numer odmiany
-// (0 = pełna) i czy coś zasłania.
-const WC = 0.5, WV = [0, 25, 100], WX = 40, WD = 60, HIT = 500, ROUNDS = 4;
+// w obrębie bounds {x, y, w, h} i bez kropki z pin (swojej i cudzej) pod sobą. Spośród nich wygrywa najtańszy:
+// odległość etykiety od punktu (px) + pole zasłoniętych obrysów warstwy (cover z coverGrid, waga wc etykiety,
+// domyślnie 1) × WC + kara za mniejszą odmianę (× wv) + kara WX za linię prowadzącą przez inną etykietę, przez inną
+// linię albo tuż obok cudzej kropki i za etykietę na cudzej linii. Bez kształtów etykieta zostaje na punkcie, gdy jest
+// tam miejsce; z kształtami (CTR, TMA) odchodzi obok nich, w wolne miejsce, z cienką linią do punktu. Pełna etykieta
+// może odejść od punktu najwyżej o `near` px (krawędź etykiety od punktu; it.near nadpisuje), mniejsza odmiana albo
+// jedyna (samo ID bez nikogo) o `max` px (domyślnie `far`); gdy nic nie pasuje, najmniejsza odmiana w miejscu najmniejszego
+// nałożenia. Układ zachłanny; gdy etykieta z wv > 1 zmalała (np. straciła częstotliwość) albo coś zasłania, kolejna
+// runda układa ją przed innymi (w tłoku, np. Warszawa–Modlin–Łódź–Radom na 1366 px, najpierw ta bez miejsca), a zostaje
+// runda o najmniejszym koszcie. Wynik: [{dx, dy, v, hit}] – przesunięcie środka, numer odmiany (0 = pełna) i czy coś
+// zasłania.
+const WC = 0.5, WV = [0, 25, 100], WX = 40, HIT = 500, ROUNDS = 4;
 export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26, far = 90, rings = 14, cover = null } = {}) {
   const pins = items.map((it, i) => (it.pin ? [it.x, it.y, i] : null)).filter(Boolean);
   const over = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
@@ -242,9 +242,8 @@ export function placeLabels(items, bounds, { gap = 2, obstacles = [], near = 26,
           if (d + pv >= best) continue;  // już droższy niż najlepszy
           const r = rectAt(it, s, dx, dy);
           if (outside(r) || placed.some((p) => over(r, p) > 0)) continue;
-          const under = dots(r);
-          if (it.pin && under.length) continue;  // kropka (swoja albo cudza) zostaje widoczna
-          let cost = d + pv + coverOf(cover, r) * wc + under.length * WD;
+          if (dots(r).length) continue;  // kropka lotniska i TMA (swoja albo cudza) zostaje widoczna
+          let cost = d + pv + coverOf(cover, r) * wc;
           if (cost >= best) continue;
           cost += leads.reduce((acc, l) => acc + (crosses(...l, r) ? WX : 0), 0);
           if (d > 0) {

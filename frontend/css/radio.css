@@ -62,7 +62,8 @@
 .rb-dot.fis { fill: #b08cff; }
 
 /* --- etykiety (sektory, APP, TWR, FIS) i pola stosów: małe ID w prawym górnym rogu, pod nim częstotliwość;
-   skrót stanowiska, które przejmuje (inne niż stanowisko sektora), przed częstotliwością */
+   skrót stanowiska, które przejmuje (inne niż stanowisko sektora), przed częstotliwością. Częstotliwość tylko, gdy
+   ktoś obsługuje (runda 11, Marek): bez nikogo samo ID (etykieta w odmianie skróconej .cmp, pole stosu bez linii) */
 .rb-lbls { position: absolute; inset: 0; pointer-events: none; }
 .rb-lbl, .rb-box { display: inline-grid; justify-items: end; align-content: start; padding: 0 4px 1px; background: #030503;
   border: 1px solid #222a22; border-radius: 2px; white-space: nowrap; line-height: 1.05; cursor: help; }
@@ -70,16 +71,15 @@
 /* ID sektora i liczby FL nie mniejsze niż 9 px (8 px na etykietach APP/TWR/FIS), także na 1366×768 */
 .rb-id { font: 400 max(9px, calc(var(--rb-f) - 3px))/1.15 var(--mono); color: #7b847b; letter-spacing: .2px; }
 .rb-ln { display: flex; align-items: baseline; gap: 4px; }
-.rb-fq { font: 700 var(--rb-f)/1.12 var(--mono); color: #5c665c; }
+.rb-fq { font: 700 var(--rb-f)/1.12 var(--mono); color: #fff; }
 .rb-by { font: 700 max(8px, calc(var(--rb-f) - 3px))/1 var(--mono); font-style: normal; color: var(--green-text); }
 .rb-more { font: 700 max(8px, calc(var(--rb-f) - 4px)) var(--mono); font-style: normal; color: var(--green-text); }
 .rb-lbl.on, .rb-box.on { background: #071305; border-color: var(--green-hi); }
-.rb-lbl.on .rb-fq, .rb-box.on .rb-fq { color: #fff; }
 .rb-lbl.on .rb-id, .rb-box.on .rb-id { color: #b9e8a6; }
 /* APP, TWR i FIS mniejsze niż sektory ACC (na podglądzie LOW bywa ich kilkadziesiąt) */
 .rb-lbl.app, .rb-lbl.twr, .rb-lbl.fis { --rb-f: clamp(10px, .7vw, 13px); }
 .rb-lbl.app .rb-id, .rb-lbl.twr .rb-id, .rb-lbl.fis .rb-id { font-size: max(8px, calc(var(--rb-f) - 3px)); }
-/* skrócona etykieta (brak miejsca przy punkcie): ID i częstotliwość w jednej linii albo samo ID */
+/* skrócona etykieta (brak miejsca przy punkcie, bez nikogo): ID i częstotliwość w jednej linii albo samo ID */
 .rb-lbl.cmp { display: inline-flex; align-items: baseline; gap: 4px; padding: 0 3px; }
 .rb-lbl.cmp .rb-id { font-size: max(9px, calc(var(--rb-f) - 2px)); }
 /* wieża offline, którą przejmuje inne stanowisko (np. APP): częstotliwość wieży, ↑APP, kto – w dymku */
@@ -89,8 +89,9 @@
 .rb-lbl.app { border-left: 3px solid var(--cyan); }
 .rb-lbl.twr { border-left: 3px solid var(--yellow); cursor: pointer; }
 .rb-lbl.fis { border-left: 3px solid #b08cff; }
-.rb-lbl .rb-atl .rb-by { color: #7b847b; }
-.rb-lbl .rb-atl.on .rb-by { color: var(--green-hi); }
+/* linia ATIS (TWR/ATIS) tylko z ATIS online: jasna także przy wieży offline albo przejmowanej */
+.rb-lbl .rb-atl .rb-by { color: var(--green-hi); }
+.rb-lbl .rb-atl .rb-fq { color: #fff; }
 .rb-lbl .rb-atl .rb-code { font-size: max(8px, calc(var(--rb-f) - 4px)); }
 .rb-lbl:hover, .rb-box:hover { border-color: #fff; }
 

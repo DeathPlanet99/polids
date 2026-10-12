@@ -65,7 +65,7 @@ def test_board_sectors_and_owners(board):
     assert all(re.fullmatch(r"[LMH][A-Z]", i) for i in ids)  # litera warstwy + litera sektora, bez numerów
     for s in board["sectors"]:
         assert s["nominal"] == s["chain"][0] and s["layer"][0] + s["letter"] == s["id"]
-        # właściciel = pierwsze stanowisko kolejności, które jest online; nikt → null (częstotliwość nominalna)
+        # właściciel = pierwsze stanowisko kolejności, które jest online; nikt → null (strona: samo ID sektora)
         assert s["owner"] == next((cs for cs in s["chain"] if cs in ONLINE), None)
     by = {s["id"]: s for s in board["sectors"]}
     assert by["HB"]["owner"] == "EPWW_N_CTR"
@@ -475,9 +475,13 @@ console.log(JSON.stringify({
     const lines = Array.from({ length: 10 }, (_, i) => [[10, 2 + 32 * i], [290, 2 + 32 * i]]);  // pełna zawsze na linii
     const sq = (wv) => rb.placeLabels([{ x: 150, y: 50, w: 40, h: 30, alts: [{ w: 30, h: 12 }, { w: 12, h: 12 }], wv, max: 60 }],
       { x: 0, y: 0, w: 300, h: 300 }, { cover: rb.coverGrid(lines, 300, 300) })[0].v;
+    // etykieta bez pin (sektor ACC, FIS) też nie staje na kropce lotniska ani TMA, choć jej punkt leży tuż obok
+    const pinned = rb.placeLabels([{ x: 150, y: 150, w: 20, h: 8, pin: true }, { x: 152, y: 150, w: 30, h: 10, max: 70 }],
+      { x: 0, y: 0, w: 300, h: 300 })[1];
+    const onDot = Math.abs(152 + pinned.dx - 150) < 15 + 3 && Math.abs(150 + pinned.dy - 150) < 5 + 3;
     return { m, m0, inner: rb.coverOf(gr, { x0: 95, y0: 95, x1: 105, y1: 105 }), edge: rb.coverOf(gr, { x0: 80, y0: 95, x1: 100, y1: 105 }),
       point: rb.coverOf(gr, { x0: 195, y0: 195, x1: 205, y1: 205 }), none: rb.coverOf(null, r),
-      clear: rb.coverOf(gr, r), v: [sq(1), sq(4)] };
+      clear: rb.coverOf(gr, r), v: [sq(1), sq(4)], onDot, pinned };
   })(),
   crowd: { overlaps: crowdOverlaps, onObstacle: crects.filter((r) => hit(r, obst)).length, hits: cm.filter((m) => m.hit).length,
     variants: [...new Set(cm.map((m) => m.v))].sort(), first: cm[0] },
@@ -554,6 +558,7 @@ def test_js_layout_helpers(js):
     assert cv["inner"] == 0 and cv["edge"] > 0 and cv["point"] > 0 and cv["none"] == 0
     assert cv["m0"]["dx"] == 0 and cv["m0"]["dy"] == 0 and cv["clear"] == 0 and (cv["m"]["dx"], cv["m"]["dy"]) != (0, 0)
     assert cv["v"][0] > 0 and cv["v"][1] == 0  # wv: obsadzona etykieta zachowuje częstotliwość
+    assert cv["onDot"] is False and cv["pinned"]["hit"] is False, cv["pinned"]  # kropka z pin zostaje widoczna
     # tłok: bez nakładania się i bez wchodzenia na przeszkody (stosy sąsiadów, tytuł); część etykiet w mniejszej odmianie
     c = js["crowd"]
     assert c["overlaps"] == 0 and c["onObstacle"] == 0 and c["hits"] == 0, c
@@ -591,11 +596,14 @@ def test_js_layout_helpers(js):
 
 LAYOUT_SCRIPT = r"""
 // warstwa TWR na podglądzie LOW jak na ekranie 1366×768 (FL300): etykiety ACC i TWR z /api/radio/board ułożone przez
-// placeLabels z parametrami labelOpts (jak tabs/radio.js); rozmiary etykiet zmierzone w przeglądarce
+// placeLabels z parametrami labelOpts i odmianami lblVariants (jak tabs/radio.js); rozmiary odmian zmierzone
+// w przeglądarce. Dwa zestawy: "board" – kto online wg tablicy (bez nikogo samo ID), "all" – każda wieża online
+// i każdy sektor obsadzony (najwięcej częstotliwości)
 import fs from "fs";
 const rb = await import(process.argv[2]);
 const { labelPoint } = await import(process.argv[3]);
 const { board, geo } = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
+const { lblVariants } = await import(process.argv[5]);
 const W = 487, H = 731, free = { x: 140, y: 124, w: 341, h: 470 };
 const obstacles = [[6, 6, 128, 211], [6, 352, 128, 162], [6, 650, 128, 75], [181, 6, 164, 112], [153, 600, 193, 125], [203, 125, 277, 20]]
   .map(([x, y, w, h]) => ({ x0: x - 2, y0: y - 2, x1: x + w + 2, y1: y + h + 2 }));
@@ -603,53 +611,68 @@ const { P } = rb.projection(rb.bboxOrDefault(rb.bboxOf(geo.border)) || rb.EPWW_B
 const area = (g) => rb.ringsOf(g).reduce((a, r) => a + Math.abs(r.reduce((s, [x1, y1], i) => s + x1 * r[(i + 1) % r.length][1] - r[(i + 1) % r.length][0] * y1, 0)) / 2, 0);
 const byLetter = new Map();
 rb.sliceAt(geo.acc, 30000).forEach((s) => { const b = byLetter.get(s.letter); if (!b || area(s.geometry) > area(b.geometry)) byLetter.set(s.letter, s); });
-const items = [];
-board.sectors.filter((s) => s.layer === "LOW" && byLetter.has(s.letter)).forEach((s) => {
-  const sl = byLetter.get(s.letter), at = labelPoint({ type: "Feature", geometry: sl.geometry, properties: { fir: "EPWW", name: sl.name } })?.at;
-  if (at) items.push({ name: s.id, twr: false, prio: 0, at, w: 60, h: 26, ...rb.labelOpts("acc", { shapes: "twr" }, P) });
-});
-board.twr.filter((g) => g.at).forEach((g) => {
-  const tw = g.owners.find((o) => /_TWR$/.test(o)), by = !tw && g.owners.length ? 23 : 0;  // "↑APP" poszerza etykietę
-  items.push({ name: g.icao, twr: true, prio: tw ? 2 : 2.5, at: g.at, w: 54 + by, h: 23, alts: [{ w: 67 + by, h: 13 }, { w: 24, h: 13 }],
-    ...rb.labelOpts("twr", { box: g.box, on: true, fq: true, shapes: "twr" }, P) });
-});
-items.sort((a, b) => a.prio - b.prio).forEach((it) => { [it.x, it.y] = P([it.at[1], it.at[0]]); });
-const rings = geo.ctr.flatMap((c) => rb.ringsOf(c.geometry).map((r) => ({ icao: c.name.slice(0, 4), r: r.map(P) })));
-const cover = rb.coverGrid(rings.map((x) => x.r), W, H, { points: items.filter((it) => it.twr).map((it) => [it.x, it.y]) });
-const mv = rb.placeLabels(items, { x: 2, y: 2, w: W - 4, h: H - 4 }, { obstacles, cover, near: 40 });
-const rects = items.map((it, i) => { const s = mv[i].v ? it.alts[mv[i].v - 1] : it;
-  return { x0: it.x + mv[i].dx - s.w / 2, y0: it.y + mv[i].dy - s.h / 2, x1: it.x + mv[i].dx + s.w / 2, y1: it.y + mv[i].dy + s.h / 2 }; });
-const inside = (r, x, y, m) => x > r.x0 - m && x < r.x1 + m && y > r.y0 - m && y < r.y1 + m;
-const twr = items.map((it, i) => i).filter((i) => items[i].twr);
-// obrys każdego CTR co 1 px: ile pod etykietami
-const ctr = {};
-rings.forEach(({ icao, r }) => r.forEach(([ax, ay], k) => {
-  const [bx, by] = r[(k + 1) % r.length], n = Math.max(1, Math.floor(Math.hypot(bx - ax, by - ay)));
-  for (let t = 0; t < n; t++) {
-    const x = ax + ((bx - ax) * t) / n, y = ay + ((by - ay) * t) / n, c = (ctr[icao] ||= [0, 0]);
-    c[1]++;
-    if (rects.some((q) => inside(q, x, y, -1))) c[0]++;
-  }
-}));
-const o = (a, px, py) => Math.sign((a[2] - a[0]) * (py - a[1]) - (a[3] - a[1]) * (px - a[0]));
-const leads = twr.map((i) => { const r = rects[i], it = items[i];
-  return [it.x, it.y, Math.max(r.x0, Math.min(it.x, r.x1)), Math.max(r.y0, Math.min(it.y, r.y1))]; });
-console.log(JSON.stringify({
-  n: twr.length,
-  dots: twr.flatMap((i) => twr.filter((j) => inside(rects[i], items[j].x, items[j].y, 1)).map((j) => `${items[i].name}>${items[j].name}`)),
-  ctr: Object.fromEntries(Object.entries(ctr).map(([k, [a, b]]) => [k, a / b])),
-  overlaps: rects.flatMap((a, i) => rects.slice(i + 1).map((b, j) => (a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1 ? `${items[i].name}/${items[i + 1 + j].name}` : "")))
-    .filter(Boolean),
-  hits: mv.filter((m) => m.hit).length, idOnly: twr.filter((i) => mv[i].v === 2).map((i) => items[i].name),
-  far: Math.max(...leads.map((l) => Math.hypot(l[2] - l[0], l[3] - l[1]))),
-  crossed: leads.flatMap((a, i) => leads.slice(i + 1).filter((b) => o(a, b[0], b[1]) * o(a, b[2], b[3]) < 0 && o(b, a[0], a[1]) * o(b, a[2], a[3]) < 0)).length,
-}));
+// odmiany [pełna, skrócona, samo ID] (px): wieża online, przejmowana (↑APP), bez nikogo (samo „SY TWR”); sektor ACC
+// pełny ze skrótem właściciela (N 130.675) i bez nikogo (samo „LB”)
+const SIZE = { on: [{ w: 54, h: 23 }, { w: 67, h: 13 }, { w: 24, h: 13 }], cov: [{ w: 77, h: 23 }, { w: 90, h: 13 }, { w: 24, h: 13 }],
+  off: [null, null, { w: 44, h: 12 }], acc: [{ w: 65, h: 26 }], accOff: [null, null, { w: 19, h: 12 }] };
+function layout(all) {
+  const items = [];
+  board.sectors.filter((s) => s.layer === "LOW" && byLetter.has(s.letter)).forEach((s) => {
+    const sl = byLetter.get(s.letter), at = labelPoint({ type: "Feature", geometry: sl.geometry, properties: { fir: "EPWW", name: sl.name } })?.at;
+    const on = all || !!s.owner, vs = lblVariants({ ls: on ? [{ fq: "1", by: "N" }] : [] }, false);
+    if (at) items.push({ name: s.id, twr: false, on, prio: 0, at, vs, sz: vs.map((v) => SIZE[on ? "acc" : "accOff"][v]), ...rb.labelOpts("acc", { shapes: "twr" }, P) });
+  });
+  board.twr.filter((g) => g.at).forEach((g) => {
+    const tw = all || g.owners.some((o) => /_TWR$/.test(o)), st = tw ? "on" : g.owners.length ? "cov" : "off";
+    const vs = lblVariants({ ls: st === "off" ? [] : [{ fq: "1", by: st === "cov" ? "↑APP" : "" }] }, true);
+    items.push({ name: g.icao, twr: true, on: st !== "off", prio: tw ? 2 : 2.5, at: g.at, vs, sz: vs.map((v) => SIZE[st][v]),
+      ...rb.labelOpts("twr", { box: g.box, on: st !== "off", fq: st !== "off", shapes: "twr" }, P) });
+  });
+  // pełna odmiana (w, h) i mniejsze (alts) jak w placeLabels na stronie
+  items.sort((a, b) => a.prio - b.prio).forEach((it) => { [it.x, it.y] = P([it.at[1], it.at[0]]); Object.assign(it, it.sz[0], { alts: it.sz.slice(1) }); });
+  const rings = geo.ctr.flatMap((c) => rb.ringsOf(c.geometry).map((r) => ({ icao: c.name.slice(0, 4), r: r.map(P) })));
+  const cover = rb.coverGrid(rings.map((x) => x.r), W, H, { points: items.filter((it) => it.twr).map((it) => [it.x, it.y]) });
+  const mv = rb.placeLabels(items, { x: 2, y: 2, w: W - 4, h: H - 4 }, { obstacles, cover, near: 40 });
+  const rects = items.map((it, i) => { const s = it.sz[mv[i].v];
+    return { x0: it.x + mv[i].dx - s.w / 2, y0: it.y + mv[i].dy - s.h / 2, x1: it.x + mv[i].dx + s.w / 2, y1: it.y + mv[i].dy + s.h / 2 }; });
+  const inside = (r, x, y, m) => x > r.x0 - m && x < r.x1 + m && y > r.y0 - m && y < r.y1 + m;
+  const twr = items.map((it, i) => i).filter((i) => items[i].twr);
+  // obrys każdego CTR co 1 px: ile pod etykietami
+  const ctr = {};
+  rings.forEach(({ icao, r }) => r.forEach(([ax, ay], k) => {
+    const [bx, by] = r[(k + 1) % r.length], n = Math.max(1, Math.floor(Math.hypot(bx - ax, by - ay)));
+    for (let t = 0; t < n; t++) {
+      const x = ax + ((bx - ax) * t) / n, y = ay + ((by - ay) * t) / n, c = (ctr[icao] ||= [0, 0]);
+      c[1]++;
+      if (rects.some((q) => inside(q, x, y, -1))) c[0]++;
+    }
+  }));
+  const o = (a, px, py) => Math.sign((a[2] - a[0]) * (py - a[1]) - (a[3] - a[1]) * (px - a[0]));
+  const leads = twr.map((i) => { const r = rects[i], it = items[i];
+    return [it.x, it.y, Math.max(r.x0, Math.min(it.x, r.x1)), Math.max(r.y0, Math.min(it.y, r.y1))]; });
+  const shown = (i) => items[i].vs[mv[i].v];  // numer odmiany jak w lblHtml (2 = samo ID)
+  return {
+    n: twr.length, off: items.filter((it) => !it.on).map((it) => it.name),
+    dots: items.flatMap((it, i) => twr.filter((j) => j !== i && inside(rects[i], items[j].x, items[j].y, 1)).map((j) => `${it.name}>${items[j].name}`)),
+    ctr: Object.fromEntries(Object.entries(ctr).map(([k, [a, b]]) => [k, a / b])),
+    overlaps: rects.flatMap((a, i) => rects.slice(i + 1).map((b, j) => (a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1 ? `${items[i].name}/${items[i + 1 + j].name}` : "")))
+      .filter(Boolean),
+    hits: mv.filter((m) => m.hit).length,
+    // obsadzona bez częstotliwości (samo ID) i bez nikogo z odmianą z częstotliwością
+    noFq: items.map((it, i) => i).filter((i) => items[i].on && shown(i) === 2).map((i) => items[i].name),
+    fqOff: items.filter((it) => !it.on && it.vs.some((v) => v !== 2)).map((it) => it.name),
+    far: Math.max(...leads.map((l) => Math.hypot(l[2] - l[0], l[3] - l[1]))),
+    crossed: leads.flatMap((a, i) => leads.slice(i + 1).filter((b) => o(a, b[0], b[1]) * o(a, b[2], b[3]) < 0 && o(b, a[0], a[1]) * o(b, a[2], a[3]) < 0)).length,
+  };
+}
+console.log(JSON.stringify({ board: layout(false), all: layout(true) }));
 """
 
 
 def test_js_twr_layout(client, board, tmp_path):
     """Runda 11 (przegląd): etykiety TWR na podglądzie LOW 1366×768 nie zasłaniają CTR ani kropek lotnisk – geometria
-    z /api/radio/board, układ placeLabels z labelOpts jak na stronie (zrzuty w przeglądarce sprawdzają resztę)."""
+    z /api/radio/board, układ placeLabels z labelOpts i lblVariants jak na stronie (zrzuty w przeglądarce sprawdzają
+    resztę). Bez nikogo samo ID (runda 11, Marek), obsadzone zawsze z częstotliwością."""
     node = shutil.which("node")
     if not node:
         pytest.skip("brak Node.js")
@@ -660,17 +683,22 @@ def test_js_twr_layout(client, board, tmp_path):
     data.write_text(json.dumps({"board": board, "geo": client.get("/api/radio/board?geo=1").json()["geo"]}), "utf-8")
     script = tmp_path / "layout.mjs"
     script.write_text(LAYOUT_SCRIPT, "utf-8")
-    r = subprocess.run([node, str(script), (d / "radioboard.js").as_uri(), (d / "coverage.js").as_uri(), str(data)],
-                       capture_output=True, text=True, timeout=120)
+    r = subprocess.run([node, str(script), (d / "radioboard.js").as_uri(), (d / "coverage.js").as_uri(), str(data),
+                        (d / "tabs" / "radio.js").as_uri()], capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr
-    out = json.loads(r.stdout)
-    assert out["n"] >= 15  # wszystkie CTR z pliku .ese (EPWA … EPZG, wojskowe EPDE, EPKS)
-    # żadna etykieta TWR nie stoi na kropce lotniska (swojej ani cudzej), żaden CTR nie jest schowany pod etykietami
-    assert out["dots"] == []
-    assert max(out["ctr"].values()) <= 0.2, {k: round(v, 2) for k, v in out["ctr"].items() if v > 0.2}
-    # bez nakładania się, każda wieża z częstotliwością, linie prowadzące krótkie i bez skrzyżowań
-    assert out["overlaps"] == [] and out["hits"] == 0 and out["idOnly"] == []
-    assert out["far"] <= 90 and out["crossed"] == 0
+    res = json.loads(r.stdout)
+    # tablica z FEED: poza EPWA_APP (przejmuje kilka wież) żadnej wieży online – większość etykiet TWR to samo ID
+    assert len([x for x in res["board"]["off"] if len(x) == 4]) >= 10 and res["all"]["off"] == []
+    for key, out in res.items():
+        assert out["n"] >= 15, key  # wszystkie CTR z pliku .ese (EPWA … EPZG, wojskowe EPDE, EPKS)
+        # żadna etykieta (TWR ani sektora) nie stoi na kropce lotniska, żaden CTR nie jest schowany pod etykietami
+        assert out["dots"] == [], key
+        assert max(out["ctr"].values()) <= 0.2, (key, {k: round(v, 2) for k, v in out["ctr"].items() if v > 0.2})
+        # bez nakładania się; każda obsadzona (także przejmowana ↑APP) z częstotliwością, bez nikogo tylko samo ID
+        assert out["overlaps"] == [] and out["hits"] == 0, key
+        assert out["noFq"] == [] and out["fqOff"] == [], key
+        # linie prowadzące krótkie i bez skrzyżowań
+        assert out["far"] <= 90 and out["crossed"] == 0, key
 
 LOA_SCRIPT = r"""
 const radio = await import(process.argv[2]);
@@ -796,6 +824,66 @@ def test_js_neighbour_stack(tmp_path):
     assert "rb-unicom" not in out["nonet"] and 'class="rb-fq"' not in out["nonet"]
     ev = out["evil"]
     assert "<img" not in ev and "<i>t" not in ev and "<s>" not in ev and '<b>&lt;b&gt;</b>' in ev
+
+
+LBL_SCRIPT = r"""
+const radio = await import(process.argv[2]);
+const lb = (o) => ({ cls: "twr", state: "off", id: "SY TWR", cid: "SY TWR", ls: [], rt: "SY TWR · EPSY", k: "EPSY", icao: "EPSY", ...o });
+const html = (x, small = true) => ({ v: radio.lblVariants(x, small), html: radio.lblVariants(x, small).map((v) => radio.lblHtml(x, v)) });
+const atl = '<span class="rb-ln rb-atl"><i class="rb-by">ATIS</i><span class="rb-fq">120.455</span><b class="rb-code">K</b></span>';
+console.log(JSON.stringify({
+  off: html(lb({})),
+  acc: html({ cls: "acc", state: "off", id: "LB", cid: "LB", ls: [], rt: "Sektor B", k: "B" }, false),
+  accOn: html({ cls: "acc", state: "on", id: "LB", cid: "LB", ls: [{ fq: "130.675", by: "N" }], rt: "Sektor B", k: "B" }, false),
+  on: html(lb({ state: "on", id: "WA TWR", cid: "WA", ls: [{ fq: "118.305", by: "" }] })),
+  cov: html(lb({ state: "cov", id: "WA TWR", cid: "WA", ls: [{ fq: "118.305", by: "↑APP" }] })),
+  atis: html(lb({ id: "WA TWR", cid: "WA TWR", extra: atl })),
+  keep: html({ cls: "app", state: "on", id: "WA S APP", cid: "WA S APP", ls: [{ fq: "", by: "WA APP" }], rt: "TMA" }),
+  evil: html(lb({ id: "<img src=x>", cid: "<img src=x>", rt: '"><b>x</b>' })),
+}));
+"""
+
+
+def test_js_label_variants(tmp_path):
+    """Etykiety podglądów (tabs/radio.js lblHtml, lblVariants; runda 11, Marek): bez nikogo jedna odmiana – samo ID,
+    bez żadnej częstotliwości; obsadzona (też przejmowana ↑APP) z częstotliwością w pełnej i skróconej odmianie."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("brak Node.js")
+    d = tmp_path / "js"
+    shutil.copytree(FRONTEND / "js", d)
+    (d / "package.json").write_text('{"type": "module"}', "utf-8")
+    script = tmp_path / "lbl.mjs"
+    script.write_text(LBL_SCRIPT, "utf-8")
+    r = subprocess.run([node, str(script), (d / "tabs" / "radio.js").as_uri()], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    freqs = re.compile(r"\d{3}\.\d{3}")
+
+    def shown(h):  # bez dymku: to, co widać na etykiecie
+        return re.sub(r'data-rt="[^"]*"', "", h)
+    # bez nikogo: samo pełne ID, bez częstotliwości i bez "—" (sektor ACC, wieża)
+    assert out["off"]["v"] == [2] and out["acc"]["v"] == [2]
+    for key in ("off", "acc"):
+        (h,) = out[key]["html"]
+        assert not freqs.search(shown(h)) and "rb-fq" not in h and "—" not in h, key
+    assert out["off"]["html"][0].endswith('<b class="rb-id">SY TWR</b></div>') and 'class="rb-lbl twr off cmp"' in out["off"]["html"][0]
+    assert '<b class="rb-id">LB</b></div>' in out["acc"]["html"][0] and 'data-k="B"' in out["acc"]["html"][0]
+    # obsadzone: częstotliwość w pełnej i skróconej, samo ID dopiero przy braku miejsca; sektor ACC tylko pełna
+    assert out["accOn"]["v"] == [0] and '<span class="rb-fq">130.675</span>' in out["accOn"]["html"][0]
+    for key in ("on", "cov"):
+        v, h = out[key]["v"], out[key]["html"]
+        assert v == [0, 1, 2] and all('<span class="rb-fq">118.305</span>' in x for x in h[:2]), key
+        assert h[2].endswith('<b class="rb-id">WA</b></div>'), key
+    assert "↑APP" in out["cov"]["html"][0] and '<i class="rb-by">↑APP</i>' in out["cov"]["html"][1]
+    # wieża bez nikogo z ATIS online: ID i linia ATIS; mniejsze odmiany: samo pełne ID
+    a = out["atis"]
+    assert a["v"] == [0, 1, 2] and "120.455" in a["html"][0] and not any(freqs.search(shown(x)) for x in a["html"][1:])
+    # część TMA, której częstotliwość jest w innej etykiecie: nazwa stanowiska zamiast pustej linii
+    assert out["keep"]["v"] == [0, 1, 2] and "WA APP" in out["keep"]["html"][0] and "↑WA APP" in out["keep"]["html"][1]
+    assert not any(freqs.search(shown(x)) for x in out["keep"]["html"])
+    ev = out["evil"]["html"][0]
+    assert "<img" not in ev and "<b>x" not in ev and "&lt;img src=x&gt;" in ev
 
 
 def test_frontend_imports_resolve():

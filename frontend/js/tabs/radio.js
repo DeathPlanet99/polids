@@ -2,8 +2,9 @@
 // FIR EPWW i stosami sąsiadów (ESAA, EDWW, EDUU, EDMM, LKAA), w środku przyciski warstw i mały podgląd MID, po prawej
 // duży podgląd HIGH ze stosami UMKK, EYVL, UMMV, UKLV, LZBB. Na podglądach: ID sektora (litera warstwy + litera sektora,
 // np. LB) i częstotliwość stanowiska, które teraz go obsługuje wg kolejności przejmowania (ownership.json); bez nikogo
-// online przygaszona częstotliwość stanowiska sektora. Stosy sąsiadów (runda 11): sektory graniczące z EPWW jak w VACS
-// (bez FMP), częstotliwość tylko, gdy ktoś je obsługuje; nikt w całym stosie → jedna linia ADVISORY 122.800.
+// samo ID (runda 11, Marek: częstotliwość dopiero, gdy ktoś obsługuje – też APP, TWR, ATIS i FIS). Stosy sąsiadów
+// (runda 11): sektory graniczące z EPWW jak w VACS (bez FMP), częstotliwość tylko, gdy ktoś je obsługuje; nikt w całym
+// stosie → jedna linia ADVISORY 122.800.
 // Runda 11 (Marek): warstwa APP w częściach TMA wg stanowiska APP (WA APP, WA N APP, WA S APP) i z TMA proceduralnymi
 // (SC/LB/SY TWR); etykiety APP i TWR obok kształtów TMA/CTR z linią do punktu; LOW z suwakiem wysokości (FL095–FL330).
 // Dane: GET /api/radio/board co 30 s (geometria raz, potem tylko po zmianie wersji danych `ver`, np. po imporcie nowego
@@ -142,6 +143,28 @@ export function nbStackHtml(st, x) {
       : `<div class="rb-none">brak sektorów VACS</div>`) + "</div>";
 }
 
+// --- etykieta podglądu (sektor ACC, APP, TWR, FIS) w trzech odmianach: 0 pełna (ID nad częstotliwością), 1 skrócona
+// (ID i częstotliwość w jednej linii) i 2 samo ID; mniejsze, gdy pełna nie mieści się przy swoim punkcie (szczegóły
+// zawsze w dymku). lb: {cls, state, id, cid (ID skróconych), ls: [{fq, by}], more?, extra?, k?, icao?, rt}.
+// Bez nikogo (runda 11, Marek): ls bez częstotliwości i stanowiska, bez linii ATIS – jedna odmiana, samo ID (cid = id).
+const bare = (lb) => !lb.extra && !lb.ls.some((l) => l.fq || l.by);
+// odmiany do ułożenia (placeLabels): wszystkie, sektor ACC (small = false) tylko pełna, bez nikogo samo ID
+export const lblVariants = (lb, small = true) => (bare(lb) ? [2] : small ? [0, 1, 2] : [0]);
+export function lblHtml(lb, v = 0) {
+  const attrs = `${lb.k ? ` data-k="${esc(lb.k)}"` : ""}${lb.icao ? ` data-icao="${esc(lb.icao)}" tabindex="0" role="button"` : ""} data-rt="${esc(lb.rt)}"`;
+  const cls = `rb-lbl ${lb.cls} ${lb.state}${v ? " cmp" : ""}`;
+  if (v === 2) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.cid)}</b></div>`;
+  const fq = lb.ls[0]?.fq ? `<span class="rb-fq">${esc(lb.ls[0].fq)}</span>` : "";
+  // skrócona: kto przejmuje (inny niż stanowisko etykiety) przed częstotliwością – skrótem (WA S ↑LL 124.230: TMA
+  // Łódź u wieży Łódź), a bez częstotliwości (podana w innej etykiecie) pełną nazwą zamiast pustej linii
+  const b0 = String(lb.ls[0]?.by || "").replace(/^↑/, "");
+  const by = b0 ? `<i class="rb-by">↑${esc(fq ? shortId(b0) : b0)}</i>` : "";
+  if (v === 1) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.cid)}</b>${by}${fq}</div>`;
+  const more = lb.more ? `<i class="rb-more">+${lb.more}</i>` : "";
+  return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.id)}</b>${lb.ls.filter((l) => l.fq || l.by).map((l) => `<span class="rb-ln">${l.by ? `<i class="rb-by">${esc(l.by)}</i>` : ""}`
+    + `${l.fq ? `<span class="rb-fq">${esc(l.fq)}</span>` : ""}</span>`).join("")}${more}${lb.extra || ""}</div>`;
+}
+
 export default {
   mount(root) {
     const el = h(`<div class="rb">
@@ -150,7 +173,7 @@ export default {
         ${MAPS.map((m) => m.key === "MID" ? `<div class="rb-mid">
             <div class="rb-btns">${LAYERS.map((l) => `<button type="button" data-ly="${l.id}" title="${esc(l.tip)}" aria-pressed="false">${esc(l.label)}</button>`).join("")}</div>
             <div class="rb-status"></div>
-            <div class="rb-legend"><span><i class="rb-sw on"></i>obsadzony</span><span title="Sektory, TMA i CTR EPWW bez nikogo online: przygaszona częstotliwość stanowiska; sąsiedzi bez częstotliwości"><i class="rb-sw off"></i>nikt (EPWW: nominalna)</span><span><i class="rb-sw cov"></i>↑ przejmuje inne (TWR)</span></div>
+            <div class="rb-legend"><span><i class="rb-sw on"></i>obsadzony</span><span title="Sektory, TMA, CTR i FIS EPWW bez nikogo online: samo ID, bez częstotliwości (stanowisko i jego częstotliwość w dymku); sąsiedzi: pole bez częstotliwości, nikt w całym stosie – ADVISORY ${ADVISORY_FQ}"><i class="rb-sw off"></i>nikt (samo ID)</span><span><i class="rb-sw cov"></i>↑ przejmuje inne (TWR)</span></div>
             ${panelHtml(m)}
           </div>` : panelHtml(m)).join("")}
         <div class="rb-loa" role="dialog" aria-label="LOA" hidden></div>
@@ -181,29 +204,11 @@ export default {
     };
     const posLine = (cs) => `${cs}${d?.pos?.[cs]?.name ? ` · ${d.pos[cs].name}` : ""} ${d?.pos?.[cs]?.frequency || ""}`.trim();
     const chainText = (ch) => ch.map(nm).join(" › ");
-    // linijki etykiety: właściciele (najwyżej dwaj) albo częstotliwość nominalna; by = właściciel inny niż nominalny
-    const lines = (nominal, owners) => (owners.length
-      ? owners.slice(0, 2).map((o) => ({ fq: freqOf(o), by: o === nominal ? "" : nm(o) }))
-      : [{ fq: d?.pos?.[nominal]?.frequency || "—", by: "" }]);
-    const nowText = (owners, nominal) => (owners.length ? owners.map((o) => `Teraz: ${who(o) || o}`).join("\n")
-      : `Teraz nikt – częstotliwość nominalna ${nm(nominal)} ${d?.pos?.[nominal]?.frequency || ""}`.trim());
-
-    // etykieta podglądu w trzech odmianach: pełna (ID nad częstotliwością), skrócona (ID i częstotliwość w jednej linii)
-    // i samo ID; mniejsze, gdy pełna nie mieści się przy swoim punkcie (szczegóły zawsze w dymku)
-    function lblHtml(lb, v = 0) {
-      const attrs = `${lb.k ? ` data-k="${esc(lb.k)}"` : ""}${lb.icao ? ` data-icao="${esc(lb.icao)}" tabindex="0" role="button"` : ""} data-rt="${esc(lb.rt)}"`;
-      const cls = `rb-lbl ${lb.cls} ${lb.state}${v ? " cmp" : ""}`;
-      if (v === 2) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.cid)}</b></div>`;
-      const fq = lb.ls[0]?.fq ? `<span class="rb-fq">${esc(lb.ls[0].fq)}</span>` : "";
-      // skrócona: kto przejmuje (inny niż stanowisko etykiety) przed częstotliwością – skrótem (WA S ↑LL 124.230: TMA
-      // Łódź u wieży Łódź), a bez częstotliwości (podana w innej etykiecie) pełną nazwą zamiast pustej linii
-      const b0 = String(lb.ls[0]?.by || "").replace(/^↑/, "");
-      const by = b0 ? `<i class="rb-by">↑${esc(fq ? shortId(b0) : b0)}</i>` : "";
-      if (v === 1) return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.cid)}</b>${by}${fq}</div>`;
-      const more = lb.more ? `<i class="rb-more">+${lb.more}</i>` : "";
-      return `<div class="${cls}"${attrs}><b class="rb-id">${esc(lb.id)}</b>${lb.ls.filter((l) => l.fq || l.by).map((l) => `<span class="rb-ln">${l.by ? `<i class="rb-by">${esc(l.by)}</i>` : ""}`
-        + `${l.fq ? `<span class="rb-fq">${esc(l.fq)}</span>` : ""}</span>`).join("")}${more}${lb.extra || ""}</div>`;
-    }
+    // linijki etykiety: właściciele (najwyżej dwaj) z częstotliwością, by = właściciel inny niż stanowisko etykiety;
+    // nikt → żadnej (samo ID, stanowisko i jego częstotliwość w dymku)
+    const lines = (nominal, owners) => owners.slice(0, 2).map((o) => ({ fq: freqOf(o), by: o === nominal ? "" : nm(o) }));
+    const nowText = (owners) => (owners.length ? owners.map((o) => `Teraz: ${who(o) || o}`).join("\n")
+      : d?.net?.ok === false ? "VATSIM: brak danych" : "Teraz nikt");
 
     // --- pasek ATIS
     function renderAtis() {
@@ -239,10 +244,10 @@ export default {
     const accTip = (s) => {
       const ly = d.layers?.[s.layer];
       return [`Sektor ${s.letter} · ${s.layer}${ly?.label ? ` ${ly.label}` : ""}`, `Stanowisko sektora: ${posLine(s.nominal)}`,
-        nowText(s.owner ? [s.owner] : [], s.nominal), `Kolejność: ${chainText(s.chain)}`].join("\n");
+        nowText(s.owner ? [s.owner] : []), `Kolejność: ${chainText(s.chain)}`].join("\n");
     };
     const groupTip = (g, title, extra = [], now = null) => [title, `Stanowisko: ${posLine(g.nominal)}`,
-      now || (g.owners.length || !g.topdown ? nowText(g.owners, g.nominal) : `Teraz top-down: ${who(g.topdown) || g.topdown}`), ...extra,
+      now || (g.owners.length || !g.topdown ? nowText(g.owners) : `Teraz top-down: ${who(g.topdown) || g.topdown}`), ...extra,
       `Kolejność: ${chainText(g.chains[0] || [])}`].join("\n");
 
     // etykiety podglądu: {lb (model etykiety), at: [lat, lon], prio, dot?, alts?}; APP, TWR i FIS tylko na LOW
@@ -265,17 +270,15 @@ export default {
         // etykieta na część TMA (stanowisko części: WA APP, WA N APP, WA S APP; TMA proceduralna: wieża, np. SC TWR).
         // Ta sama częstotliwość w kilku etykietach (WA APP przejmuje WA N i WA S; WA S APP w TMA Łódź i Radom): tylko
         // w części tego stanowiska (najpierw przy jego lotnisku), potem w TMA jego lotniska, potem w pierwszej;
-        // w pozostałych sama nazwa, reszta w dymku
+        // w pozostałych sama nazwa (↑WA APP), reszta w dymku; część bez nikogo: samo ID
         const tma = d.tma.filter((g) => g.at);
-        const station = (g, i) => (g.owners.length ? g.owners[i] : g.nominal);
         const keeper = new Map();  // znak → id części, w której etykieta ma jego częstotliwość
         [(g, cs) => cs === g.nominal && cs.slice(0, 4) === g.icao, (g, cs) => cs === g.nominal, (g, cs) => cs.slice(0, 4) === g.icao]
-          .forEach((ok) => tma.forEach((g) => { const cs = station(g, 0); if (cs && ok(g, cs) && !keeper.has(cs)) keeper.set(cs, g.id); }));
+          .forEach((ok) => tma.forEach((g) => { const cs = g.owners[0]; if (cs && ok(g, cs) && !keeper.has(cs)) keeper.set(cs, g.id); }));
         tma.forEach((g) => {
           const { ls, more } = local(g);
           ls.forEach((l, i) => {
-            const cs = station(g, i);
-            if (!cs) return;
+            const cs = g.owners[i];
             if (!keeper.has(cs)) keeper.set(cs, g.id);
             if (keeper.get(cs) !== g.id) l.fq = "";
           });
@@ -283,8 +286,8 @@ export default {
           const title = `${g.tma}${g.id !== g.tma ? ` – część ${id}` : ""} (${g.lo ? flText(g.lo) : "GND"}–${flText(g.hi)})`;
           const extra = [...(proc ? [`TMA proceduralna (bez APP): częstotliwość wieży ${id}`] : []),
             ...(g.apps.length > 1 ? [`APP w tej części: ${g.apps.map((c) => `${nm(c)} ${d.pos[c]?.frequency || ""}`).join(", ")}`] : [])];
-          // bez częstotliwości (podana w innej etykiecie, offline bez własnej) mniejsze odmiany z pełnym ID: samo „GD”
-          // czytałoby się jak lotnisko
+          // bez częstotliwości (podana w innej etykiecie, nikt) mniejsze odmiany z pełnym ID: samo „GD” czytałoby się
+          // jak lotnisko
           out.push({ at: g.at, box: g.box, prio: g.owners.length ? 1 : 1.5, kind: "app", dot: "app", lb: { cls: "app",
             state: g.owners.length ? "on" : "off", id, cid: ls[0]?.fq ? shortId(id) : id, ls, more, rt: groupTip(g, title, extra) } });
         });
@@ -293,15 +296,17 @@ export default {
       if (twra || layers.has("twr")) {
         d.twr.forEach((g) => {
           if (!g.at) return;
-          // TWR: częstotliwość wieży (jasna, gdy wieża online); wieżę przejmuje inne stanowisko (np. APP) → ↑APP, dymek mówi kto
+          // TWR: częstotliwość wieży online; wieżę przejmuje inne stanowisko (np. APP) → częstotliwość wieży z ↑APP,
+          // dymek mówi kto; nikt → samo ID. TWR/ATIS: linia ATIS tylko, gdy ATIS jest online
           const tw = g.owners.find((o) => /_TWR$/.test(o)), cover = tw ? null : g.owners[0];
-          const ls = [tw ? { fq: freqOf(tw), by: tw === g.nominal ? "" : nm(tw) }
-            : { fq: d.pos[g.nominal]?.frequency || "—", by: cover ? `↑${byShort(nm(cover))}` : "" }];
+          const ls = tw ? [{ fq: freqOf(tw), by: tw === g.nominal ? "" : nm(tw) }]
+            : cover ? [{ fq: d.pos[g.nominal]?.frequency || "—", by: `↑${byShort(nm(cover))}` }] : [];
           const a = g.atis ? on(g.atis) : null;
-          const atl = twra && g.atis ? `<span class="rb-ln rb-atl${a ? " on" : ""}"><i class="rb-by">ATIS</i><span class="rb-fq">${esc(freqOf(g.atis))}</span>${a?.atis_code ? `<b class="rb-code">${esc(a.atis_code)}</b>` : ""}</span>` : "";
+          const atl = twra && a ? `<span class="rb-ln rb-atl"><i class="rb-by">ATIS</i><span class="rb-fq">${esc(freqOf(g.atis))}</span>${a.atis_code ? `<b class="rb-code">${esc(a.atis_code)}</b>` : ""}</span>` : "";
           const extra = g.atis ? [`ATIS: ${posLine(g.atis)}${a ? ` – online${a.atis_code ? `, informacja ${a.atis_code}` : ""}` : " – offline"}`] : [];
           const id = nm(g.nominal);
-          out.push({ at: g.at, box: g.box, prio: tw ? 2 : 2.5, kind: "twr", dot: "twr", lb: { cls: "twr", state: tw ? "on" : cover ? "cov" : "off", id, cid: shortId(id), ls, extra: atl,
+          out.push({ at: g.at, box: g.box, prio: tw ? 2 : 2.5, kind: "twr", dot: "twr", lb: { cls: "twr", state: tw ? "on" : cover ? "cov" : "off", id,
+            cid: ls[0]?.fq ? shortId(id) : id, ls, extra: atl,
             icao: g.icao, k: g.icao, rt: groupTip(g, `${g.id} · ${g.icao}`, [...extra, "Kliknij: AERODROME"],
               cover ? `Wieża offline – przejmuje ${g.owners.map((o) => who(o) || o).join(", ")}` : null) } });
         });
@@ -343,11 +348,11 @@ export default {
       renderTitle(m, { top: fr.top - pr.top, left: fr.left - pr.left, right: pr.right - fr.right });
       // etykiety: wstawiamy wszystkie odmiany, mierzymy, układamy (ważniejsze pierwsze), zostawiamy wybraną odmianę
       const items = labelsFor(m, accs).sort((a, b) => a.prio - b.prio);
-      const nv = (it) => (it.prio > 0 ? 3 : 1);
-      m.lbls.innerHTML = items.map((it) => Array.from({ length: nv(it) }, (_, v) => lblHtml(it.lb, v)).join("")).join("");
+      const vs = items.map((it) => lblVariants(it.lb, it.kind !== "acc"));
+      m.lbls.innerHTML = items.map((it, i) => vs[i].map((v) => lblHtml(it.lb, v)).join("")).join("");
       const els = [...m.lbls.children];
       let ei = 0;
-      const vars = items.map((it) => els.slice(ei, (ei += nv(it))));
+      const vars = vs.map((x) => els.slice(ei, (ei += x.length)));
       const sz = (e) => ({ w: e.offsetWidth, h: e.offsetHeight });
       const pts = items.map((it) => P([it.at[1], it.at[0]]));
       // przeszkody: stosy sąsiadów i tytuł podglądu (współrzędne w panelu)
