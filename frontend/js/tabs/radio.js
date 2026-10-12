@@ -3,7 +3,8 @@
 // duży podgląd HIGH ze stosami UMKK, EYVL, UMMV, UKLV, LZBB. Na podglądach: ID sektora (litera warstwy + litera sektora,
 // np. LB) i częstotliwość stanowiska, które teraz go obsługuje wg kolejności przejmowania (ownership.json); bez nikogo
 // online przygaszona częstotliwość stanowiska sektora. Dane: GET /api/radio/board co 30 s (geometria raz, potem tylko po
-// zmianie wersji danych `ver`, np. po imporcie nowego pliku .ese).
+// zmianie wersji danych `ver`, np. po imporcie nowego pliku .ese). Kliknięcie nagłówka stosu sąsiada (np. EDWW BREMEN):
+// panel z wyciągiem z LOA EPWW z tym FIR-em (GET /api/radio/loa) i odnośnikiem do PDF-u w DOCS › LOA.
 import { api, esc, h, lsGet, lsSet, navigate, remember } from "../api.js";
 import { labelPoint } from "../coverage.js";
 import { displayName, loadDisplayNames, posName } from "../posname.js";
@@ -42,6 +43,63 @@ const areaOf = (g) => ringsOf(g).reduce((a, r) => a + Math.abs(r.reduce((s, [x1,
   return s + x1 * y2 - x2 * y1;
 }, 0)) / 2, 0);
 
+// --- LOA EPWW z sąsiadem (data/seed/loa.json, jak do 0.11 w RADIO): tytuł, wersja, liczba przekazań i PDF, pod spodem
+// gęste tabele przekazań OUT/IN, zasady (przekazanie kontroli, VFR, inne) i stanowiska wg LOA, z filtrem.
+// Lista raz na sesję (plik zmienia się z nową wersją PolIDS); błąd nie zostaje w pamięci.
+let loaP = null;
+const loadLoa = () => (loaP ||= api("/api/radio/loa").catch((e) => { loaP = null; throw e; }));
+// tylko ścieżki do plików PolIDS (/files/docs/…): adres DOCS (#docs/LOA/…) i PDF w nowej karcie
+const DOCS = "/files/docs/";
+const pdfPath = (pdf) => (String(pdf || "").startsWith(DOCS) ? String(pdf) : "");
+const arr = (x) => (Array.isArray(x) ? x : []);
+
+function loaTransfers(rows, from, to) {
+  if (!rows.length) return "";
+  // kolumny sektorów tylko, gdy LOA je podaje (LKAA, LZBB: bez sektorów)
+  const sec = rows.some((t) => t.from || t.to);
+  const head = `<tr><th>Ruch</th><th>COP</th><th>Poziom</th>${sec ? "<th>Z sektora</th><th>Do sektora</th>" : ""}<th>Warunki</th></tr>`;
+  // filtr po treści wiersza bez pola dir ("out"/"in" pasowałoby do każdego przekazania w tę stronę)
+  const body = rows.map((t) => `<tr data-f="${esc(Object.entries(t).filter(([k]) => k !== "dir").map(([, v]) => v).join(" ").toLowerCase())}">`
+    + `<td class="trf">${esc(t.traffic)}</td><td class="cop">${esc(t.cop)}</td><td class="lvl">${esc(t.level)}</td>`
+    + `${sec ? `<td class="sec">${esc(t.from)}</td><td class="sec">${esc(t.to)}</td>` : ""}<td class="cond">${esc(t.conditions)}</td></tr>`).join("");
+  return `<div class="rb-loa-sec"><h4>${esc(from)} → ${esc(to)} <small>${rows.length}</small></h4>
+    <table class="rb-loa-tab"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+}
+const loaList = (title, items) => (arr(items).length ? `<div class="rb-loa-sec"><h4>${esc(title)} <small>${items.length}</small></h4>
+  <ul>${items.map((x) => `<li data-f="${esc(String(x).toLowerCase())}">${esc(x)}</li>`).join("")}</ul></div>` : "");
+
+// fir, title: stos sąsiada z /api/radio/board; f: wpis z loa.json albo null (brak LOA z tym FIR-em, błąd: msg,
+// jeszcze się wczytuje: loading); radio(cs): znak radiowy stanowiska, gdy LOA go nie podaje
+export function loaHtml(fir, title, f, radio, { msg = "", loading = false } = {}) {
+  const tr = arr(f?.transfers), out = tr.filter((t) => t.dir === "out"), inn = tr.filter((t) => t.dir === "in");
+  const pdf = pdfPath(f?.pdf);
+  // tytuł LOA podaje już FIR sąsiada (LOA EPWW – EDWW (Bremen)); bez LOA: FIR i nazwa ze stosu
+  const head = `<div class="rb-loa-h"><b class="rb-loa-tag">LOA</b>${f ? "" : `<span class="rb-loa-fir"><b>${esc(fir)}</b> ${esc(title)}</span>`}`
+    + (f ? `<span class="rb-loa-t" title="${esc(f.title)}">${esc(f.title)}</span><span class="rb-loa-v" title="${esc(f.version)}">${esc(f.version)}</span>` : "")
+    + `<span class="rb-loa-sp"></span>`
+    + (pdf ? `<button type="button" class="rb-loa-a" data-docs="${esc(pdf.slice(DOCS.length))}" title="Otwórz PDF w zakładce DOCS (← wraca do RADIO)">DOCS › LOA</button>`
+      + `<a class="rb-loa-a" href="${esc(encodeURI(pdf))}" target="_blank" rel="noopener" title="${esc(pdf)}">PDF ↗</a>` : "")
+    + `<button type="button" class="rb-loa-x" title="Zamknij (Esc)">✕</button></div>`;
+  if (!f) {
+    return head + `<div class="rb-loa-b"><p class="${msg ? "error" : "hint"}">${msg ? esc(msg) : loading ? "Wczytywanie LOA…"
+      : `Brak LOA EPWW z ${esc(fir)} w PolIDS. Wszystkie LOA: zakładka DOCS › LOA.`}</p></div>`;
+  }
+  const pos = arr(f.positions).map((p) => `<tr data-f="${esc(Object.values(p).join(" ").toLowerCase())}">`
+    + `<td class="${p.side === "EP" ? "ep" : "nb"}">${p.side === "EP" ? "EPWW" : esc(fir)}</td><td class="pcs">${esc(p.callsign)}</td>`
+    + `<td>${esc(p.radio || radio(p.callsign))}</td><td class="cop">${esc(p.sector)}</td><td class="lvl">${esc(p.frequency)}</td>`
+    + `<td class="cond">${esc(p.note)}</td></tr>`).join("");
+  return head + `<div class="rb-loa-b">
+    <div class="rb-loa-tools"><input type="search" class="rb-loa-q" placeholder="filtr: COP, lotnisko, FL, sektor…" aria-label="Filtr LOA">
+      <span class="rb-loa-cnt"></span><span class="rb-loa-n">przekazania: ${out.length} z EPWW · ${inn.length} do EPWW</span>
+      <span class="hint" title="Wyciąg z PDF (data/seed/loa.json); w razie wątpliwości obowiązuje PDF">wyciąg z PDF, obowiązuje PDF</span></div>
+    ${loaTransfers(out, "EPWW", fir)}${loaTransfers(inn, fir, "EPWW")}
+    <div class="rb-loa-rules">${loaList("Przekazanie kontroli i łączności", f.silent)}${loaList("VFR", f.vfr)}${loaList("Inne zasady", f.other)}</div>
+    ${pos ? `<div class="rb-loa-sec"><h4>Stanowiska i sektory wg LOA <small>${arr(f.positions).length}</small></h4>
+      <table class="rb-loa-tab pos"><thead><tr><th>Strona</th><th>Stanowisko</th><th>Znak radiowy</th><th>Sektor</th><th>Częst.</th><th>Uwagi</th></tr></thead>
+      <tbody>${pos}</tbody></table></div>` : ""}
+  </div>`;
+}
+
 export default {
   mount(root) {
     const el = h(`<div class="rb">
@@ -53,15 +111,17 @@ export default {
             <div class="rb-legend"><span><i class="rb-sw on"></i>obsadzony</span><span><i class="rb-sw off"></i>nikt (nominalna)</span><span><i class="rb-sw cov"></i>↑ przejmuje inne (TWR)</span></div>
             ${panelHtml(m)}
           </div>` : panelHtml(m)).join("")}
+        <div class="rb-loa" role="dialog" aria-label="LOA" hidden></div>
       </div>
       <div class="rb-tip" hidden></div>
     </div>`);
     root.append(el);
     const $ = (s) => el.querySelector(s);
-    const tip = $(".rb-tip");
+    const tip = $(".rb-tip"), loaBox = $(".rb-loa");
 
     let layers = readLayers(), cut = readCut();
     let d = null, geo = null, geoVer = "", err = "", border = null, noBorder = false, timer = null, loading = false, lastLoad = 0;
+    let loaFir = null;   // FIR, którego LOA jest otwarte (panel .rb-loa)
     const maps = Object.fromEntries(MAPS.map((m) => {
       const p = el.querySelector(`.rb-panel[data-map="${m.key}"]`);
       return [m.key, { ...m, el: p, svg: p.querySelector("svg"), lbls: p.querySelector(".rb-lbls"), free: p.querySelector(".rb-free") }];
@@ -128,8 +188,8 @@ export default {
     }
     function stackHtml(st) {
       const lv = levelLines(st.rows);
-      const tipH = `${st.fir} ${st.title}: stanowiska z sektorów przy granicy FIR EPWW (plik .ese sąsiada)\nliczby po lewej: górna i dolna granica (FL)`;
-      return `<div class="rb-nb" data-fir="${esc(st.fir)}"><div class="rb-nbh" data-rt="${esc(tipH)}"><b>${esc(st.fir)}</b> ${esc(st.title)}</div>`
+      const tipH = `${st.fir} ${st.title}: stanowiska z sektorów przy granicy FIR EPWW (plik .ese sąsiada)\nliczby po lewej: górna i dolna granica (FL)\nKliknij: LOA EPWW – ${st.fir}`;
+      return `<div class="rb-nb" data-fir="${esc(st.fir)}"><div class="rb-nbh${loaFir === st.fir ? " sel" : ""}" role="button" tabindex="0" data-title="${esc(st.title)}" data-rt="${esc(tipH)}"><b>${esc(st.fir)}</b> ${esc(st.title)}</div>`
         + (lv.length ? lv.map((ln) => `<div class="rb-lv"><span class="rb-fl" data-rt="${esc(`${flText(ln.lo)}–${flText(ln.hi)}`)}"><i>${flNum(ln.hi)}</i><i>${flNum(ln.lo)}</i></span>`
           + `<div class="rb-bxs">${ln.rows.map(rowBox).join("")}</div></div>`).join("")
           : `<div class="rb-none">brak sektorów przy granicy</div>`) + "</div>";
@@ -405,6 +465,59 @@ export default {
     el.addEventListener("keydown", (e) => {
       const a = e.target.closest?.(".rb-lbl.twr[data-icao]");
       if (a && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); navigate("aerodrome", a.dataset.icao); }
+    });
+
+    // --- LOA: nagłówek stosu sąsiada otwiera panel (drugie kliknięcie, ✕ albo Esc zamyka); bez kroku w historii
+    const markLoa = () => el.querySelectorAll(".rb-nbh").forEach((x) => x.classList.toggle("sel", x.closest(".rb-nb")?.dataset.fir === loaFir));
+    const radioOf = (cs) => d?.pos?.[cs]?.name || "";
+    const sideOf = (hd) => (hd.closest(".rb-high") ? "right" : "left");
+    function closeLoa() {
+      loaFir = null;
+      loaBox.hidden = true;
+      loaBox.innerHTML = "";
+      markLoa();
+    }
+    // panel po przeciwnej stronie niż kliknięty stos (stosy tej strony zostają widoczne: inny FIR jednym kliknięciem)
+    async function openLoa(fir, title, side) {
+      if (loaFir === fir) return closeLoa();
+      loaFir = fir;
+      markLoa();
+      loaBox.classList.toggle("at-left", side === "right");
+      loaBox.hidden = false;
+      loaBox.innerHTML = loaHtml(fir, title, null, radioOf, { loading: true });
+      let html;
+      try {
+        const data = await loadLoa();
+        html = loaHtml(fir, title, data?.firs?.[fir] || null, radioOf);
+      } catch (e) {
+        html = loaHtml(fir, title, null, radioOf, { msg: `LOA: ${e.message}` });
+      }
+      if (loaFir !== fir) return;   // w międzyczasie zamknięty albo otwarty inny FIR
+      loaBox.innerHTML = html;
+      loaBox.querySelector(".rb-loa-b").scrollTop = 0;
+    }
+    el.addEventListener("click", (e) => {
+      const hd = e.target.closest(".rb-nbh");
+      if (hd) openLoa(hd.closest(".rb-nb").dataset.fir, hd.dataset.title || "", sideOf(hd));
+    });
+    el.addEventListener("keydown", (e) => {
+      const hd = e.target.closest?.(".rb-nbh");
+      if (hd && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openLoa(hd.closest(".rb-nb").dataset.fir, hd.dataset.title || "", sideOf(hd)); }
+      if (e.key === "Escape" && !loaBox.hidden) { e.preventDefault(); closeLoa(); }
+    });
+    loaBox.addEventListener("click", (e) => {
+      if (e.target.closest(".rb-loa-x")) return closeLoa();
+      const doc = e.target.closest("button[data-docs]");
+      if (doc) navigate("docs", doc.dataset.docs);
+    });
+    // filtr: wiersze tabel i zasady zawierające wpisany tekst; sekcje bez trafień znikają
+    loaBox.addEventListener("input", (e) => {
+      if (!e.target.matches(".rb-loa-q")) return;
+      const t = e.target.value.trim().toLowerCase();
+      const items = [...loaBox.querySelectorAll("[data-f]")];
+      items.forEach((x) => { x.hidden = !!t && !x.dataset.f.includes(t); });
+      loaBox.querySelectorAll(".rb-loa-sec").forEach((sec) => { sec.hidden = !!t && !sec.querySelector("[data-f]:not([hidden])"); });
+      loaBox.querySelector(".rb-loa-cnt").textContent = t ? `${items.filter((x) => !x.hidden).length} z ${items.length}` : "";
     });
 
     // --- dymki (jeden pływający, przycięty do okna) i podświetlenie sektora pod etykietą

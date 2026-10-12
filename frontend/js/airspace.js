@@ -1,9 +1,9 @@
-// Wspólne warstwy mapy przestrzeni (RADIO i MAP): sektory EPWW z pliku .ese, granice FIR z VATSpy,
+// Warstwy mapy przestrzeni (MAP): sektory EPWW z pliku .ese, granice FIR z VATSpy,
 // podświetlenie stanowisk zalogowanych w sieci VATSIM.
 import { api, atisHtml, esc } from "./api.js";
 
 const PALETTE = ["#2f8fff", "#3ecf6e", "#ffb020", "#ff5c8a", "#a970ff", "#00c2c7", "#ff7a3d", "#c3d82b", "#ff4dd2", "#6f8cff"];
-// Stałe kolory 19 stanowisk ACC EPWW (te same w MAPA, SEKTORYZACJA i RADIO). Dobrane tak, żeby najbardziej różniły się
+// Stałe kolory 19 stanowisk ACC EPWW na MAP. Dobrane tak, żeby najbardziej różniły się
 // stanowiska, które mogą jednocześnie obsługiwać sąsiednie sektory; skrót stanowiska jest zawsze w etykiecie.
 export const POSITION_COLORS = {
   EPWW_N_CTR: "#40f5ec", EPWW_ALH_CTR: "#4ed227", EPWW_DBT_CTR: "#ae5af9", EPWW_DBF_CTR: "#fd8c7b", EPWW_ALL_CTR: "#4fcc92",
@@ -136,7 +136,7 @@ export function drawSectors(layer, gj, online = null, { labels = true, tipPane =
     const cs = online ? own?.callsign : pr.callsign;
     const freq = online ? own?.frequency : pr.frequency;
     // sektor ACC rozstrzygnięty wg kolejności przejmowania: kolor wg stanowiska z tej kolejności
-    // (ten sam co w SEKTORYZACJI także przy znaku zastępczym, np. EPWW_C1_CTR na częstotliwości C)
+    // (ten sam także przy znaku zastępczym, np. EPWW_C1_CTR na częstotliwości C)
     const vc = online?.vacs?.[pr.name];
     const color = online && !own ? "#555" : colorFor(vc?.key || cs || pr.name);
     const ch = chain && vc ? `<br><span class="muted">${esc(vc.layer)}:</span> ${vc.chain.map((x) => (x === vc.owner ? `<b>${esc(x)}</b>` : esc(x))).join(" › ")}` : "";

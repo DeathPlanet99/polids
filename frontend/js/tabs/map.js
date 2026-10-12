@@ -439,7 +439,7 @@ function mainMap(ctx) {
 
   // Właściciel jednego wycinka. Wynik: {c: obsługujący (w TMA / CTA / CTR tylko APP, TWR…: etykieta), top: ACC top-down,
   // key: znak do koloru, who: znak obsługującego z kolejności (kolor TMA / CTA / CTR), ext: obsługujący spoza stanowisk .ese,
-  // ch: kolejność z chains.js (TMA, CTA, CTR) – ta sama co w RADIO › GEO i SEKTORYZACJA}
+  // ch: kolejność z chains.js (TMA, CTA, CTR)}
   const ownerOf = (pr, ctxo) => {
     const ch = CHAIN_KINDS.includes(pr.kind) ? airspaceChain(pr.name, pr.owner_callsigns, net.vacs) : null;
     if (!ctxo) return { c: null, top: null, key: null, who: ch?.chain[0] || null, ch };

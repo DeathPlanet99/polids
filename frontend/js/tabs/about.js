@@ -43,7 +43,7 @@ const TILES = [
   ["aerodrome", "AERODROME", "Przegląd FIR EPWW, listy lotnisk EPWW i sąsiadów, lotnisko na jednym ekranie: METAR, wiatr, pasy, ATIS, NOTAM, AWOS, RUCH (DMAN/AMAN)."],
   ["meteo", "METEO", "METAR i TAF lotnisk, mapa QNH regionalnego, wiatr przy ziemi i na podejściu, satelita, turbulencje, SIGWX."],
   ["map", "MAP", "Ruch VATSIM, przestrzeń na wybranym poziomie, TMA/CTR, przepustowość sektorów i status lotu z vIFF."],
-  ["radio", "RADIO", "Jedna strona jak w PANDORZE: sektory ACC EPWW na podglądach LOW/MID/HIGH z częstotliwościami, warstwy APP/TWR/FIS, ATIS i stanowiska sąsiadów."],
+  ["radio", "RADIO", "Jedna strona jak w PANDORZE: sektory ACC EPWW na podglądach LOW/MID/HIGH z częstotliwościami, warstwy APP/TWR/FIS, ATIS i stanowiska sąsiadów; nazwa FIR-u sąsiada otwiera wyciąg z LOA."],
   ["sytop", "SYT OP", "Aktywne NOTAM-y FIR EPWW i głównych lotnisk."],
   ["strip", "STRIP", "Paski postępu lotu EFES dla 15 głównych lotnisk."],
   ["callsign", "CALLSIGN", "Znaki wywoławcze linii lotniczych."],

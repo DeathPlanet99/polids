@@ -122,7 +122,7 @@ def position_range(callsign: str, firs: dict, lat: float | None = None, lon: flo
     return None
 
 
-# --- rodzaje wycinków sektorów z pliku .ese (warstwy mapy RADIO › GEO)
+# --- rodzaje wycinków sektorów z pliku .ese (RADIO: GET /api/radio/board, także /api/radio/sectors)
 _ACC = re.compile(r"^EPWW([A-Z])(?:-[A-Z]+)?$")
 _CTR = re.compile(r"^(EP[A-Z]{2})_M?CTR\d*$")
 _TMA = re.compile(r"^(EP[A-Z]{2})_(?:[A-Z_]*TMA|APP_|DEP\d|DIR\d)|^CTA\d")

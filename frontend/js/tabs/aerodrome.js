@@ -329,7 +329,7 @@ export default {
 
     const renderFreqs = async (el, info) => {
       const draw = (online = {}, bookings = {}, msg = "") => {
-        // częstotliwości FIS (Information) są w RADIO › EPWW ACC; informacja lotniskowa (np. EPBC) zostaje
+        // częstotliwości FIS (Information) są w RADIO (warstwa FIS); informacja lotniskowa (np. EPBC) zostaje
         const ps = info.atc_positions.filter((p) => !(/information/i.test(p.name) && /_(APP|CTR)$/.test(p.callsign))).sort(byType);
         const extra = Object.keys(bookings).filter((cs) => cs.startsWith(icao + "_") && !ps.some((p) => p.callsign === cs));
         el.innerHTML = (ps.map((p) => {

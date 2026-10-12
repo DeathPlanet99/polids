@@ -195,6 +195,16 @@ def test_existing_radio_endpoints_kept(client):
         assert client.get(path).status_code == 200, path
 
 
+def test_every_loa_has_a_stack(client, board):
+    """Panel LOA otwiera się z nagłówka stosu sąsiada: każde LOA z loa.json ma swój stos na stronie RADIO
+    (UMKK i UMMV bez LOA: panel mówi, że go nie ma)."""
+    loa = client.get("/api/radio/loa").json()["firs"]
+    stacks = {s["fir"] for s in board["stacks"]}
+    assert set(loa) <= stacks and stacks - set(loa) == {"UMKK", "UMMV"}
+    radio = (FRONTEND / "js" / "tabs" / "radio.js").read_text("utf-8")
+    assert 'api("/api/radio/loa")' in radio and 'navigate("docs"' in radio
+
+
 # --- czyste funkcje radioboard.py
 OWN = {"tma_topdown": {"TMA Test": {"ese_prefixes": ["EPXX_TMA"], "chain": ["EPWW_A_CTR", "EPWW_B_CTR"]}}}
 
@@ -353,6 +363,56 @@ def test_js_layout_helpers(js):
     assert js["bottom"]["y"] + js["bottom"]["h"] == pytest.approx(400)  # MID przy dolnej krawędzi
     assert js["path"] == "M0.0,0.0L10.0,0.0L10.0,10.0Z"
     assert js["bbox"] == [-1, 0, 2, 5]
+
+
+LOA_SCRIPT = r"""
+const radio = await import(process.argv[2]);
+const firs = JSON.parse(process.argv[3]);
+const radioOf = (cs) => (cs === "EDDB_N_APP" ? "Bremen Radar" : "");
+const evil = { title: "<img src=x onerror=alert(1)>", version: "v<1>", pdf: "javascript:alert(1)",
+  transfers: [{ dir: "out", traffic: "<b>X</b>", cop: "C\"OP", level: "FL100", from: "", to: "", conditions: "&" }],
+  silent: ["<i>s</i>"], vfr: [], other: [], positions: [{ callsign: "EDDB_N_APP", radio: "", sector: "<s>", frequency: "1", side: "NB", note: "" }] };
+console.log(JSON.stringify({
+  edww: radio.loaHtml("EDWW", "BREMEN", firs.EDWW, radioOf),
+  none: radio.loaHtml("UMKK", "KALININGRAD", null, radioOf),
+  loading: radio.loaHtml("EDWW", "BREMEN", null, radioOf, { loading: true }),
+  error: radio.loaHtml("EDWW", "BREMEN", null, radioOf, { msg: "LOA: <zły plik>" }),
+  evil: radio.loaHtml("EDWW", "BREMEN", evil, radioOf),
+}));
+"""
+
+
+def test_js_loa_panel(tmp_path):
+    """Panel LOA w RADIO (tabs/radio.js loaHtml): tabele przekazań w obie strony, zasady, stanowiska, PDF w DOCS
+    i w nowej karcie; brak LOA, wczytywanie i błąd; dane z loa.json zawsze przez esc()."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("brak Node.js")
+    d = tmp_path / "js"
+    shutil.copytree(FRONTEND / "js", d)
+    (d / "package.json").write_text('{"type": "module"}', "utf-8")
+    script = tmp_path / "loa.mjs"
+    script.write_text(LOA_SCRIPT, "utf-8")
+    firs = json.loads((ROOT_DIR / "data" / "seed" / "loa.json").read_text("utf-8"))["firs"]
+    r = subprocess.run([node, str(script), (d / "tabs" / "radio.js").as_uri(), json.dumps(firs)],
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    e, f = out["edww"], firs["EDWW"]
+    n_out = sum(t["dir"] == "out" for t in f["transfers"])
+    assert f"przekazania: {n_out} z EPWW · {len(f['transfers']) - n_out} do EPWW" in e
+    assert "EPWW → EDWW" in e and "EDWW → EPWW" in e and "Stanowiska i sektory wg LOA" in e
+    rows = len(f["transfers"]) + len(f["positions"]) + sum(len(f[k]) for k in ("silent", "vfr", "other"))
+    assert e.count("data-f=") == rows
+    assert 'data-docs="LOA/LOA EPWW EDWW Bremen, EDUU Karlsruhe (AIRAC 2602).pdf"' in e
+    assert 'href="/files/docs/LOA/LOA%20EPWW%20EDWW%20Bremen,%20EDUU%20Karlsruhe%20(AIRAC%202602).pdf"' in e
+    assert "<td>Bremen Radar</td>" in e  # znak radiowy z tablicy RADIO, gdy LOA go nie podaje
+    assert "Brak LOA EPWW z UMKK" in out["none"] and "data-docs" not in out["none"] and "KALININGRAD" in out["none"]
+    assert "Wczytywanie LOA…" in out["loading"]
+    assert 'class="error">LOA: &lt;zły plik&gt;' in out["error"]
+    ev = out["evil"]
+    assert "<img" not in ev and "<b>X" not in ev and "<i>s" not in ev and "<s>" not in ev and 'C"OP' not in ev
+    assert "javascript:" not in ev and "data-docs" not in ev  # PDF tylko z /files/docs/
 
 
 def test_frontend_imports_resolve():

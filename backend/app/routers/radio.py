@@ -43,6 +43,12 @@ def _coords(db: Session, icaos: set[str]) -> dict[str, tuple[float, float]]:
     return out
 
 
+# Strona RADIO (od 0.12 jedna strona jak w PANDORZE) pobiera tylko /board i /loa (panel LOA po kliknięciu stosu sąsiada).
+# /positions, /online, /bookings i /sectors to dawne źródła podzakładek GEO, SEKTORYZACJA i list (do 0.11); zostają
+# celowo jako API JSON: pełna lista stanowisk ze znakami radiowymi, dopasowanie zalogowanych, rezerwacje i wycinki .ese
+# w jednym miejscu (narzędzia, diagnostyka; test_radio.py). Frontend z nich nie korzysta.
+
+
 @router.get("/positions")
 def positions(db: Session = Depends(get_db)):
     """Stanowiska do RADIO: plik .ese + wszystkie stanowiska sąsiednich FIR-ów z vacs-data (bez FMP/TMU).

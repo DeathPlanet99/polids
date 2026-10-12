@@ -20,7 +20,7 @@
   border-radius: 2px; }
 
 /* --- siatka: [LOW + sąsiedzi] [przyciski + MID] [HIGH + sąsiedzi] */
-.rb-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) clamp(200px, 16vw, 330px) minmax(0, 1fr); gap: 6px; }
+.rb-grid { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) clamp(200px, 16vw, 330px) minmax(0, 1fr); gap: 6px; }
 .rb-panel { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #000; border: 1px solid #121812; }
 .rb-svg { position: absolute; inset: 0; display: block; }
 .rb-frame { position: absolute; inset: 0; display: grid; gap: 6px; padding: 5px; pointer-events: none; }
@@ -140,6 +140,60 @@
 .rb-sw.on { border-color: var(--green-hi); background: #071305; }
 .rb-sw.cov { border: 1px dashed #2f6a24; }
 .rb-midmap { flex: none; aspect-ratio: .9; max-height: 55%; --rb-f: clamp(10px, .68vw, 13px); }
+
+/* --- stos sąsiada: nagłówek otwiera LOA */
+.rb-nbh[role="button"] { cursor: pointer; }
+.rb-nbh:hover b, .rb-nbh.sel b { text-decoration: underline; }
+.rb-nbh.sel { color: #fff; }
+.rb-nbh:focus-visible { outline: 1px solid var(--green-hi); outline-offset: 1px; }
+
+/* --- panel LOA EPWW z sąsiadem: nad podglądem po przeciwnej stronie niż kliknięty stos */
+.rb-loa { position: absolute; z-index: 5; top: 0; right: 0; width: min(1120px, 72%); max-height: 100%; display: flex; flex-direction: column;
+  background: #050705; border: 1px solid var(--green); border-radius: 2px; }
+.rb-loa.at-left { right: auto; left: 0; }
+.rb-loa[hidden] { display: none; }
+.rb-loa-h { flex: none; display: flex; align-items: center; gap: 10px; min-width: 0; padding: 4px 8px; background: var(--head);
+  border-bottom: 1px solid var(--head-line); font: 12px var(--mono); white-space: nowrap; }
+.rb-loa-tag { flex: none; padding: 0 6px; border: 1px solid var(--green); border-radius: 2px; color: var(--green-hi); font: 700 11px/16px var(--mono); }
+.rb-loa-fir { flex: none; color: var(--muted); }
+.rb-loa-fir b { color: var(--yellow); }
+.rb-loa-t { flex: 0 1 auto; min-width: 12ch; overflow: hidden; text-overflow: ellipsis; color: #fff; font-weight: 700; }
+.rb-loa-v { flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.rb-loa-n { flex: none; font: 11px var(--mono); color: #b9c2b9; }
+.rb-loa-sp { flex: 1; }
+.rb-loa-a, .rb-loa-x { flex: none; padding: 0 8px; background: #0d110d; border: 1px solid #2f3a2f; border-radius: 2px; color: #c3cdc3;
+  font: 12px/18px var(--mono); text-decoration: none; cursor: pointer; }
+.rb-loa-a:hover, .rb-loa-x:hover { border-color: var(--green-hi); color: #fff; }
+.rb-loa-b { min-height: 0; overflow: auto; padding: 0 10px 8px; }
+.rb-loa-b > p { margin: 8px 0; font: 12px var(--mono); }
+.rb-loa-tools { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; height: 32px; background: #050705; }
+.rb-loa-q { flex: 0 1 260px; min-width: 120px; padding: 2px 6px; background: #000; border: 1px solid #2f3a2f; border-radius: 2px; color: var(--text); font: 12px var(--mono); }
+.rb-loa-q:focus { outline: none; border-color: var(--green-hi); }
+.rb-loa-tools .hint, .rb-loa-cnt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--mono); color: var(--muted); }
+.rb-loa-cnt:empty { display: none; }
+.rb-loa-sec[hidden], .rb-loa [data-f][hidden] { display: none; }
+.rb-loa h4 { margin: 8px 0 3px; font: 700 11px/1.3 var(--mono); letter-spacing: .8px; text-transform: uppercase; color: var(--green-text); }
+.rb-loa h4 small { margin-left: 6px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
+.rb-loa-tab { width: 100%; border-collapse: collapse; font: 12px/1.35 var(--mono); }
+.rb-loa-tab th { position: sticky; top: 32px; z-index: 1; padding: 2px 8px 2px 4px; background: #111611; border-bottom: 1px solid var(--head-line);
+  color: var(--muted); font-weight: 400; text-align: left; white-space: nowrap; }
+.rb-loa-tab td { padding: 2px 8px 2px 4px; border-bottom: 1px solid #161b16; vertical-align: top; color: #d6ded6; }
+.rb-loa-tab tbody tr:nth-child(even) td { background: var(--row-alt); }
+.rb-loa-tab tbody tr:hover td { background: var(--row-hover); }
+.rb-loa-tab .trf { width: 170px; color: var(--cyan); }
+.rb-loa-tab .cop { width: 90px; color: #fff; font-weight: 700; }
+.rb-loa-tab .lvl { min-width: 90px; color: var(--yellow); }
+.rb-loa-tab .sec { white-space: nowrap; }
+.rb-loa-tab .cond { color: #aab3aa; }
+.rb-loa-tab.pos td:first-child { width: 60px; }
+.rb-loa-tab.pos .pcs { width: 120px; color: var(--cyan); }
+.rb-loa-tab.pos .cop { width: 220px; font-weight: 400; }
+.rb-loa-tab .ep { color: var(--muted); }
+.rb-loa-tab .nb { color: #fff; }
+.rb-loa-rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0 18px; }
+.rb-loa ul { margin: 0; padding: 0 0 0 16px; font: 12px/1.4 var(--mono); color: #d6ded6; }
+.rb-loa li { margin: 0 0 3px; }
+.rb-loa li::marker { color: var(--green-text); }
 
 /* --- dymek (jeden, przy kursorze) */
 .rb-tip { position: fixed; z-index: 3000; max-width: 480px; padding: 5px 8px; background: #0d110d; border: 1px solid var(--green);
