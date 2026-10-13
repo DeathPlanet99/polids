@@ -1,0 +1,33 @@
+name: Deploy (VPS)
+
+# Wariant B: build Dockera na samym VPS (self-hosted runner).
+# Uruchamia sie po kazdym pushu do main, czyli po zmergowaniu PR.
+# Runner dziala na VPS, wiec nie jest potrzebne SSH (VPS ma tylko IPv6,
+# a runnery GitHuba nie lacza sie po IPv6).
+#
+# Opcjonalna zmienna: DEPLOY_PATH (domyslnie /opt/polids)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux, polids]
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - name: Update i build na VPS
+        env:
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/polids' }}
+        run: |
+          cd "$DEPLOY_PATH"
+          sh deploy/update.sh
