@@ -12,7 +12,7 @@ from backend.app.config import DATA_DIR
 from backend.app.database import Base
 from backend.app.importers.ese import parse_ese, split_sector_name
 from backend.app.importers.neighbours import (NB_SOURCES, pack_positions, pick_runways, rwy_active, select_sectors,
-                                              simplify_ring, source_key)
+                                              simplify_line, source_key)
 from backend.app.importers.sct import read_text
 from backend.app.models import AtcPosition, NbPosition, NbSector, Sector
 from backend.app.routers.nav import slices
@@ -170,10 +170,13 @@ def test_source_key():
     assert source_key(Path("EPWW-Sector.ese")) is None
 
 
-def test_simplify_ring_keeps_closed_valid_ring():
-    ring = [[20 + i / 100, 52 + (0.00001 if i % 2 else 0)] for i in range(101)] + [[21, 53], [20, 53], [20, 52]]
-    out = simplify_ring(ring)
-    assert out[0] == out[-1] and 4 <= len(out) < 10 and [21, 53] in out
+def test_simplify_line_keeps_ends_and_closed_circles():
+    line = [(52 + (0.00001 if i % 2 else 0), 20 + i / 100) for i in range(101)] + [(53, 21), (53, 20)]
+    out = simplify_line(line)
+    assert out[0] == line[0] and out[-1] == line[-1] and 3 <= len(out) < 8 and (53, 21) in out
+    from backend.app.importers.ese import _circle
+    ring = simplify_line(_circle(52.0, 20.0, 5))
+    assert ring[0] == ring[-1] and 8 <= len(ring) < 40
 
 
 def test_match_positions_index_same_as_full_scan():
@@ -278,7 +281,8 @@ def test_real_neighbour_files():
 
 
 def test_neighbour_file_removed_and_restored(db, tmp_path, monkeypatch):
-    """Usunięty plik sąsiada znika z bazy, a przywrócony (z tą samą datą modyfikacji) wczytuje się ponownie."""
+    """Stanowiska usuniętego pliku sąsiada znikają z bazy, a przywrócony (z tą samą datą modyfikacji) wczytuje się
+    ponownie (sektory sąsiadów są w sectors.geojson)."""
     import shutil
 
     from sqlalchemy import func, select
@@ -287,7 +291,7 @@ def test_neighbour_file_removed_and_restored(db, tmp_path, monkeypatch):
     monkeypatch.setattr(seed, "NB_DIR", tmp_path)
     f = tmp_path / "SF_-_LKAA.ESE"
     f.write_text(NB_TEXT, encoding="utf-8")
-    count = lambda: db.scalar(select(func.count()).select_from(NbSector))  # noqa: E731
+    count = lambda: db.scalar(select(func.count()).select_from(NbPosition))  # noqa: E731
     seed.import_neighbours(db)
     n, st = count(), f.stat().st_mtime
     assert n > 0

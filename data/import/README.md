@@ -6,7 +6,7 @@ Tu wrzuć pliki z pakietu sektorowego EuroScope (PL vACC / GNG). Aplikacja wczyt
 | Plik | Co daje |
 |------|---------|
 | `*.sct` / `*.sct2` | VOR, NDB, FIX z sektorówki (mapa, trasy) |
-| `*.ese` | stanowiska ATC i częstotliwości, sektory EPWW (mapa sektoryzacji) |
+| `*.ese` | stanowiska ATC i częstotliwości, SID/STAR, punkty VFR; sektory EPWW przez `data/seed/sectors.geojson` (niżej) |
 | `airway.txt` | drogi lotnicze (rozwijanie tras, warstwa na mapie) |
 | `isec.txt` | punkty nawigacyjne z całego świata (trasy) |
 | `icao.txt` | lotniska z całego świata (trasy) |
@@ -34,8 +34,25 @@ bierzemy tylko FIR-y i lotniska tego pakietu, nigdy sektorów EPWW:
 | `UKBV.ese` | UKBV | tylko UKLV (Lwów); polskie sektory w tym pakiecie są nieaktualne | UKBV-Ukraine-TopSky-Beta-Pack_20251129175113-251201-0002 (AIRAC 2512) |
 | `ULLL.ese` | ULLL | tylko UMKK (Kaliningrad) | ULLL-Galaxy-radar_20260614213420-260601-0001 (AIRAC 2606) |
 
-Nowszy pakiet: podmień plik (nazwa może być oryginalna, byle zawierała klucz). Usunięcie pliku usuwa sektory tego sąsiada
-przy następnym starcie, a w ich miejsce wracają kopie z naszego pliku `.ese`. Białorusi (UMMV) nie ma:
-dodanie jej wymaga pliku i wpisu w `NB_SOURCES` (`backend/app/importers/neighbours.py`).
+Nowszy pakiet: podmień plik (nazwa może być oryginalna, byle zawierała klucz) i uruchom generator `sectors.geojson` (niżej).
+Usunięcie pliku i generator usuwają sektory tego sąsiada, a w ich miejsce wracają kopie z naszego pliku `.ese`.
+Białorusi (UMMV) nie ma: dodanie jej wymaga pliku i wpisu w `NB_SOURCES` (`backend/app/importers/neighbours.py`).
 
 Ponowny import wszystkiego: `python -m backend.app.importers.seed --force`
+
+## Sektory: data/seed/sectors.geojson
+
+Sektory EPWW i sąsiadów aplikacja wczytuje z `data/seed/sectors.geojson` (tabele `sectors` i `nb_sectors`), nie z sekcji
+`[AIRSPACE]` plików `.ese`; stanowiska, SID/STAR i resztę dalej bierze z plików `.ese`. Plik generuje:
+
+```bash
+python -m backend.app.importers.sectors_geojson          # od nowa z data/import/*.ese i data/import/neighbours/*.ese
+python -m backend.app.importers.sectors_geojson --check  # czy plik pasuje do plików .ese (sha256 w "sources")
+```
+
+Jeden sektor na wiersz: `source` (`EPWW` albo klucz pakietu sąsiada), `fir`, `name`, `lower_ft`, `upper_ft`, `owners`
+(kolejność przejmowania: w sektorach z pliku EPWW identyfikatory stanowisk z jego `[POSITIONS]`, u sąsiadów znaki stanowisk),
+`active` (sąsiedzi: warunki `ACTIVE` ICAO:pas). Sektory sąsiadów: tylko w rejonie Polski, granice uproszczone o ok. 100 m
+linia po linii (`SECTORLINE`), więc sąsiednie sektory mają na wspólnej granicy te same wierzchołki. Plik można poprawiać
+ręcznie: aplikacja wczytuje go ponownie przy starcie, gdy się zmienił, a nadpisze go dopiero generator. Po podmianie pliku
+`.ese` test `backend/tests/test_sectors_geojson.py` przypomina o ponownym wygenerowaniu.

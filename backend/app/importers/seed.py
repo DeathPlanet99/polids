@@ -1,5 +1,6 @@
 """Wypełnianie bazy: dane startowe z data/seed/ (wersjonowane w repo) oraz pliki
-z data/import/ (pliki sektorowe i navdata EuroScope).
+z data/import/ (pliki sektorowe i navdata EuroScope). Sektory EPWW i sąsiadów (tabele sectors, nb_sectors)
+z data/seed/sectors.geojson (generator: python -m backend.app.importers.sectors_geojson), stanowiska z plików .ese.
 
 Uruchamiane automatycznie przy starcie aplikacji. Ręcznie:
     python -m backend.app.importers.seed            # import nowych/zmienionych plików
@@ -17,11 +18,13 @@ from sqlalchemy.orm import Session
 
 from ..config import DATA_DIR, settings
 from ..database import SCHEMA_VERSION, Base, SessionLocal, engine
-from ..models import AircraftType, Aerodrome, Callsign, Document, Frequency, ImportLog, NavPoint, NbPosition, NbSector, Runway
+from ..models import (AircraftType, Aerodrome, Callsign, Document, Frequency, ImportLog, NavPoint, NbPosition, NbSector,
+                      Runway, Sector)
 from .aircraft_json import import_aircraft_json
 from .callsigns import import_gr_operator_info, import_icao_airlines
 from .ese import import_ese
 from .neighbours import import_nb_ese, source_key
+from .sectors_geojson import FILENAME, geojson_path, import_sectors_geojson
 from .navdata import import_airways, import_icao_airports, import_isec
 from .sct import import_sct
 
@@ -147,17 +150,31 @@ def _import_file(db: Session, p: Path, fn, name: str, force: bool) -> dict | Non
 
 
 def import_neighbours(db: Session, force: bool = False) -> list[dict]:
-    """Pliki .ese sąsiadów z data/import/neighbours/; sektory pakietów, których pliku już nie ma, usuwamy."""
+    """Stanowiska z plików .ese sąsiadów z data/import/neighbours/; stanowiska pakietów, których pliku już nie ma,
+    usuwamy (ich sektory zostają w sectors.geojson do ponownego uruchomienia generatora)."""
     files = sorted(p for p in NB_DIR.iterdir() if p.is_file() and p.suffix.lower() == ".ese") if NB_DIR.is_dir() else []
     results = [r for p in files if (r := _import_file(db, p, import_nb_ese, f"neighbours/{p.name}", force))]
     keys = {k for p in files if (k := source_key(p))}
-    db.execute(delete(NbSector).where(NbSector.source.not_in(keys)))
     db.execute(delete(NbPosition).where(NbPosition.source.not_in(keys)))
     # zapomnij usunięte pliki: przywrócony plik (z tą samą datą modyfikacji) wczyta się ponownie
     db.execute(delete(ImportLog).where(ImportLog.filename.like("neighbours/%"),
                                        ImportLog.filename.not_in([f"neighbours/{p.name}" for p in files])))
     db.commit()
     return results
+
+
+def import_sectors(db: Session, force: bool = False) -> list[dict]:
+    """Sektory z data/seed/sectors.geojson, gdy plik się zmienił (też po ręcznej poprawce). Bez pliku: bez sektorów."""
+    path, name = geojson_path(), f"seed/{FILENAME}"
+    if not path.is_file():
+        log.warning("Brak pliku %s: sektory EPWW i sąsiadów puste", path)
+        db.execute(delete(Sector))
+        db.execute(delete(NbSector))
+        db.execute(delete(ImportLog).where(ImportLog.filename == name))
+        db.commit()
+        return []
+    res = _import_file(db, path, import_sectors_geojson, name, force)
+    return [res] if res else []
 
 
 def import_user_files(db: Session, force: bool = False) -> list[dict]:
@@ -172,8 +189,7 @@ def import_user_files(db: Session, force: bool = False) -> list[dict]:
                 continue
             if res := _import_file(db, p, fn, p.name, force):
                 results.append(res)
-    # sąsiedzi po lotniskach i navdata (współrzędne okręgów CIRCLE_SECTORLINE)
-    return results + import_neighbours(db, force)
+    return results + import_sectors(db, force) + import_neighbours(db, force)
 
 
 def _check_schema():

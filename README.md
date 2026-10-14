@@ -22,7 +22,8 @@ w stylu EUROCONTROL NM UI. Backend FastAPI + SQLite, frontend w czystym JS, cał
 | ? (HOME), ABOUT | HOME: samo przywitanie „Witaj, imię i nazwisko (CID)”; ABOUT: informacje o programie, skróty do zakładek i lista zmian |
 | ADMIN | lista CID-ów z dostępem i odmowy logowania (tylko admin) |
 
-Źródła danych: pliki EuroScope (sektorówka EPWW, navdata, pliki `.ese` vACC sąsiadów w `data/import/neighbours/`), VATSIM (data feed, bookings), metar.vatsim.net /
+Źródła danych: pliki EuroScope (sektorówka EPWW, navdata, pliki `.ese` vACC sąsiadów w `data/import/neighbours/`; sektory z nich
+w `data/seed/sectors.geojson`), VATSIM (data feed, bookings), metar.vatsim.net /
 aviationweather.gov, NOTAM z cv.plvacc.pl, [vIFF](https://api.viffsys.com/docs), [ECFMP](https://ecfmp.vatsim.net), OurAirports, vacs-data, VATSpy,
 [VATSIM Germany Knowledgebase](https://knowledgebase.vatsim-germany.org/shelves/centersektoren) (`data/seed/names_de.json`), LOA (`data/docs/LOA/`, wyciąg `data/seed/loa.json`).
 
@@ -86,11 +87,16 @@ do `main`. Instrukcja: [deploy/README.md](deploy/README.md).
 
 ## Aktualizacja danych
 
-- nowa sektorówka: podmienić pliki w `data/import/` i przebudować obraz (na serwerze wystarczy push)
+- nowa sektorówka: podmienić pliki w `data/import/`, odświeżyć sektory (`python -m backend.app.importers.sectors_geojson`)
+  i przebudować obraz (na serwerze wystarczy push)
+- sektory EPWW i sąsiadów (MAP, RADIO): aplikacja bierze je z `data/seed/sectors.geojson`, a ten plik generuje
+  `python -m backend.app.importers.sectors_geojson` z plików `.ese` (`--check`: czy plik pasuje do plików `.ese`; test
+  przypomina o tym po podmianie pliku). Ręczne poprawki w pliku działają po restarcie aplikacji, generator je nadpisze
 - OurAirports: `python scripts/fetch_ourairports.py`
 - typy samolotów: `python scripts/build_aircraft_seed.py <ścieżka do aircraft-db>`
 - logo i ikony: `frontend/icons/` (paczka logo PolIDS, opcja „FIR EPWW”)
-- sąsiedzi: nowszy plik `.ese` vACC sąsiada do `data/import/neighbours/` (lista w `data/import/README.md`)
+- sąsiedzi: nowszy plik `.ese` vACC sąsiada do `data/import/neighbours/` (lista w `data/import/README.md`), potem generator
+  `sectors.geojson` jak wyżej
 - bez kodu: `data/seed/qnh_regions.json`, `lvp.json`, `runway_config.json`, `checklists.json`, `emergency.json`,
   `callsigns.csv`
 
@@ -126,8 +132,8 @@ Wyposażenie pasów (ILS, RNP, VOR, NDB) czytane jest z nazw procedur w `.ese`. 
 - Kolejność przejmowania sektorów ACC z tabel om.plvacc.pl/docs/2610/ownerships (`data/seed/ownership.json`, wklejone 06.10.2026,
   przy nowym AIRAC trzeba wkleić ponownie); B, C, D HIGH i T MID wg pliku `.ese`. TMA/CTR: najpierw APP/TWR z `.ese`, potem ACC.
 - Sektory sąsiadów: z każdego pliku tylko FIR-y tego vACC (z ukraińskiego tylko Lwów), sektory zależne od pasa w jednym układzie
-  na lotnisko (kierunek najbliższy wiatrowi z ok. 250°), Białoruś (UMMV) z kopii w pliku EPWW. Zasięg stanowisk bez sektora
-  w żadnym pliku jest przybliżony (VATSpy albo okrąg 30/10 NM).
+  na lotnisko (kierunek najbliższy wiatrowi z ok. 250°), granice uproszczone o ok. 100 m, Białoruś (UMMV) z kopii w pliku EPWW.
+  Zasięg stanowisk bez sektora w żadnym pliku jest przybliżony (VATSpy albo okrąg 30/10 NM).
 - Paski EFES: CFL, TAXI/GATE, NR, PRV, LP/TG puste - tych danych nie ma w feedzie VATSIM ani w vIFF.
 - Rezerwacje VATSIM mają tylko CID; imię widać, gdy ta osoba jest online.
 - Jeden worker uvicorna (cache w pamięci). 40 osób odświeżających co 15 s to ~23 req/s przy p95 < 100 ms;
