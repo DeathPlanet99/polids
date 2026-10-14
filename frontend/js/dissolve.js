@@ -21,9 +21,10 @@ export function ringStats(r) {
   return { area: (Math.abs(s) * k) / 2, perim: p };
 }
 
-// Szczeliny między wycinkami: granice sąsiadów są przy imporcie upraszczane w każdym wycinku osobno (ok. 100 m),
-// a w plikach .ese wspólne granice bywają zapisane z różnicą kilku metrów, więc po sumie zostają wąskie dziury
-// i kliny wzdłuż dawnych granic wewnętrznych. Usuwamy dziury węższe niż SLIVER (szerokość ≈ 2 × pole / obwód,
+// Szczeliny między wycinkami: generator (sectors_geojson) upraszcza każdą linię SECTORLINE sąsiadów raz (ok. 100 m),
+// więc wycinki ze wspólną linią mają te same wierzchołki; zostają miejsca, gdzie plik .ese opisuje wspólną granicę
+// dwiema różnymi liniami (różnica kilku metrów), i po sumie powstają tam wąskie dziury i kliny wzdłuż dawnych granic
+// wewnętrznych. Usuwamy dziury węższe niż SLIVER (szerokość ≈ 2 × pole / obwód,
 // ok. 400 m) albo mniejsze niż MIN_HOLE (ok. 0,15 km²) oraz kliny wchodzące w obszar od krawędzi (cutSlits);
 // prawdziwe dziury (TMA w środku sektora ACC na FL100) zostają. Tak samo okruchy (osobne części) mniejsze niż MIN_HOLE.
 export const SLIVER = 0.004, MIN_HOLE = 2e-5, SLIT = 0.0015;

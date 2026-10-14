@@ -177,7 +177,7 @@ table.data td.num { text-align: right; font-family: var(--mono); }
 /* imię i nazwisko dłuższe niż cały panel zawija się w sobie, nie wychodzi za krawędź */
 .radio-row .who { color: var(--green-hi); font-size: 12px; overflow-wrap: anywhere; }
 .radio-row .booked-txt { color: #ffb020; font-size: 12px; white-space: nowrap; }
-/* częstotliwości z AIP (lotnisko bez stanowisk w .ese): uwaga i godziny pracy za nazwą; długie godziny (EPOK, EPML)
+/* częstotliwości z AIP bez stanowiska w .ese: uwaga i godziny pracy za nazwą; długie godziny (np. EPOK)
    zawijają się w panelu zamiast wychodzić za krawędź */
 .radio-row .hrs, .radio-row .fq-note { color: var(--muted); font: 11px var(--mono); min-width: 0; overflow-wrap: anywhere; }
 .radio-row .fq-note { color: var(--text); }

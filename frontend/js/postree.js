@@ -113,9 +113,16 @@ export function buildTree(data, online, act, nameOf = (cs) => cs) {
   return [...firs.values()].filter((f) => f.groups.size).map((f) => ({
     ...f,
     groups: [...f.groups.values()].sort((a, b) => rank(a).localeCompare(rank(b))).map((g) => ({
-      ...g, items: g.items.sort((a, b) => (["ACC", "FIS"].includes(g.id) ? 0 : a.order - b.order) || a.name.localeCompare(b.name, "pl", { numeric: true })),
+      ...g, items: dedupNames(g.items).sort((a, b) => (["ACC", "FIS"].includes(g.id) ? 0 : a.order - b.order) || a.name.localeCompare(b.name, "pl", { numeric: true })),
     })),
   }));
+}
+
+// Ta sama krótka nazwa dwóch znaków w grupie (EKDK_F_CTR i EKDK_F_FSS: "EKDK F", nazwa bez CTR/FSS): z rodzajem z końca znaku
+function dedupNames(items) {
+  const n = new Map();
+  items.forEach((it) => n.set(it.name, (n.get(it.name) || 0) + 1));
+  return items.map((it) => (n.get(it.name) > 1 ? { ...it, name: `${it.name} ${it.cs.split("_").pop()}` } : it));
 }
 
 // Liczniki węzła: aktywne (zalogowani i symulowani), symulowane, zalogowane

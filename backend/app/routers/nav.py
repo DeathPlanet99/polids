@@ -158,7 +158,8 @@ def sectors(fir: str = "EPWW", level_ft: int | None = Query(None, ge=-2000, le=1
             "callsign": first.callsign if first else None, "frequency": first.frequency if first else None,
         }})
     out = {"type": "FeatureCollection", "features": feats}
-    if not feats and level_ft is None:
+    # note tylko przy pustej tabeli (brak pliku), nie dla FIR-u bez sektorów z pliku EPWW (np. EDGG)
+    if not feats and level_ft is None and db.scalar(select(Sector.id).limit(1)) is None:
         out["note"] = NO_SECTORS
     return out
 

@@ -526,6 +526,14 @@ function mainMap(ctx) {
   // (w dół, w górę, coraz dalej); etykiety sektorów ACC zostają na miejscu. W pikselach, więc od nowa po zoomie.
   const declutter = () => {
     const boxes = [], ms = [];
+    // plakietki lotnisk i CTR (atcAd / atcFir leżą nad asLbl) jako przeszkody: etykieta stanowiska nie wpada pod plakietkę
+    const mb = map.getContainer().getBoundingClientRect();
+    [layers.atc, layers.firs].forEach((lg) => lg.eachLayer((m) => {
+      const r = m.getElement?.()?.querySelector(".atcb")?.getBoundingClientRect();
+      if (!r?.width) return;
+      const c = map.containerPointToLayerPoint([(r.left + r.right) / 2 - mb.left, (r.top + r.bottom) / 2 - mb.top]);
+      boxes.push({ x: c.x, y: c.y, w: r.width, h: r.height });
+    }));
     layers.airLbl.eachLayer((m) => ms.push(m));
     ms.sort((a, b) => !!a.options.shift - !!b.options.shift || (b.options.shift || 0) - (a.options.shift || 0)).forEach((m) => {
       const el = m.getElement()?.firstElementChild;
@@ -1209,6 +1217,7 @@ function mainMap(ctx) {
     if (atcErr) $(".atc-info").innerHTML = `<span class="error">${esc(atcErr)}</span>`;
     else $(".atc-info").textContent = $(".atc").checked ? `${plural(shown.length, "lotnisko", "lotniska", "lotnisk")} z kontrolerem · ${hhmm(new Date().toISOString())}` : "";
     drawAds();
+    declutter();  // plakietki rysowane po przestrzeni: etykiety od nowa
   }
   $(".atc").addEventListener("change", loadAtc);
   every(30000, loadAtc);

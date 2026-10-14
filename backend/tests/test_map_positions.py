@@ -24,6 +24,9 @@ JS = Path(__file__).resolve().parents[2] / "frontend" / "js"
     ({"callsign": "EDDB_N_TWR", "prefix": "EDDB", "fir": "EDWW", "facility": "TWR"}, ("EDWW", "EDDB")),
     ({"callsign": "EDYY_CL_CTR", "prefix": "EDYY", "fir": "EDWW", "facility": "CTR"}, ("EDUU", "ACC")),
     ({"callsign": "EDGG_BAD_CTR", "prefix": "EDGG", "fir": "EDMM", "facility": "CTR"}, ("EDGG", "ACC")),
+    # stanowiska z pakietu EDGG.ese (fir EDGG) bez prefiksu EDGG: lotnisko w FIR Langen, nie "inne"
+    ({"callsign": "EDDS_STG_APP", "prefix": "EDDS", "fir": "EDGG", "facility": "APP"}, ("EDGG", "EDDS")),
+    ({"callsign": "ETHN_TWR", "prefix": "ETHN", "fir": "EDGG", "facility": "TWR"}, ("EDGG", "ETHN")),
     ({"callsign": "LKAA_FIC_FSS", "prefix": "LKAA", "fir": "LK", "facility": "FSS"}, ("LKAA", "FIS")),
     ({"callsign": "UMKK_CTR", "prefix": "UMKK", "fir": "UMKK", "facility": "CTR"}, ("UMKK", "ACC")),
 ])
@@ -142,6 +145,9 @@ out.twin = { ovr: ts.ovr, un: ta.positions.EKDK_UN_CTR, sims: ta.sims, states: [
 const fa = t.activeOnline(off, t.toggle(base, "EPWW_N_CTR", true, off, freq), freq);
 out.firBadge = { sim: fa.firs, of: ["EPWW_N_CTR", "EPWW_CTR", "LKAA_CTR", "EPWA_APP", "EKDK_UN_CTR", "XXXX_CTR"].map((cs) => t.firsOf(cs, vatspy)),
   noData: t.firsOf("EPWW_N_CTR", null) };
+// ta sama krótka nazwa dwóch znaków w grupie (nazwa bez CTR/FSS jak posName): z rodzajem z końca znaku, reszta bez zmian
+const dd = { firs: data.firs, positions: ["EKDK_F_CTR", "EKDK_F_FSS", "EKDK_Y_CTR"].map((cs) => ({ callsign: cs, frequency: "129.475", fir: "EKDK", group: "ACC" })) };
+out.dedup = t.buildTree(dd, null, null, (cs) => cs.replace(/_(CTR|FSS)$/, "").replace(/_/g, " "))[0].groups[0].items.map((it) => it.name);
 // wyszukiwanie
 const g = tree[0].groups.find((x) => x.id === "EPGD"), f = tree[0];
 out.match = [t.matchItem(g.items[0], g, f, "gd app"), t.matchItem(g.items[0], g, f, "127.28"), t.matchItem(g.items[0], g, f, "gdańsk"),
@@ -163,6 +169,11 @@ def js(tmp_path_factory):
                        capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
+
+
+def test_tree_duplicate_names(js):
+    # EKDK_F_CTR (EKDK.ese) i EKDK_F_FSS (vacs-data) na tej samej częstotliwości: dwa różne wiersze, nie dwa "EKDK F"
+    assert js["dedup"] == ["EKDK F CTR", "EKDK F FSS", "EKDK Y"]
 
 
 def test_default_is_online(js):

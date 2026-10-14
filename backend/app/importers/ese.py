@@ -159,12 +159,6 @@ def assemble(sectorlines: dict[str, list[tuple[float, float]]], sectors: list[di
     return out
 
 
-def parse_airspace(lines: list[str], airport: Callable[[str], tuple[float, float] | None] | None = None) -> list[dict]:
-    """Sektory z sekcji [AIRSPACE]: {fir, name, lower_ft, upper_ft, owners (ID stanowisk ":"), active, border,
-    geometry}."""
-    return assemble(*read_airspace(lines, airport))
-
-
 def ese_sections(text: str) -> dict[str, list[str]]:
     """Sekcje pliku .ese: {"[POSITIONS]": [wiersze], ...} bez komentarzy i pustych wierszy."""
     secs: dict[str, list[str]] = {}

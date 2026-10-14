@@ -288,6 +288,13 @@ def _wind_choice(rows: list[dict], by: dict, wind_dir, wind_speed, cfg: dict, li
         if ils:
             best = max(ils, key=head)["designator"]
             return pick(best, best, f"Wiatr < {limit} kt: kierunek wyposażony w ILS")
+    if wind_dir is None and wind_speed is not None:
+        # wiatr zmienny (VRB): prędkość znana, kierunek nie; jak przy słabym wietrze kierunek z ILS (także na lotniskach
+        # z pasami preferowanymi z AIP, gdzie nie ma limitu słabego wiatru, i przy VRB od limitu w górę)
+        ils = [r for r in tail_ok if r["ils"]]
+        if ils:
+            return pick(ils[0]["designator"], None, f"Wiatr zmienny {wind_speed} kt: kierunek wyposażony w ILS")
+        return pick(rows[0]["designator"], None, f"Wiatr zmienny {wind_speed} kt: pierwszy pas z listy")
     if not known:
         return pick(rows[0]["designator"], None, "Brak danych o wietrze: pierwszy pas z listy")
     best = max(rows, key=lambda r: (head(r), -abs(r["crosswind"] or 0), r["ils"]))["designator"]

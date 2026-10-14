@@ -602,11 +602,11 @@ LAYOUT_SCRIPT = r"""
 // Sektory ACC (runda 12): jedna etykieta na stanowisko (accGroups, suma wycinków polygon-clipping z vendor/)
 import fs from "fs";
 import { createRequire } from "module";
-globalThis.polygonClipping = createRequire(import.meta.url)(process.argv[7]);
+globalThis.polygonClipping = createRequire(import.meta.url)(process.argv[6]);
 const rb = await import(process.argv[2]);
-const { boards, geo } = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
-const radio = await import(process.argv[5]);
-const { posName } = await import(process.argv[6]);
+const { boards, geo } = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const radio = await import(process.argv[4]);
+const { posName } = await import(process.argv[5]);
 // panel LOW: W, H, wolne pole (projekcja) i przeszkody [x, y, w, h]; f, fa = --rb-f etykiet APP/TWR/FIS i sektorów ACC
 const SCREENS = {
   1366: { W: 485, H: 729, free: [140, 124, 341, 470], f: 10, fa: 11,
@@ -754,8 +754,8 @@ def test_js_twr_layout(client, board, tmp_path, monkeypatch):
     script.write_text(LAYOUT_SCRIPT, "utf-8")
     pc = tmp_path / "pc.cjs"
     pc.write_text((FRONTEND / "vendor" / "polygon-clipping" / "polygon-clipping.umd.min.js").read_text("utf-8"), "utf-8")
-    r = subprocess.run([node, str(script), (d / "radioboard.js").as_uri(), (d / "coverage.js").as_uri(), str(data),
-                        (d / "tabs" / "radio.js").as_uri(), (d / "posname.js").as_uri(), str(pc)], capture_output=True, text=True, timeout=300)
+    r = subprocess.run([node, str(script), (d / "radioboard.js").as_uri(), str(data), (d / "tabs" / "radio.js").as_uri(),
+                        (d / "posname.js").as_uri(), str(pc)], capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, r.stderr
     res = json.loads(r.stdout)
     assert len(res) == 18

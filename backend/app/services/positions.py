@@ -75,7 +75,10 @@ def tree_place(p: dict) -> tuple[str, str]:
     parts = cs.split("_")
     pre = (p.get("prefix") or parts[0]).upper()
     tab = neighbour_tab(p)
-    fir = "EPWW" if tab is None else "EDGG" if pre == "EDGG" or parts[0] == "EDGG" else tab
+    # EDGG: ACC z prefiksu (w vacs-data katalog EDMM), lotniska i APP z pakietu EDGG.ese (fir EDGG, zakładka RADIO INNE,
+    # np. EDDS_STG_APP, ETHN_TWR); EDUU/EDYY zostają w swojej zakładce
+    edgg = pre == "EDGG" or parts[0] == "EDGG" or (tab == "INNE" and (p.get("fir") or "").upper() == "EDGG")
+    fir = "EPWW" if tab is None else "EDGG" if edgg else tab
     fac = p.get("facility") or ""
     if fac in ("CTR", "FSS", "APP") and INFO_MID & set(parts[1:-1]):
         return fir, "FIS"

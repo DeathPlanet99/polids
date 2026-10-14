@@ -230,6 +230,13 @@ def test_bad_input_is_400_or_422_not_500(client):
         assert client.get(url).status_code == 422, url
 
 
+def test_nav_sectors_note_only_without_file(client):
+    # FIR bez sektorów z pliku EPWW (EDGG ma tylko sektory z własnego .ese): pusta lista bez "wygeneruj plik"
+    assert client.get("/api/nav/sectors", params={"fir": "EPWW"}).json()["features"]
+    edgg = client.get("/api/nav/sectors", params={"fir": "EDGG"}).json()
+    assert edgg["features"] == [] and "note" not in edgg
+
+
 def test_many_concurrent_users_do_not_deadlock(client, monkeypatch):
     # regresja: przy limicie puli 5+10 >15 równoczesnych zapytań blokowało event loop (deadlock)
     import asyncio

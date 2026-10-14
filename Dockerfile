@@ -29,6 +29,8 @@ RUN useradd --system --uid 10001 --no-create-home --home-dir /app polids \
 FROM base AS test
 COPY requirements-dev.txt .
 RUN pip install -r requirements-dev.txt
+# test_aip_data sprawdza skrypt aktualizacji airports.csv (reszta scripts/ nie trafia do obrazu, .dockerignore)
+COPY scripts/fetch_ourairports.py ./scripts/
 USER polids
 CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "backend/tests"]
 

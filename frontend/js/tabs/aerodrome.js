@@ -20,15 +20,18 @@ function lvpBox(lvp) {
   return `<div class="lvp lvp-${s.cls}" data-tip="${tip}">${esc(s.label)}${scope}<span>${(lvp.reasons || []).map(esc).join("<br>")}</span></div>`;
 }
 
-// Częstotliwości z AIP (data/seed/frequencies.csv), gdy plik .ese nie zna stanowisk lotniska: służba, znak, MHz, uwaga
-// (np. EPRA: TWR cywilna i wojskowa na tej samej częstotliwości), godziny
+// Częstotliwości z AIP (data/seed/frequencies.csv) bez stanowiska w pliku .ese (wszystkie, gdy .ese nie zna stanowisk
+// lotniska, np. EPLK; EPRA: MIL GND 119.155, APP 128.680): służba, znak, MHz, uwaga, godziny. Uwaga i godziny częstotliwości
+// stanowiska z .ese (np. EPRA 118.430: TWR cywilna i wojskowa) są w dymku jego wiersza (renderFreqs)
 function aipFreqs(list) {
   if (!list?.length) return "";
   const srcs = new Set(list.map((x) => (/^AIP/.test(x.source || "") ? "AIP" : "lotniska.dlapilota.pl")));
+  // objaśnienie godzin tylko przy godzinach z czasem (samo H24, NOTAM, PPR albo brak godzin: bez niego)
+  const hrs = list.some((x) => /\d{4}/.test(x.hours || "")) ? " · godziny UTC zimą, w nawiasie latem" : "";
   return list.map((x) => `<div class="radio-row aip-freq" data-tip="${esc([x.description, x.note, x.hours && `godziny: ${x.hours}`, x.source && `źródło: ${x.source}`].filter(Boolean).join("\n"))}">
       <span class="freq">${esc(x.mhz)}</span><span class="pos-txt"><span class="cs">${esc(x.kind)}</span><span class="nm">${esc(x.description || "")}</span>
       ${x.note ? `<span class="fq-note">${esc(x.note)}</span>` : ""}${x.hours ? `<span class="hrs">${esc(x.hours)}</span>` : ""}</span></div>`).join("")
-    + `<p class="hint">wg ${[...srcs].sort().join(" i ")} · godziny UTC zimą, w nawiasie latem</p>`;
+    + `<p class="hint">wg ${[...srcs].sort().join(" i ")}${hrs}</p>`;
 }
 
 // Róża wiatrów: pasy jako prostokąty, strzałka wiatru skąd wieje.
@@ -333,17 +336,23 @@ export default {
         const ps = info.atc_positions.filter((p) => !(/information/i.test(p.name) && /_(APP|CTR)$/.test(p.callsign))).sort(byType);
         const extra = Object.keys(bookings).filter((cs) => cs.startsWith(icao + "_") && !ps.some((p) => p.callsign === cs));
         // nazwa stacji najwyżej tak szeroka jak najdłuższa w panelu: imiona i godziny rezerwacji w jednej kolumnie tuż za nią
-        const names = ps.length ? ps.map((p) => p.name) : info.frequencies.map((x) => x.description);
+        // AIP do stanowisk z .ese po MHz (kanał 8,33 kHz: 122.755 w AIP = 122.750 w .ese): uwaga i godziny w dymku,
+        // częstotliwości AIP bez stanowiska w .ese (np. EPRA MIL GND 119.155, APP 128.680) pod listą
+        const near = (a, b) => Math.abs(+a - +b) < 0.006;
+        const aipOf = (p) => info.frequencies.filter((x) => near(x.mhz, p.frequency));
+        const aipRest = info.frequencies.filter((x) => !ps.some((p) => near(x.mhz, p.frequency)));
+        const names = [...ps.map((p) => p.name), ...aipRest.map((x) => x.description)];
         el.style.setProperty("--nm-w", `${Math.max(0, ...names.map((n) => (n || "").length))}ch`);
-        el.innerHTML = (ps.map((p) => {
+        el.innerHTML = ((ps.map((p) => {
           const on = online[p.callsign], books = bookings[p.callsign] || [];
           const cls = on ? "on" : books.length ? "booked" : "";
-          const tip = positionTip(on, books);
+          const tip = [positionTip(on, books), ...aipOf(p).map((x) => ["AIP " + x.kind, x.note, x.hours && `godziny: ${x.hours}`].filter(Boolean).join(" · "))]
+            .filter(Boolean).join("\n");
           // pos-txt: znak, nazwa stacji i kto (imię i nazwisko albo rezerwacja); przy braku miejsca kto schodzi pod znak (style.css)
           return `<div class="radio-row ${cls}" ${tip ? `data-tip="${esc(tip)}"` : ""}><span class="freq ${cls}">${esc(p.frequency)}</span>
             <span class="pos-txt"><span class="cs">${esc(p.callsign)}</span><span class="nm" title="${esc(p.name)}">${esc(p.name)}</span>
             ${on ? `<b class="who">${esc(on.name || "")}</b>` : books.length ? `<span class="booked-txt">${hhmm(books[0].start)}–${hhmm(books[0].end)}</span>` : ""}</span></div>`;
-        }).join("") || aipFreqs(info.frequencies)
+        }).join("") + aipFreqs(aipRest))
           || `<span class="hint">Brak danych</span>`)
           + extra.map((cs) => `<div class="radio-row booked" data-tip="${esc(positionTip(null, bookings[cs]))}"><span class="freq booked">-</span>
             <span class="pos-txt"><span class="cs">${esc(cs)}</span><span class="nm"></span>

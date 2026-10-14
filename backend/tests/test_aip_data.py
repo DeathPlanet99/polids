@@ -90,6 +90,22 @@ def test_runway_preference_epgd_and_eppo_phase_limits():
     assert _pick("EPPO", EPPO, "10003KT CAVOK", NIGHT)["dep"] == "28"
 
 
+def test_runway_preference_variable_wind():
+    # wiatr zmienny (VRB): poza pierwszeństwem AIP kierunek z ILS jak przy słabym wietrze, nie "brak danych o wietrze"
+    # i nie pierwszy pas z listy (EPGD 11 i EPPO 10 bez ILS: lądowania przeciwnie do startów)
+    gd = _pick("EPGD", [{"designator": "11", "heading": 113}, {"designator": "29", "heading": 293}], "VRB02KT CAVOK", DAY,
+               {"11": ["RNP", "VOR"], "29": ["ILS"]})
+    assert (gd["arr"], gd["dep"]) == ("29", "29") and "ARR: wiatr zmienny 2 kt: kierunek wyposażony w ILS" in gd["reason"]
+    po = _pick("EPPO", EPPO, "VRB02KT CAVOK", NIGHT, {"10": ["RNP", "VOR"], "28": ["ILS"]})
+    assert (po["arr"], po["dep"]) == ("28", "28")
+    mo = _pick("EPMO", EPMO, "VRB02KT CAVOK", DAY, {"08": ["ILS"], "26": ["RNP"]})
+    assert mo["arr"] == "08" and "Brak danych" not in mo["reason"] and "zmienny 2 kt" in mo["reason"]
+    # bez ILS: pierwszy pas z listy, ale z wiatrem w uzasadnieniu; bez wiatru w ogóle jak dotąd
+    assert _pick("EPMO", EPMO, "VRB02KT CAVOK", DAY)["reason"] == "Wiatr zmienny 2 kt: pierwszy pas z listy"
+    assert select_runways(EPMO, None, None, config=runway_config("EPMO"), now=DAY)["reason"] == \
+        "Brak danych o wietrze: pierwszy pas z listy"
+
+
 def test_config_now():
     assert config_now(runway_config("EPWR"), NIGHT) == {"arr": "11", "dep": "29"}
     assert config_now(runway_config("EPWR"), DAY) == {"arr": "29", "dep": "29"}
