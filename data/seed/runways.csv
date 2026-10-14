@@ -1,103 +1,157 @@
-airport_ident,length_ft,width_ft,surface,lighted,le_ident,le_latitude_deg,le_longitude_deg,le_elevation_ft,le_heading_degT,he_ident,he_latitude_deg,he_longitude_deg,he_elevation_ft,he_heading_degT
-EPAR,3914,115,ASP,0,16,49.661800384521484,22.51140022277832,,167,34,49.65140151977539,22.515100479125977,,347
-EPBA,1673,328,Grass,0,09,,,1317,93,27,,,1317,273
-EPBB,1968,164,Grass,0,14,,,505,145,32,,,499,325
-EPBC,3280,492,Grass,0,10L,,,342,98,28R,,,349,278
-EPBC,4265,295,CON,1,10R,52.2705,20.8979,343,103,28L,52.267899,20.9165,352,283
-EPBK,2887,,UNK,0,01,,,502,,19,,,502,
-EPBK,3116,,UNK,0,08,,,502,,26,,,502,
-EPBY,8202,196,CON,1,08,53.09519958496094,17.959199905395508,236,82,26,53.0984001159668,17.996200561523438,233,262
-EPCD,3346,98,CON,0,18L,,,,,36R,,,,
-EPCD,2625,164,GRS,0,18R,,,,,36L,,,,
-EPCE,8214,170,ASP,0,07,54.41339874267578,17.744600296020508,489,76,25,54.418701171875,17.781999588012695,504,256
-EPDE,8202,197,ASP,1,12,51.556866,21.876606,391,121,30,51.545429,21.907444,392,301
-EPEL,2995,328,Grass,0,08,,,10,80,26,,,10,260
-EPEL,2296,259,Grass,0,10,,,10,104,28,,,10,284
-EPGD,9186,148,ASP,1,11,54.3811,18.452,450,113,29,54.3713,18.491699,489,293
-EPGI,3477,656,grass,0,13,,,106,135,31,,,106,315
-EPGL,2296,328,grass,0,08L,,,,87,26R,,,,267
-EPGL,2952,75,Ashpalt,1,08R,,,859,87,26L,,,840,267
-EPGL,2231,328,Grass,0,10,,,,103,28,,,,283
-EPIN,2493,328,Grass,0,08,,,,,26,,,,
-EPIN,2264,328,Grass,0,13,,,,,31,,,,
-EPIN,1280,328,Grass,0,18,,,,,36,,,,
-EPIR,1312,98,GRE,1,05,,,,,23,,,,
-EPKA,2952,656,grassy,0,11L,,,1010,,29R,,,1010,
-EPKA,3789,98,asphalt concrete,1,11R,,,1010,,29L,,,1010,
-EPKB,2034,88,Concrete,0,09,,,,,27,,,,
-EPKI,2625,115,Grass,0,11,,,,,29,,,,
-EPKK,8366,196,CON,1,07,50.075401306152344,19.76810073852539,792,78,25,50.0802001953125,19.802900314331055,779,258
-EPKM,3640,98,CON,0,05L,50.234901428222656,19.028200149536133,903,49,23R,50.24140167236328,19.04010009765625,894,229
-EPKN,3937,197,CON,0,11,50.533199310302734,18.06999969482422,658,112,29,50.52519989013672,18.099899291992188,675,292
-EPKP,3281,328,grass,0,09R,,,651,,27L,,,651,
-EPKR,3395,328,GRASS,0,11L,,,919,,29R,,,919,
-EPKR,3608,98,ASP,1,11R,,,919,,29L,,,919,
-EPKR,2395,328,Grass,0,16,,,922,16,34,,,922,34
-EPKS,8202,196,CON,1,12,52.33700180053711,16.950199127197266,272,117.9,30,52.326499938964844,16.98270034790039,274,297.9
-EPKT,10499,148,CON,1,08,50.476101,19.059601,970,90,26,50.476002,19.104601,994,270
-EPKW,3264,98,ASP,1,13,,,822,,31,,,835,
-EPLB,8268,148,ASPHALT,1,07,51.23759841918945,22.69580078125,632,72,25,51.242698669433594,22.73110008239746,626,252
-EPLK,9843,197,CON,1,10,51.555019,19.161867,617,108,28,51.546963,19.203138,633,288
-EPLL,8202,148,ASPH-CONC,1,07,51.716222,19.372194,592,71,25,51.723669,19.406319,607,251
-EPLS,2296,164,grass paved with a plastic grille,1,05L,,,300,53,23R,,,308,233
-EPLS,4331,164,Grass,0,05R,,,300,53,23L,,,305,233
-EPLS,3084,164,grass,0,18,,,308,178,36,,,308,358
-EPLU,2952,328,grass,0,11,,,,114,29,,,,294
-EPLU,3281,98,ASP,1,13L,51.425899505615234,16.19070053100586,512,130,31R,51.420101165771484,16.20159912109375,512,310
-EPLU,2788,328,grass,0,31L,,,,307,13R,,,,127
-EPLY,8202,197,ASP,1,10,52.00766,19.126261,390,,28,52.002327,19.161631,390,
-EPMB,8202,164,CON,1,07,54.024433,19.116899,16,79,25,54.028679,19.15435,16,259
-EPMI,8202,148,CON,1,12,53.401413,16.067398,492,125,30,53.388657,16.098127,492,305
-EPML,1804,197,GRASS,0,08L,50.32222366333008,21.462223052978516,548,,26R,50.32222366333008,21.462223052978516,548,
-EPML,8176,148,CON,1,08R,50.3223,21.444099,543,90,26L,50.322201,21.479099,544,270
-EPML,2156,82,CON,0,17,50.326698303222656,21.453100204467773,540,180,35,50.32080078125,21.452999114990234,545,360
-EPMM,8245,140,CON,1,09,52.195499420166016,21.63759994506836,561,90.3,27,52.19540023803711,21.674299240112305,604,270.3
-EPMO,8202,147,ASP,0,08,52.449501037597656,20.63360023498535,338,82,26,52.452701568603516,20.670000076293945,341,262
-EPMR,1870,164,grass,0,09L,,,,93,27R,,,,273
-EPMR,1690,164,grass,0,09R,,,,93,27L,,,,273
-EPMR,2772,164,grass,0,17,,,,175,35,,,,355
-EPMY,3018,75,grass,1,15,52.945,15.0266667,229,153,33,52.9375,15.033055,230,333
-EPNL,2625,,UNK,0,04,,,833,,22,,,833,
-EPNT,5512,262,UNK,0,12,49.466225,20.042389,2060,,30,49.458218,20.062048,2060,
-EPOD,2789,,ASP,0,09L,,,436,,27R,,,436,
-EPOD,2789,,GRS,0,09R,,,436,,27L,,,436,
-EPOK,1890,100,ASP,0,08,54.58720016479492,18.521400451660156,,87,26,54.587501525878906,18.53030014038086,,267
-EPOK,8190,195,CON,1,13,54.587799072265625,18.503799438476562,141,136,31,54.57160186767578,18.53059959411621,141,316
-EPPI,7876,195,PEM,1,03,53.16059875488281,16.700300216674805,,35.2,21,53.178199768066406,16.72100067138672,,215.2
-EPPK,2460,328,grass,1,07,,,,68,25,,,,248
-EPPO,8215,164,ASP,1,10,52.4249,16.806101,309,108,28,52.418201,16.841,289,288
-EPPR,3825,148,ASP,0,09,54.248566,18.665701,13,,27,54.246834,18.683311,13,
-EPPT,3117,59,CON,0,03,,,,,21,,,,
-EPPW,8940,98,CON,1,10L,52.38600158691406,17.828500747680664,367,107,28R,52.37860107421875,17.86669921875,384,287
-EPPW,11565,197,CON,1,10R,52.3838005065918,17.82740020751953,363,107,28L,52.3744010925293,17.876800537109375,381,287
-EPRA,8202,148,ASP,1,07,51.386509,21.197723,622,75,25,51.392307,21.232445,602,255
-EPRJ,2447,164,GRS,0,08L,,,,,26R,,,,
-EPRJ,2953,98,ASPH,1,08R,50.104198,,650,89,26L,50.104198,22.053301,643,269
-EPRS,,,G,0,36,,,,,18,,,,
-EPRU,6562,197,CON,0,08,50.88359832763672,19.189199447631836,,82.9,26,50.885799407958984,19.217300415039062,,262.9
-EPRZ,2448,164,GRASS,0,08L,,,,,26R,,,,
-EPRZ,2953,99,CONC/ASPH,0,08R,,,,,26L,,,,
-EPRZ,10498,147,CON,1,09,50.110198974609375,22.00149917602539,688,91,27,50.10960006713867,22.046300888061523,679,271
-EPRZ,6840,328,GRS Emergency Strip,0,09ES,50.104400634765625,22.042600631713867,,81,27ES,50.10559844970703,22.054000854492188,,261
-EPSC,8202,197,ASP,1,13,53.592098236083984,14.887900352478027,118,131,31,53.57740020751953,14.916500091552734,154,311
-EPSD,3280,164,Grass,0,09,53.391026,14.624511,3,94,27L,53.390387,14.640249,3,274
-EPSD,,,UNK,0,09L,,,3,,27R,,,3,
-EPSN,8200,190,CON,1,11,53.794700622558594,15.808600425720215,384,111.1,29,53.786598205566406,15.843899726867676,381,291.1
-EPST,3051,,Grass,0,12,,,486,126,30,,,492,306
-EPSU,4328,98,ASP,0,08,,,,,26,,,,
-EPSW,8268,148,asphalt,1,07,,,632,72,25,,,629,252
-EPSY,8202,147,CON,1,01,53.47119903564453,20.931699752807617,438,19,19,53.48830032348633,20.941299438476562,462,199
-EPTM,6560,197,ASP,0,11,51.588402,20.0844,,116,29,51.5807,20.1105,,296
-EPTO,4163,187,CON,0,10,53.03049850463867,18.537799835205078,164,104,28,53.027801513671875,18.554800033569336,164,284
-EPTO,2791,328,GRS,0,10L,53.030799865722656,18.54439926147461,,105,28R,53.028900146484375,18.556699752807617,,285
-EPVA,4445,66,grass,0,13,,,,,31,,,,
-EPWA,9186,164,ASPH,1,11,52.171501,20.946699,362,115,29,52.160999,20.9839,347,295
-EPWA,12106,196,ASPH,1,15,52.1786,20.9559,353,152,33,52.149399,20.9814,355,332
-EPWK,3281,,UNK,0,08,,,217,,26,,,214,
-EPWR,8212,147,CONC-ASPH,1,11,51.108799,16.865801,405,116,29,51.098999,16.898001,401,296
-EPWS,2526,,Grass,0,14,,,404,,32,,,377,
-EPZA,2625,,UNK,0,12R,,,751,,30L,,,751,
-EPZB,,,,0,10,,,,,28,,,,
-EPZG,8202,197,CON,1,06,52.13370132446289,15.781999588012695,194,65,24,52.1432991027832,15.815099716186523,187,245
-EPZI,1673,82,Grass,0,12,,,,,30,,,,
-EPZP,2887,,UNK,0,06,,,243,,24,,,243,
+airport_ident,le_ident,he_ident,length_m,width_m,surface,le_heading_degT,he_heading_degT,le_latitude_deg,le_longitude_deg,le_elevation_ft,he_latitude_deg,he_longitude_deg,he_elevation_ft,source,note
+EPAR,17,35,1200,30,ASPH,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,lądowisko spoza AIP; szerokość tylko z dlapilota; OurAirports miał 16/34 1193 x 35 m
+EPBA,09,27,510,100,GRASS,100.5,280.5,49.805489,18.998381,,49.804656,19.005336,,lotniska.dlapilota.pl + OurAirports; progi: EPWW-Sector.sct,airfield.directory 560 m; AIP AD 4.12: w nocy używane 510 m RWY 09/27 (pas może być dłuższy); progi przybliżone
+EPBA,04,22,490,100,GRASS,,,,,,,,,lotniska.dlapilota.pl,airfield.directory 540 m
+EPBB,14,32,600,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + OurAirports,lądowisko spoza AIP; airfield.directory 732 m
+EPBC,10R,28L,1301,90,CONC,102.6,282.6,52.270453,20.897914,,52.267911,20.916519,,lotniska.dlapilota.pl + airfield.directory; progi: EPWW-Sector.sct,szerokość z dlapilota i OurAirports; śmigłowce lądują przy progu 10 (AIP)
+EPBC,10L,28R,1000,150,GRASS,102.5,282.5,52.27125,20.902167,,52.269306,20.916472,,lotniska.dlapilota.pl + airfield.directory; progi: EPWW-Sector.sct,AIP AD 4.12: zamknięta w nocy (od 30 min po zachodzie do 30 min przed wschodem słońca)
+EPBK,09R,27L,1350,50,CONC/ASPH,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,"dlapilota: beton, airfield.directory: asfalt; szerokość tylko z dlapilota; OurAirports miał błędne pasy 01/19 i 08/26"
+EPBK,09L,27R,840,160,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,szerokość tylko z dlapilota
+EPBY,08,26,2500,60,CONC/ASPH,82.03,262.06,53.095247,17.959186,236.7,53.098358,17.996153,234.1,AIP AD 2.12/2.13,PCN 70/F/B/X/T; ILS CAT I RWY 26
+EPBY,08L,26R,650,100,GRASS,84.65,264.66,53.106303,17.956397,,53.106847,17.966042,,AIP AD 2.12; progi: EPWW-Sector.sct,"MTOM 5700 kg, nieoznakowana; Aeroklub Bydgoski tylko VFR w dzień, inni tylko awaryjnie; AIP nie podaje progów"
+EPCD,18L,36R,1020,30,ASPH,,,,,,,,,AIP VFR AD 4.12 + lotniska.dlapilota.pl + airfield.directory,"PCN 12/F/B/W/T, PAPI 3°; dlapilota i OurAirports podają beton"
+EPCD,18R,36L,800,50,GRASS,,,,,,,,,AIP VFR AD 4.12 + lotniska.dlapilota.pl + airfield.directory,MTOW 5700 kg (AIP)
+EPCE,07,25,2500,60,CONC/ASPH,76,256,54.413519,17.744603,490.4,54.418928,17.781983,505.9,AIP MIL AD 4.12/4.13,PCN 45/F/A/W/T
+EPDA,04,22,600,30,CONC/ASPH,43,223,54.402797,16.349936,9.8,54.406769,16.356186,6.6,AIP MIL AD 4.12/4.13,PCN 38/F/C/X/T; OurAirports nie miał tego pasa
+EPDE,11,29,2500,60,CONC/ASPH,121,301,51.556864,21.876606,390.1,51.545428,21.907444,391.4,AIP MIL AD 4.12/4.13,PCN 36; AIP podaje też stare oznaczenie 12/30
+EPDK,01,19,922,30,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,lądowisko spoza AIP; szerokość tylko z dlapilota
+EPDS,15,33,900,40,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,lądowisko spoza AIP; szerokość tylko z dlapilota
+EPEL,10,28,700,50,GRASS,104,284,54.142128,19.4179,,54.140606,19.428292,,lotniska.dlapilota.pl + airfield.directory; progi: EPWW-Sector.sct,pas czynny; OurAirports podaje szerokość 79 m
+EPEL,08,26,913,100,GRASS,80,260,54.140111,19.416378,,54.141533,19.430133,,lotniska.dlapilota.pl + OurAirports; progi: EPWW-Sector.sct,dlapilota: nieczynna
+EPGD,11,29,2800,45,CONC/ASPH,112.92,292.95,54.381067,18.45205,451.4,54.371267,18.491717,488.5,AIP AD 2.12/2.13,PCN 75/F/A/W/T; RWY 29 CAT II/IIIA/IIIB
+EPGE,13,31,780,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,szerokość tylko z dlapilota
+EPGI,13,31,930,200,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,OurAirports 1060 m; dlapilota wymienia też niepewny pas 06/24 660 x 200 m (pominięty)
+EPGL,08R,26L,900,23,ASPH,87.8,267.8,50.267222,18.666389,,50.2675,18.6775,,lotniska.dlapilota.pl + airfield.directory + OurAirports; progi: EPWW-Sector.sct,plik sektorowy daje 790 m (współrzędne zaokrąglone do sekund)
+EPGL,08L,26R,700,100,GRASS,86.4,266.4,50.268611,18.6688,,50.268953,18.67735,,airfield.directory + OurAirports; progi: EPWW-Sector.sct,brak w dlapilota; szerokość z OurAirports
+EPGL,10,28,680,100,GRASS,100.7,280.7,50.270633,18.669389,,50.269661,18.677408,,airfield.directory + OurAirports; progi: EPWW-Sector.sct,brak w dlapilota; szerokość z OurAirports
+EPGM,11,29,860,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,lądowisko spoza AIP; dlapilota: progi przesunięte po 100 m
+EPGR,12,30,800,60,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,lądowisko spoza AIP; dlapilota: wydłużany do 1000 x 60 m
+EPGY,09,27,804,24,ASPH,95,275,52.837289,21.771692,,52.836658,21.783578,,lotniska.dlapilota.pl + airfield.directory; progi: EPWW-Sector.sct,szerokość tylko z dlapilota
+EPHN,13,31,1452,35,GRASS,,,,,,,,,lotniska.dlapilota.pl,lądowisko spoza AIP; trawa wzmocniona matą; airfield.directory ('Narew 2') 975 m
+EPIN,08,26,760,100,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory + OurAirports,
+EPIN,13,31,690,100,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory + OurAirports,"start z RWY 31 i lądowanie na RWY 13 zabronione (przeszkody, dlapilota)"
+EPIN,18,36,390,100,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory + OurAirports,
+EPIR,05,23,2000,60,GRASS,52,232,52.82295,18.318575,274,52.833981,18.342006,265.4,AIP MIL AD 4.12/4.13,"pas trawiasty, pas startowy 2000 x 400 m; OurAirports miał 400 x 30 m"
+EPJA,12,30,600,30,GRASS,,,,,,,,,lotniska.dlapilota.pl,lądowisko spoza AIP
+EPJG,10,28,610,185,GRASS,,,,,,,,,lotniska.dlapilota.pl,"pas główny; airfield.directory podaje inne pasy (11L/29R 850 m, 11R/29L 620 m)"
+EPJG,12,30,420,100,GRASS,,,,,,,,,lotniska.dlapilota.pl,dlapilota (aktualizacja 2022)
+EPJG,04,22,260,100,GRASS,,,,,,,,,lotniska.dlapilota.pl,dlapilota (aktualizacja 2022)
+EPJL,08,26,800,80,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,lądowisko spoza AIP
+EPJS,09,27,330,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,teren nachylony (progi 1400 i 1840 ft wg dlapilota); krąg południowy (AIP AD 4.10)
+EPJS,14,32,150,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,airfield.directory: 14L/32R
+EPJS,18,36,280,50,GRASS,,,,,,,,,lotniska.dlapilota.pl,dlapilota bez oznaczenia (kurs 002/182)
+EPKA,11R,29L,900,30,CONC,110.3,290.3,50.898203,20.725628,,50.895442,20.737469,,lotniska.dlapilota.pl; progi: EPWW-Sector.sct,"długość: dlapilota 900 m, airfield.directory 1040 m, OurAirports 1155 m (pas mógł być wydłużony)"
+EPKA,11L,29R,900,200,GRASS,110.3,290.3,50.899553,20.726406,,50.89675,20.738431,,lotniska.dlapilota.pl + airfield.directory + OurAirports; progi: EPWW-Sector.sct,
+EPKB,09,27,640,27,ASPH,,,,,,,,,lotniska.dlapilota.pl,"lądowisko spoza AIP; airfield.directory 629 m, OurAirports 620 m"
+EPKB,09,27,1020,35,GRASS,,,,,,,,,lotniska.dlapilota.pl,lądowisko spoza AIP; równoległy pas trawiasty (oba źródła oznaczają go 09/27); airfield.directory 900 m
+EPKD,09,27,600,30,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,"lądowisko spoza AIP; RWY 09 wznosi się 2,6% na pierwszych 300 m"
+EPKE,15,33,1105,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,szerokość tylko z dlapilota
+EPKE,07,25,500,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,szerokość tylko z dlapilota
+EPKI,11,29,800,35,GRASS,111.1,291.1,53.984167,20.870833,,53.981389,20.883056,,lotniska.dlapilota.pl + airfield.directory + OurAirports; progi: EPWW-Sector.sct,progi z pliku sektorowego są 857 m od siebie
+EPKK,07,25,2550,60,CONC,78,258,50.075397,19.768094,791.9,50.079792,19.799658,779.5,AIP AD 2.12/2.13,PCN 52/R/B/W/T; próg 25 przesunięty 238 m (LDA 25 i TORA 07 2312 m)
+EPKL,13,31,900,35,GRASS,,,,,,,,,lotniska.dlapilota.pl,lądowisko spoza AIP; airfield.directory 1075 m
+EPKM,05L,23R,1070,30,CONC,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,"plik sektorowy (704 m) i OurAirports (1113 m) nie zgadzają się z długością, progi pominięte"
+EPKM,05R,23L,600,60,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,
+EPKM,07,25,480,80,GRASS,73.7,253.7,50.238839,19.029261,,50.240053,19.035756,,lotniska.dlapilota.pl; progi: EPWW-Sector.sct,próg 25 przesunięty 30 m (dlapilota)
+EPKN,11,29,900,60,ASPH,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,lądowisko spoza AIP; OurAirports miał 1200 x 60 m z błędnymi współrzędnymi
+EPKP,09R,27L,1100,50,GRASS,94.7,274.7,50.086769,20.195289,,50.085961,20.210653,,lotniska.dlapilota.pl + airfield.directory; progi: EPWW-Sector.sct,
+EPKP,09L,27R,980,120,GRASS,94.5,274.5,50.087886,20.195425,,50.087194,20.209117,,lotniska.dlapilota.pl + airfield.directory; progi: EPWW-Sector.sct,
+EPKR,11R,29L,1100,30,ASPH,113,293,49.681111,21.737778,,49.677222,21.751944,,lotniska.dlapilota.pl + airfield.directory + OurAirports; progi: EPWW-Sector.sct,
+EPKR,11L,29R,1035,100,GRASS,112.5,292.5,49.685464,21.726375,,49.681889,21.739722,,lotniska.dlapilota.pl + airfield.directory + OurAirports; progi: EPWW-Sector.sct,
+EPKR,16,34,730,100,GRASS,161,341,49.688364,21.735456,,49.682139,21.738769,,lotniska.dlapilota.pl + airfield.directory + OurAirports; progi: EPWW-Sector.sct,
+EPKS,11,29,2500,60,CONC,118,298,52.337158,16.950464,271.7,52.326708,16.982719,274,AIP MIL AD 4.12/4.13,PCN 60/R/A/W/T; BAK-12 425 m od progu 11 i 499 m od progu 29; OurAirports miał 12/30
+EPKT,08,26,3200,45,CONC,90.18,270.21,50.47605,19.059569,970.7,50.475961,19.100139,1004,AIP AD 2.12/2.13,PCN 70/R/A/W/T; próg 26 przesunięty 320 m (LDA 26 i TORA 08 2880 m); RWY 26 CAT II
+EPKW,13,31,947,24,ASPH,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,OurAirports 995 x 30 m; airfield.directory: próg 13 przesunięty (linia energetyczna)
+EPLB,07,25,2520,45,CONC/ASPH,77.12,257.14,51.237644,22.695936,632.4,51.242689,22.731117,626.5,AIP AD 2.12/2.13,PCN 50/F/B/X/T; CAT II tylko RWY 25
+EPLK,10,28,3000,60,CONC,106.63,286.63,51.555022,19.161864,617.6,51.546964,19.203139,630.9,AIP MIL AD 4.12/4.13,"PCN 65/R/B/W/T; BAK-12/BAK-14 H24; AIP podaje kurs 106.63, ze współrzędnych progów 107.4"
+EPLL,07,25,2500,45,CONC/ASPH,71,251,51.716222,19.372189,592.4,51.723669,19.406319,606.9,AIP AD 2.12/2.13,"PCN 49/F/A/W/T; AIP podaje kurs 071.00/251.00, ze współrzędnych progów wychodzi 070.6/250.7"
+EPLR,11,29,903,80,GRASS,,,,,,,,,lotniska.dlapilota.pl,airfield.directory 1300 m; aeroklub (dlapilota 2022): dane w AIP niewłaściwe
+EPLR,02,20,544,80,GRASS,,,,,,,,,lotniska.dlapilota.pl,airfield.directory 510 m
+EPLS,05R,23L,1320,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory + OurAirports,
+EPLS,05L,23R,950,100,GRASS,,,,,,,,,lotniska.dlapilota.pl,"trawa wzmocniona kratką, oświetlenie; airfield.directory i OurAirports 700 m"
+EPLS,18,36,940,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory + OurAirports,
+EPLU,13L,31R,1000,30,CONC,130.5,310.5,51.4259,16.190701,,51.420101,16.201599,,lotniska.dlapilota.pl; progi: końce pasa z OurAirports,"dlapilota: beton, airfield.directory i OurAirports: asfalt"
+EPLU,11,29,900,100,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory + OurAirports,próg 11 przesunięty 240 m (dlapilota)
+EPLU,13R,31L,850,100,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory + OurAirports,próg 13R przesunięty 305 m (dlapilota)
+EPLY,10,28,2500,60,CONC/ASPH,103.42,283.42,52.007658,19.126267,377.9,52.002331,19.161631,403.5,AIP MIL AD 4.12/4.13/4.23,"AD 4.23: próg 10 przesunięty 480 m, TORA/LDA 2020 m (AD 4.13 podaje 2500 m); współrzędne progu 10 jak w AD 4.12 (koniec pasa); tylko C-295 i lżejsze turbośmigłowe"
+EPMB,07,25,2500,50,CONC,79,259,54.024433,19.116897,19.1,54.028678,19.15435,18.4,AIP MIL AD 4.12/4.13,PCN 39/R/B/W/T; BAK-12
+EPMI,12,30,2500,45,CONC/ASPH,125,305,53.401414,16.067397,493.4,53.388656,16.098128,491.5,AIP MIL AD 4.12/4.13,PCN 52/R/B/W/T; BAK-12 na żądanie
+EPML,08R,26L,2492,45,ASPH,90.2,270.2,50.322314,21.446847,,50.322231,21.479211,,lotniska.dlapilota.pl + airfield.directory + OurAirports; progi: EPWW-Sector.sct,progi z pliku sektorowego są 2298 m od siebie
+EPML,08L,26R,550,60,GRASS,90.4,270.4,50.324217,21.458106,,50.324183,21.466542,,lotniska.dlapilota.pl + airfield.directory + OurAirports; progi: EPWW-Sector.sct,
+EPML,17,35,657,25,ASPH,181.7,1.7,50.326667,21.453333,,50.320833,21.453056,,lotniska.dlapilota.pl + airfield.directory + OurAirports; progi: EPWW-Sector.sct,
+EPMM,08,26,2500,80,CONC,90,270,52.195608,21.637622,561,52.195508,21.674175,603.7,AIP MIL AD 4.12/4.13,PCN 38/R/C/W/T; OurAirports miał 09/27 o szerokości 43 m
+EPMO,08,26,2500,45,CONC/ASPH,81.23,261.26,52.449511,20.633694,341,52.452928,20.670039,340,AIP AD 2.12/2.13,PCN 53; bez przesuniętych progów; RWY 08 CAT II
+EPMR,09L,27R,570,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,dlapilota podaje jeden pas 09/27
+EPMR,09R,27L,515,50,GRASS,,,,,,,,,airfield.directory + OurAirports,dlapilota tylko w uwagach; szerokość z OurAirports
+EPMR,17,35,800,50,GRASS,,,,,,,,,lotniska.dlapilota.pl,airfield.directory i OurAirports 845 m
+EPMX,18,36,950,35,GRASS,,,,,,,,,lotniska.dlapilota.pl,AIP AD 4.12: progi przesunięte po 180 m (dlapilota 200 m); airfield.directory 550 m
+EPMY,15,33,800,20,GRASS,,,,,,,,,lotniska.dlapilota.pl,airfield.directory i OurAirports 920 m
+EPNL,04,22,830,60,GRASS,41.9,221.9,49.742422,20.619367,,49.747969,20.627072,,lotniska.dlapilota.pl + airfield.directory; progi: EPWW-Sector.sct,OurAirports 800 m
+EPNM,08,26,1500,30,CONC,,,,,,,,,lotniska.dlapilota.pl,"lądowisko spoza AIP; airfield.directory 2400 m; lotnisko wojskowe w reaktywacji, dane mogą być nieaktualne"
+EPNT,12,30,1680,80,GRASS,122,302.1,49.464886,20.045667,,49.458219,20.062047,,lotniska.dlapilota.pl + airfield.directory + OurAirports; progi: EPWW-Sector.sct,progi z pliku sektorowego są 1397 m od siebie
+EPOD,09L,27R,850,23,ASPH,94.1,274.1,53.773972,20.411481,,53.773611,20.42,,lotniska.dlapilota.pl + airfield.directory + OurAirports; progi: EPWW-Sector.sct,próg 09L przesunięty 300 m (dlapilota)
+EPOD,09R,27L,850,100,GRASS,94.6,274.6,53.771778,20.410614,,53.771433,20.417944,,lotniska.dlapilota.pl + airfield.directory + OurAirports; progi: EPWW-Sector.sct,progi przesunięte 256 m i 110 m (dlapilota)
+EPOK,13,31,2500,60,CONC,136,316,54.587761,18.5038,144,54.571517,18.5305,135.8,AIP MIL AD 4.12/4.13,PCN 35/R/B/W/T; ILS RWY 31
+EPOK,08,26,790,30,CONC/ASPH,88,268,54.587094,18.514483,131.8,54.587311,18.526697,113.8,AIP MIL AD 4.12/4.13,PCN 36/F/B/W/T; OurAirports miał 576 m
+EPOM,11L,29R,960,265,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,szerokość 265 m wg dlapilota
+EPOM,11R,29L,960,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,
+EPOP,12,30,710,280,GRASS,,,,,,,,,lotniska.dlapilota.pl,airfield.directory oznacza 13/31
+EPOP,07,25,740,200,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,
+EPPC,11,29,700,30,GRASS,,,,,,,,,lotniska.dlapilota.pl,"lądowisko spoza AIP (dlapilota, 2021)"
+EPPC,14,32,550,20,GRASS,,,,,,,,,lotniska.dlapilota.pl,"lądowisko spoza AIP (dlapilota, 2021); nieoznakowany"
+EPPI,03,21,2400,60,ASPH,35.2,215.2,53.160599,16.7003,,53.1782,16.721001,,lotniska.dlapilota.pl; progi: końce pasa z OurAirports,"dlapilota: asfalt, airfield.directory: beton"
+EPPI,09,27,650,80,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,
+EPPK,07,25,750,100,GRASS,,,,,,,,,lotniska.dlapilota.pl + OurAirports,airfield.directory oznacza 06/24 i podaje też 01/19 550 m
+EPPL,12L,30R,730,,GRASS,,,,,,,,,lotniska.dlapilota.pl,"pas 730 x 160 m podzielony na dwa równoległe (dlapilota, 01.09.2025)"
+EPPL,12R,30L,730,,GRASS,,,,,,,,,lotniska.dlapilota.pl,"pas 730 x 160 m podzielony na dwa równoległe (dlapilota, 01.09.2025)"
+EPPO,10,28,2504,50,CONC/ASPH,107.53,287.56,52.424958,16.806006,308.7,52.418175,16.841094,289,AIP AD 2.12/2.13,PCN 56/F/B/W/T; ILS CAT II tylko RWY 28
+EPPR,09,27,1166,45,CONC/ASPH,100,280,54.248567,18.6657,17,54.246833,18.683311,10,AIP MIL AD 4.12/4.13,"PCN 38/R/C/W/T, AUW 15 t; betonowa część poza progami nieczynna"
+EPPT,03L,21R,950,18,ASPH,31.8,211.8,51.378917,19.684897,,51.386203,19.692139,,lotniska.dlapilota.pl + airfield.directory; progi: EPWW-Sector.sct,airfield.directory: beton
+EPPT,03R,21L,860,50,GRASS,31.9,211.9,51.379436,19.686306,,51.385992,19.692853,,lotniska.dlapilota.pl + airfield.directory; progi: EPWW-Sector.sct,
+EPPW,10L,28R,2727,30,CONC,107,287,52.385956,17.828717,367.1,52.378639,17.866931,384.7,AIP MIL AD 4.12/4.13,PCN 60/R/A/W/T
+EPPW,10R,28L,3514,60,CONC,107,287,52.383781,17.827497,363.6,52.374347,17.876739,381.9,AIP MIL AD 4.12/4.13,PCN 60/R/A/W/T; ILS CAT I na obu kierunkach
+EPRA,07,25,2500,45,CONC,75.05,255.05,51.386986,21.200572,620.6,51.392306,21.232444,602.1,AIP AD 2.12/2.13,PCN 70/R/A/W/T; próg 07 przesunięty 204 m (LDA 07 i TORA 25 2296 m)
+EPRD,01,19,600,30,GRASS,,,,,,,,,lotniska.dlapilota.pl,wydłużony w 07.2022; airfield.directory 450 m
+EPRG,09,27,600,100,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,
+EPRG,12,30,590,100,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,
+EPRJ,08R,26L,900,30,CONC/ASPH,90,270,50.104167,22.040833,,50.104167,22.053333,,AIP VFR AD 4.12 + airfield.directory; progi: EPWW-Sector.sct,PCN 37/F/B/W/T; progi z pliku sektorowego (współrzędne zaokrąglone)
+EPRJ,08L,26R,746,50,GRASS,89.9,269.9,50.105158,22.042911,,50.105175,22.053339,,AIP VFR AD 4.12 + airfield.directory; progi: EPWW-Sector.sct,MTOW 5700 kg
+EPRP,05,23,710,100,GRASS,,,,,,,,,lotniska.dlapilota.pl,"dlapilota: w tabeli 06/24, w uwagach 05/23 podzielony na 05L/23R i 05R/23L; airfield.directory 880 m"
+EPRS,18,36,600,20,GRASS,,,,,,,,,lotniska.dlapilota.pl,lądowisko spoza AIP; airfield.directory 450 m
+EPRU,08C,26C,1800,60,CONC,82.9,262.9,50.883598,19.189199,,50.885799,19.2173,,lotniska.dlapilota.pl; progi: końce pasa z OurAirports,"dlapilota 1800 m (200 m wyłączone), OurAirports 2000 m; niedostępna dla odrzutowców (AD 4.12)"
+EPRU,08L,26R,720,240,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,
+EPRU,08R,26L,1800,140,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,
+EPRZ,09,27,3200,45,CONC/ASPH,91.16,271.2,50.110186,22.001536,688.2,50.109594,22.046158,669.7,AIP AD 2.12/2.13,"LDA 27 3192 m (próg 27 ok. 8 m od końca nawierzchni); pasy 08L/26R, 08R/26L (to pasy EPRJ) i 09ES/27ES z OurAirports usunięte, nie ma ich w AD 2.12"
+EPSC,13,31,2500,45,ASPH,130.87,310.88,53.592083,14.887925,119.6,53.577381,14.916464,156,AIP AD 2.12/2.13,PCN 80/F/A/W/T; ILS CAT II RWY 31
+EPSD,09,27,1060,55,GRASS,94,274,53.391144,14.624725,,53.390519,14.639717,,lotniska.dlapilota.pl; progi: EPWW-Sector.sct,"airfield.directory, plik sektorowy i OurAirports ok. 1000 m"
+EPSJ,09,27,778,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,lądowisko spoza AIP
+EPSK,10,28,1250,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,próg 28 przesunięty 250 m (dlapilota)
+EPSK,02,20,600,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,
+EPSN,11,29,2500,60,CONC,111,291,53.794583,15.808608,392.1,53.786653,15.843892,379.3,AIP MIL AD 4.12/4.13,PCN 52/R/A/W/T; BAK-12; awaryjny pas trawiasty 1470 x 74 m (uwaga AIP)
+EPSS,11,29,461,30,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,przeszkoda na podejściu do RWY 29; airfield.directory 450 m
+EPST,12,30,870,100,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,dlapilota wymienia też pasy 097/277 910 m i 117/297 800 m bez oznaczeń (pominięte); OurAirports 930 m
+EPSU,08L,26R,1320,30,ASPH,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,"dlapilota: nawierzchnia utwardzona, airfield.directory i OurAirports: asfalt"
+EPSU,08R,26L,800,60,GRASS,,,,,,,,,lotniska.dlapilota.pl,airfield.directory 1080 m
+EPSY,01,19,2500,45,CONC/ASPH,18.46,198.47,53.471211,20.931728,440.3,53.492519,20.943658,465.2,AIP AD 2.12/2.13,PCN 63/F/B/X/T; RWY 01 CAT II
+EPTM,11,29,2000,60,CONC,116,296,51.588389,20.084144,604.3,51.580636,20.110175,600.7,AIP MIL AD 4.12/4.13,"PCN 38/R/C/W/T; pas bez oświetlenia, lądowania w nocy zabronione"
+EPTO,10R,28L,1180,57,CONC,104.8,284.8,53.030499,18.5378,,53.027802,18.5548,,lotniska.dlapilota.pl; progi: końce pasa z OurAirports,progi przesunięte 230 m i 89 m (dlapilota); airfield.directory i OurAirports 1269 m
+EPTO,10L,28R,937,150,GRASS,,,,,,,,,lotniska.dlapilota.pl,"airfield.directory 1092 m, OurAirports 851 m"
+EPVA,14,32,1355,20,GRASS,,,,,,,,,lotniska.dlapilota.pl,lądowisko spoza AIP; trawa wzmocniona kratką; OurAirports oznacza 13/31
+EPWA,11,29,2800,50,CONC/ASPH,114.52,294.55,52.171475,20.946714,362.1,52.162889,20.977303,346.7,AIP AD 2.12/2.13,PCN 77/R/A/W/T; próg 29 przesunięty 501 m (LDA 29 2299 m); ILS 11 CAT II
+EPWA,15,33,3690,60,ASPH,151.73,331.75,52.178572,20.955906,352.8,52.154583,20.976881,354.8,AIP AD 2.12/2.13,PCN 82/F/C/X/T; próg 33 przesunięty 661 m (LDA 33 3029 m); ILS 33 CAT IIIA
+EPWK,08L,26R,1000,80,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,
+EPWK,08R,26L,900,80,GRASS,,,,,,,,,lotniska.dlapilota.pl,airfield.directory 1000 m
+EPWR,11,29,2503,45,CONC/ASPH,116,296,51.108803,16.865828,404.7,51.098961,16.897958,401.2,AIP AD 2.12/2.13,PCN 65/F/B/X/T; RWY 29 CAT II
+EPWS,14L,32R,700,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,dlapilota podaje jeden wpis dla obu pasów równoległych
+EPWS,14R,32L,700,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,dlapilota podaje jeden wpis dla obu pasów równoległych
+EPWS,11,29,560,100,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,
+EPZA,12L,30R,950,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,"dlapilota 12/30 950 m, airfield.directory 12L/30R 930 m"
+EPZA,12R,30L,800,,,,,,,,,,,OurAirports,istnienie potwierdza AIP AD 4.10; wymiary tylko z OurAirports
+EPZB,10,28,900,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,lądowisko spoza AIP; progi przesunięte po 226 m (dlapilota)
+EPZG,06,24,2501,60,CONC,64.65,244.67,52.133703,15.782047,194.2,52.143322,15.815058,187.7,AIP AD 2.12/2.13,PCN 57/R/A/W/T; ILS CAT I RWY 24
+EPZI,12,30,510,25,GRASS,,,,,,,,,lotniska.dlapilota.pl + OurAirports,lądowisko spoza AIP
+EPZK,15,33,550,30,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,lądowisko spoza AIP
+EPZL,06,24,600,40,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,lądowisko spoza AIP
+EPZP,06,24,720,180,GRASS,61.6,241.6,51.977497,15.458108,,51.980994,15.468614,,lotniska.dlapilota.pl; progi: EPWW-Sector.sct,"dlapilota 720 m, plik sektorowy 818 m, OurAirports 880 m, airfield.directory 1110 m"
+EPZR,04,22,430,75,GRASS,43.8,223.8,49.769572,19.216097,,49.772822,19.220928,,lotniska.dlapilota.pl; progi: EPWW-Sector.sct,"spadek 6,5%, lądowania pod górę; plik sektorowy i airfield.directory ok. 500 m"
+EPZR,08,26,336,60,GRASS,,,,,,,,,lotniska.dlapilota.pl,"pas pomocniczy, spadek 5,3%"

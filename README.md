@@ -87,7 +87,12 @@ do `main`. Instrukcja: [deploy/README.md](deploy/README.md).
 ## Aktualizacja danych
 
 - nowa sektorówka: podmienić pliki w `data/import/` i przebudować obraz (na serwerze wystarczy push)
-- OurAirports: `python scripts/fetch_ourairports.py`
+- OurAirports: `python scripts/fetch_ourairports.py` (tylko lotniska i pomoce; elewacje z AIP zostają, pasów i częstotliwości
+  skrypt nie nadpisuje)
+- pasy, częstotliwości (z godzinami pracy), pasy preferowane i progi LVP z AIP Polska / AIP MIL (eAIP PAŻP): ręcznie
+  w `data/seed/runways.csv` (metry), `frequencies.csv`, `runway_config.json`, `lvp.json`; każdy wiersz/wpis ma źródło
+  (sekcja AIP albo serwis dla lotnisk VFR). Po zmianie CSV podbić `SCHEMA_VERSION` w `backend/app/database.py`
+  (przy starcie pełny import danych)
 - typy samolotów: `python scripts/build_aircraft_seed.py <ścieżka do aircraft-db>`
 - logo i ikony: `frontend/icons/` (paczka logo PolIDS, opcja „FIR EPWW”)
 - sąsiedzi: nowszy plik `.ese` vACC sąsiada do `data/import/neighbours/` (lista w `data/import/README.md`)
@@ -99,11 +104,25 @@ do `main`. Instrukcja: [deploy/README.md](deploy/README.md).
 Jeśli na lotnisku nadaje ATIS, pas w użyciu bierzemy z jego tekstu. Bez ATIS-u (zasada z
 [vatiris](https://github.com/minsulander/vatiris)):
 
-1. LVP / przygotowanie LVP / IMC: kierunek z ILS, o ile wiatr w plecy nie przekracza 5 kt,
-2. słaby wiatr (< 5 kt): konfiguracja z `data/seed/runway_config.json`, bez niej kierunek z ILS,
-3. w pozostałych przypadkach największa składowa czołowa.
+1. pasy preferowane z AIP AD 2.21 (`data/seed/runway_config.json`: EPMO, EPWR, EPGD, EPPO) w swoich oknach czasowych
+   (godziny UTC zimą, w nawiasie latem; czas letni UE liczony bez tzdata), osobno dla lądowań i startów, w kolejności
+   z AIP („26, potem 08”); pas odpada, gdy składowa w plecy albo boczna z porywami przekracza limit z AIP albo gdy
+   zachodzi warunek, przy którym hałas nie decyduje (podstawa chmur, widzialność, podejście bez ILS, burza),
+2. LVP / przygotowanie LVP / IMC: kierunek z ILS, o ile wiatr w plecy nie przekracza 5 kt,
+3. słaby wiatr (< 5 kt), tylko lotniska bez pasów preferowanych w AIP: konfiguracja z `runway_config.json` (EPWA
+   ARR 33 / DEP 29, niezweryfikowana z AIP), bez niej kierunek z ILS,
+4. w pozostałych przypadkach największa składowa czołowa.
 
-Wyposażenie pasów (ILS, RNP, VOR, NDB) czytane jest z nazw procedur w `.ese`. Na razie `runway_config.json` ma tylko EPWA.
+Wyposażenie pasów (ILS, RNP, VOR, NDB) czytane jest z nazw procedur w `.ese`. Pasa niesuchego i uskoku wiatru z METAR
+nie oceniamy.
+
+## LVP
+
+Progi z AIP AD 2.22 i AIP MIL AD 4.20 w `data/seed/lvp.json`: przygotowanie, wprowadzenie i odwołanie (RVR, widzialność,
+podstawa chmur; lotniska wojskowe: widzialność z odpowiednikiem RVR, tylko odloty). LVP po wprowadzeniu trwa do spełnienia
+warunków odwołania (histereza w pamięci procesu, po restarcie od zera), potem przez 30 min „LVP ODWOŁANE”. Lotniska, dla
+których AIP nie przewiduje LVP (VFR, część wojskowych, EPRA, EPZG), mają „nie dotyczy”. EPWA i EPPO: wartości domyślne,
+niezweryfikowane z AIP (strona AIP nieczytelna).
 
 ## Znane ograniczenia
 
@@ -117,7 +136,7 @@ Wyposażenie pasów (ILS, RNP, VOR, NDB) czytane jest z nazw procedur w `.ese`. 
 - QFE liczone w przybliżeniu z QNH i elewacji.
 - Rejony QNH 1-14 i obszary TMA/MTMA w `qnh_regions.json` odrysowane ze zrzutu mapy z AIP Polska (`data/import/qnh_pansa.png`,
   `scripts/trace_qnh_regions.py`, ok. 0,5 km). QNH rejonu = najniższe QNH z METAR jego lotnisk (oficjalne liczy IMGW z modelu);
-  pasy 15-17 (53°N, 51°N) = najniższe QNH z lotnisk pasa. Progi LVP do sprawdzenia z INOP.
+  pasy 15-17 (53°N, 51°N) = najniższe QNH z lotnisk pasa.
 - OVERVIEW: TL liczony z QNH 15 kontrolowanych lotnisk z METAR (lotnisko bez METAR nie jest liczone); próg 995 hPa
   włącznie (OM PL vACC pisze „poniżej 995”). TA 6500 ft niesprawdzone w eAIP. Część pól vIFF (przepustowość lotniska, przyloty
   w godzinie) odczytana z dokumentacji i odpowiedzi API. NOTAM-y wg okresu B)-C), bez harmonogramu D). ECFMP/vIFF zawsze dla całego FIR.
@@ -137,7 +156,10 @@ Wyposażenie pasów (ILS, RNP, VOR, NDB) czytane jest z nazw procedur w `.ese`. 
 
 - typy samolotów: [aircraft-database.com](https://aircraft-database.com) (ODC-By), progi WTC/RECAT z
   [vatger/atciss](https://github.com/vatger/atciss) (MIT)
-- lotniska, pasy, pomoce: [OurAirports](https://ourairports.com/data/) (public domain)
+- lotniska, pomoce: [OurAirports](https://ourairports.com/data/) (public domain)
+- pasy, częstotliwości, elewacje, pasy preferowane i progi LVP: AIP Polska i AIP MIL (PAŻP, eAIP, AIRAC AMDT 10-26);
+  lotniska VFR spoza AIP: [lotniska.dlapilota.pl](https://lotniska.dlapilota.pl), [airfield.directory](https://airfield.directory),
+  progi pasów z `EPWW-Sector.sct` albo OurAirports (źródło w kolumnie `source`)
 - Leaflet (BSD-2), CARTO/OpenStreetMap (ODbL), Esri World Gray Canvas
 - ATFCM/CDM: [vIFF](https://viffsys.com) (Roger Puig), tylko odczyt
 - granice FIR: [vatspy-data-project](https://github.com/vatsimnetwork/vatspy-data-project) (CC BY-SA 4.0)

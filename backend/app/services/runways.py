@@ -1,13 +1,16 @@
 """Składowe wiatru i wybór pasa preferowanego.
 
-Zasada jak w vatiris (minsulander/vatiris, stores/wind.ts): pas z największą składową czołową; przy słabym wietrze
-(poniżej progu, domyślnie 5 kt) pas preferowany z konfiguracji lotniska. Dodatkowo bierzemy pod uwagę wyposażenie
-pasów (ILS z pakietu sektorowego) i widzialność: przy LVP / przygotowaniu LVP / IMC wybieramy pas z ILS,
-o ile składowa w plecy nie przekracza limitu."""
+Najpierw pasy preferowane z AIP AD 2.21 (data/seed/runway_config.json, klucz preferential): okna czasowe w UTC
+z czasem letnim UE, limity wiatru w plecy i bocznego z porywami oraz warunki pogody, przy których hałas nie decyduje.
+Bez takiego pasa zasada jak w vatiris (minsulander/vatiris, stores/wind.ts): pas z największą składową czołową; przy
+słabym wietrze (poniżej progu, domyślnie 5 kt) pas preferowany z konfiguracji lotniska, ale tylko na lotniskach bez
+pasów preferowanych w AIP. Dodatkowo bierzemy pod uwagę wyposażenie pasów (ILS z pakietu sektorowego) i widzialność:
+przy LVP / przygotowaniu LVP / IMC wybieramy pas z ILS, o ile składowa w plecy nie przekracza limitu."""
 
 import json
 import math
 import re
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 
 from ..config import DATA_DIR, settings
@@ -55,12 +58,80 @@ def runway_equipment() -> dict[str, dict[str, list[str]]]:
 
 
 def runway_config(icao: str) -> dict:
-    """Ustawienia pasów lotniska z data/seed/runway_config.json (arr, dep, never, limit, ils_cat, equipment)."""
+    """Ustawienia pasów lotniska z data/seed/runway_config.json (preferential, tailwind_kt, crosswind_kt, not_decisive,
+    arr, dep, never, limit, equipment, source). Zasada słabego wiatru z DEFAULT (limit) tylko dla lotnisk bez pasów
+    preferowanych z AIP."""
     try:
         cfg = json.loads((settings.seed_dir / "runway_config.json").read_text("utf-8"))
     except FileNotFoundError:
         return {}
-    return {**cfg.get("DEFAULT", {}), **cfg.get(icao.upper(), {})}
+    own = cfg.get(icao.upper(), {})
+    return dict(own) if own.get("preferential") else {**cfg.get("DEFAULT", {}), **own}
+
+
+# --- czas w AIP: godziny UTC zimą, w nawiasie latem ------------------------------------------------------------------
+
+def _last_sunday(year: int, month: int) -> date:
+    nxt = date(year + (month == 12), month % 12 + 1, 1)
+    last = nxt - timedelta(days=1)
+    return last - timedelta(days=(last.weekday() + 1) % 7)
+
+
+def eu_summer_time(t: datetime) -> bool:
+    """Czas letni w UE: od ostatniej niedzieli marca 01:00 UTC do ostatniej niedzieli października 01:00 UTC
+    (liczone samodzielnie, obraz Dockera nie musi mieć tzdata)."""
+    t = t.astimezone(timezone.utc) if t.tzinfo else t.replace(tzinfo=timezone.utc)
+    start = datetime.combine(_last_sunday(t.year, 3), datetime.min.time(), timezone.utc) + timedelta(hours=1)
+    end = datetime.combine(_last_sunday(t.year, 10), datetime.min.time(), timezone.utc) + timedelta(hours=1)
+    return start <= t < end
+
+
+HOURS_RE = re.compile(r"^\s*(\d{4})-(\d{4})(?:\s*\((\d{4})-(\d{4})\))?\s*$")
+
+
+def window_now(hours: str, t: datetime) -> str:
+    """Okno z AIP ('2100-0500 (2000-0400)') w bieżącym sezonie: '2000-0400' latem, '2100-0500' zimą; 'H24' bez zmian."""
+    if (hours or "").strip().upper() == "H24":
+        return "H24"
+    m = HOURS_RE.match(hours or "")
+    if not m:
+        raise ValueError(f"Nieznany format godzin {hours!r}")
+    return f"{m[3]}-{m[4]}" if m[3] and eu_summer_time(t) else f"{m[1]}-{m[2]}"
+
+
+def window_active(hours: str, t: datetime) -> bool:
+    """Czy chwila t (UTC) mieści się w oknie z AIP; okno może przechodzić przez północ (2100-0500)."""
+    win = window_now(hours, t)
+    if win == "H24":
+        return True
+    t = t.astimezone(timezone.utc) if t.tzinfo else t
+    start, end = (int(x[:2]) * 60 + int(x[2:]) for x in win.split("-"))
+    now = t.hour * 60 + t.minute
+    return start <= now < end if start < end else now >= start or now < end
+
+
+def preferential_now(cfg: dict, t: datetime | None = None) -> dict:
+    """Pasy preferowane z AIP obowiązujące w chwili t: {"arr": [...], "dep": [...], "hours": {"arr": "2000-0400", ...}}
+    (listy w kolejności z AIP, puste, gdy w tej chwili brak pierwszeństwa)."""
+    t = t or datetime.now(timezone.utc)
+    out = {"arr": [], "dep": [], "hours": {}}
+    for rule in cfg.get("preferential") or []:
+        if not window_active(rule.get("hours", "H24"), t):
+            continue
+        for phase in ("arr", "dep"):
+            if rule.get(phase) and not out[phase]:
+                out[phase] = list(rule[phase])
+                out["hours"][phase] = window_now(rule.get("hours", "H24"), t)
+    return out
+
+
+def config_now(cfg: dict, t: datetime | None = None) -> dict:
+    """Pierwszy pas preferowany teraz: {"arr", "dep"} (AWOS › 2 PASY). Z AIP według okna czasowego, bez niego
+    konfiguracja słabego wiatru (arr / dep z runway_config.json)."""
+    if cfg.get("preferential"):
+        now = preferential_now(cfg, t)
+        return {"arr": (now["arr"] or [None])[0], "dep": (now["dep"] or [None])[0]}
+    return {"arr": cfg.get("arr"), "dep": cfg.get("dep")}
 
 
 def equipment_for(icao: str, cfg: dict | None = None) -> dict[str, list[str]]:
@@ -71,18 +142,96 @@ def equipment_for(icao: str, cfg: dict | None = None) -> dict[str, list[str]]:
     return eq
 
 
+def _limit(cfg: dict, key: str, phase: str) -> float | None:
+    v = cfg.get(key)
+    return v.get(phase) if isinstance(v, dict) else v
+
+
+def _over_limits(r: dict, wind_dir: int | None, speed: int | None, tail_max, cross_max) -> str | None:
+    """Powód odrzucenia pasa preferowanego: składowa w plecy albo boczna z porywami ponad limit AIP (None = w limicie).
+    Wiatr zmienny (VRB) o prędkości ponad limit wiatru w plecy odrzuca pas, bo kierunku nie znamy."""
+    if speed is None:
+        return None
+    if wind_dir is None:
+        return f"wiatr zmienny {speed} kt > {tail_max:g} kt" if tail_max is not None and speed > tail_max else None
+    head, cross = wind_components(wind_dir, speed, r["heading"])
+    if tail_max is not None and -head > tail_max:
+        return f"w plecy {-head:g} kt > {tail_max:g} kt"
+    if cross_max is not None and abs(cross) > cross_max:
+        return f"boczny {abs(cross):g} kt > {cross_max:g} kt"
+    return None
+
+
+def _weather_block(nd: dict, phase: str, metar, non_precision: bool) -> str | None:
+    """Warunek pogody z AIP, przy którym hałas nie decyduje (not_decisive w runway_config.json), albo None."""
+    if not nd or metar is None:
+        return None
+    ceiling, vis = getattr(metar, "ceiling_ft", None), getattr(metar, "visibility_m", None)
+    for block in (nd.get("all") or {}, nd.get(phase) or {}):
+        for b, tag in ((block, ""), (block.get("non_precision") if non_precision else None, ", podejście bez ILS")):
+            if not b:
+                continue
+            if ceiling is not None and b.get("ceiling_ft") is not None and ceiling < b["ceiling_ft"]:
+                return f"podstawa {ceiling} ft < {b['ceiling_ft']} ft{tag}"
+            if vis is not None and b.get("vis_m") is not None and vis < b["vis_m"]:
+                return f"widzialność {vis} m < {b['vis_m']} m{tag}"
+    if nd.get("ts") and any("TS" in w for w in getattr(metar, "weather", []) or []):
+        return "burza (TS)"
+    return None
+
+
+def _aip_choice(cfg: dict, by: dict, wind_dir, wind_speed, gust, metar, t: datetime) -> dict:
+    """Pas preferowany z AIP dla lądowań i startów: {"arr": (pas | None, uwaga | None), "dep": (...)}."""
+    now = preferential_now(cfg, t)
+    speed = None if wind_speed is None else max(wind_speed, gust or 0)
+    out = {}
+    for phase in ("arr", "dep"):
+        prefs = [d for d in now[phase] if d in by]
+        if not prefs:
+            out[phase] = (None, None)
+            continue
+        np = phase == "arr" and not by[prefs[0]]["ils"]
+        block = _weather_block(cfg.get("not_decisive") or {}, phase, metar, np)
+        if block:
+            out[phase] = (None, f"bez pierwszeństwa AIP: {block}")
+            continue
+        skipped = []
+        tail, cross = _limit(cfg, "tailwind_kt", phase), _limit(cfg, "crosswind_kt", phase)
+        for d in prefs:
+            why = _over_limits(by[d], wind_dir, speed, tail, cross)
+            if not why:
+                hrs = now["hours"][phase]
+                out[phase] = (d, f"{d} wg AIP ({'H24' if hrs == 'H24' else hrs + ' UTC'})"
+                                 + (f", bo {_skipped(skipped)}" if skipped else ""))
+                break
+            skipped.append((d, why))
+        else:
+            out[phase] = (None, f"bez pierwszeństwa AIP: {_skipped(skipped)}")
+    return out
+
+
+def _skipped(items: list[tuple[str, str]]) -> str:
+    """'26: w plecy 8 kt > 5 kt'; ten sam powód dla wszystkich kierunków (wiatr boczny) tylko raz."""
+    whys = {w for _, w in items}
+    return whys.pop() if len(items) > 1 and len(whys) == 1 else "; ".join(f"{d}: {w}" for d, w in items)
+
+
 def select_runways(runways: list[dict], wind_dir: int | None, wind_speed: int | None, *,
                    equipment: dict[str, list[str]] | None = None, low_vis: str | None = None,
-                   config: dict | None = None, max_tailwind_kt: float = 5.0) -> dict:
+                   config: dict | None = None, max_tailwind_kt: float = 5.0, gust: int | None = None,
+                   metar=None, now: datetime | None = None) -> dict:
     """Pas preferowany do lądowania (arr) i startu (dep) z uzasadnieniem.
 
     `runways`: słowniki z kluczami designator, heading (i opcjonalnie preferred). `low_vis`: "LVP", "PREP" albo
-    "IMC", gdy warunki wymagają podejścia precyzyjnego."""
+    "IMC", gdy warunki wymagają podejścia precyzyjnego. `gust`, `metar` (podstawa chmur, widzialność, zjawiska) i `now`
+    (UTC) są potrzebne do pasów preferowanych z AIP (config["preferential"])."""
     if not runways:
         return {"arr": None, "dep": None, "reason": "Brak danych o pasach"}
     cfg = config or {}
     eq = equipment or {}
-    limit = cfg.get("limit", 5)
+    aip = bool(cfg.get("preferential"))
+    # zasada słabego wiatru (vatiris) tylko bez pasów preferowanych z AIP
+    limit = None if aip else cfg.get("limit", 5)
     never = set(cfg.get("never", []))
     rows = []
     for r in runways:
@@ -92,9 +241,30 @@ def select_runways(runways: list[dict], wind_dir: int | None, wind_speed: int | 
         rows.append({**r, "headwind": head, "crosswind": cross, "ils": "ILS" in eq.get(r["designator"], [])})
     rows = rows or [{**r, "headwind": None, "crosswind": None, "ils": False} for r in runways]
     by = {r["designator"]: r for r in rows}
+    base = _wind_choice(rows, by, wind_dir, wind_speed, cfg, limit, low_vis, max_tailwind_kt)
+    if not aip:
+        return base
+    choice = _aip_choice(cfg, by, wind_dir, wind_speed, gust, metar, now or datetime.now(timezone.utc))
+    (arr, arr_why), (dep, dep_why) = choice["arr"], choice["dep"]
+    if arr_why and arr_why == dep_why:
+        notes = [f"ARR/DEP {arr_why}"]
+    else:
+        notes = [f"{k} {w}" for k, w in (("ARR", arr_why), ("DEP", dep_why)) if w]
+    if not notes:   # poza oknami czasowymi AIP
+        return base
+    if arr and dep:
+        return {"arr": arr, "dep": dep, "reason": "; ".join(notes)}
+    # dalej w tym samym zdaniu: "największa składowa czołowa", ale skróty ("LVP w mocy") bez zmian
+    why = base["reason"] if base["reason"][1:2].isupper() else base["reason"][:1].lower() + base["reason"][1:]
+    rest = [why] if not arr and not dep else [f"{'DEP' if arr else 'ARR'}: {why}"]
+    return {"arr": arr or base["arr"], "dep": dep or base["dep"], "reason": "; ".join([*notes, *rest])}
+
+
+def _wind_choice(rows: list[dict], by: dict, wind_dir, wind_speed, cfg: dict, limit, low_vis, max_tailwind_kt) -> dict:
+    """Wybór bez pasów preferowanych z AIP: ILS przy słabej widzialności, słaby wiatr (limit, vatiris), składowa czołowa."""
     tail_ok = [r for r in rows if r["headwind"] is None or r["headwind"] >= -max_tailwind_kt]
     known = wind_dir is not None and wind_speed is not None
-    calm = not known or wind_speed < limit
+    calm = limit is not None and (not known or wind_speed < limit)
     head = lambda r: r["headwind"] if r["headwind"] is not None else 0  # noqa: E731
     pick = lambda arr, dep, why: {"arr": arr, "dep": dep or arr, "reason": why}  # noqa: E731
 

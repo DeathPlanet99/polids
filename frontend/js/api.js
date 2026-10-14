@@ -256,6 +256,30 @@ export function positionTip(on, books = []) {
   return lines.join("\n");
 }
 
+// LVP (services/lvp.py, progi z AIP w data/seed/lvp.json): stan do AERODROME, OVERVIEW i AWOS. cls: lvp / prep /
+// cancel (odwołane, przez 30 min) / off (nie obowiązują) / na (AIP nie przewiduje LVP).
+export function lvpState(lvp) {
+  if (!lvp || lvp.applies === false) return { cls: "na", label: "LVP nie dotyczy" };
+  if (lvp.state === "LVP") return { cls: "lvp", label: "LVP W MOCY" };
+  if (lvp.state === "PREP") return { cls: "prep", label: "PRZYGOTOWANIE LVP" };
+  if (lvp.state === "CANCELLED") return { cls: "cancel", label: `LVP ODWOŁANE ${lvp.since || ""}`.trim() };
+  return { cls: "off", label: "LVP nie obowiązują" };
+}
+
+// dymek LVP: progi trzech faz (przygotowanie, wprowadzenie, odwołanie), zakres i źródło w AIP; długie uwagi łamane
+// do ok. 60 znaków (dymek ma white-space: pre)
+export function lvpTip(lvp) {
+  if (!lvp) return "";
+  const wrap = (t) => (t || "").split(" ").reduce((ls, w) => {
+    if (ls.length && (ls[ls.length - 1] + " " + w).length <= 60) ls[ls.length - 1] += " " + w; else ls.push(w);
+    return ls;
+  }, []).join("\n");
+  const src = lvp.source ? `Źródło: ${lvp.source}` : "";
+  if (lvp.applies === false) return [lvp.reason || "AIP nie przewiduje LVP", src].filter(Boolean).map(wrap).join("\n");
+  return [...(lvp.rules || []), lvp.scope === "DEP" ? "LVP tylko dla odlotów" : "", src, lvp.note || ""]
+    .filter(Boolean).map(wrap).join("\n");
+}
+
 // ATIS z VATSIM (text_atis): każdy element tablicy w osobnej linijce, jak w VATSIM Radar, a nie jeden ciągły tekst.
 // Element bywa też napisem z własnymi znakami nowej linii; puste linijki pomijamy. null (ATIS bez tekstu) → [].
 export function splitAtis(lines) {

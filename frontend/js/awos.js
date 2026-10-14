@@ -8,7 +8,7 @@
 // Układ kolumn: 1 PAS (TDZ / MID / END jednego kierunku) albo 2 PASY (DEP i ARR, każda z własnym pasem); automatycznie
 // 2 PASY, gdy ATIS (bez ATIS sugestia) ma różne pasy do lądowania i startu. Ręczny wybór układu i pasów pamiętamy dla lotniska
 // do zmiany pasów w użyciu z ATIS / sugestii, najdłużej 12 h.
-import { api, esc, lsGet, lsSet, vatsimAtc } from "./api.js";
+import { api, esc, lsGet, lsSet, lvpState, lvpTip, vatsimAtc } from "./api.js";
 import { colorize, wxLines } from "./tabs/meteo.js";
 
 const RAD = Math.PI / 180;
@@ -317,15 +317,16 @@ const autoMode = (u) => (u?.arr && u?.dep && u.arr !== u.dep ? "split" : "one");
 // Pasy kolumn bez ręcznego wyboru: { rwy, arr, dep }, każdy { des, src, why } (src: ATIS / sugestia / auto).
 // 1 PAS: pas do lądowania w użyciu. 2 PASY: pasy do lądowania i startu w użyciu. Gdy w użyciu jest jeden pas X
 // (2 PASY wybrane ręcznie), drugi pas: z rozdziału ARR / DEP, który zawiera X, najpierw z sugestii systemu, potem
-// z typowej konfiguracji lotniska (EPWA ARR 33 / DEP 29), o ile drugi pas nie ma wiatru w plecy > 5 kt; inaczej
-// X do lądowania, a do startu kierunek innego pasa z największą składową czołową z METAR. Lotnisko z jednym pasem:
-// do startu przeciwny kierunek X (porównanie wiatru na obu końcach, starty pod kierunek lądowań).
+// z konfiguracji preferowanej teraz (pasy preferowane z AIP AD 2.21, EPWA ARR 33 / DEP 29), o ile drugi pas nie ma
+// wiatru w plecy > 5 kt; inaczej X do lądowania, a do startu kierunek innego pasa z największą składową czołową
+// z METAR. Lotnisko z jednym pasem: do startu przeciwny kierunek X (porównanie wiatru na obu końcach, starty pod
+// kierunek lądowań).
 function autoRunways(st) {
   const u = st?.runway_in_use || {}, rwys = st?.runways || [];
   const src = u.source === "ATIS" ? "ATIS" : "sugestia", why = `pas w użyciu (${u.source === "ATIS" ? "ATIS" : "sugestia systemu"})`;
   const x = u.arr || u.dep || rwys[0]?.designator || null, use = (des) => ({ des, src, why });
   if (u.arr && u.dep && u.arr !== u.dep) return { rwy: use(u.arr), arr: use(u.arr), dep: use(u.dep) };
-  for (const [p, s, label] of [[st?.preferred, "sugestia", "sugestia systemu"], [st?.runway_config, "auto", "typowa konfiguracja lotniska"]]) {
+  for (const [p, s, label] of [[st?.preferred, "sugestia", "sugestia systemu"], [st?.runway_config, "auto", "konfiguracja preferowana lotniska"]]) {
     if (!p?.arr || !p?.dep || p.arr === p.dep || ![p.arr, p.dep].includes(x)) continue;
     const r = rwys.find((q) => q.designator === (p.arr === x ? p.dep : p.arr));
     if (!r || (r.headwind ?? 0) < -5) continue;
@@ -598,9 +599,12 @@ RVR: z METAR; gdy METAR nie podaje RVR dla pasa: przy widzialności ≥ 1500 m (
     $(".qnh").textContent = p?.qnh ?? "–";
     $(".qfe").textContent = st.qfe ?? "–";
     const lv = $(".aw-lvp");
-    lv.className = "aw-box aw-lvp" + (lvp.state === "LVP" ? " on" : lvp.state ? " prep" : "");
-    lv.innerHTML = lvp.state === "LVP" ? "LVP" : lvp.state ? "LVP<small>PRZYGOT.</small>" : "LVP";
-    lv.title = lvp.state ? (lvp.reasons || []).join("\n") : "LVP nie obowiązują";
+    // stan LVP z progami z AIP: w mocy, przygotowanie, odwołane (30 min), n/d = AIP nie przewiduje LVP
+    const ls = lvpState(st.lvp);
+    lv.className = "aw-box aw-lvp" + ({ lvp: " on", prep: " prep", cancel: " cancel", na: " na" }[ls.cls] || "");
+    lv.innerHTML = { prep: "LVP<small>PRZYGOT.</small>", cancel: `LVP<small>ODWOŁ. ${esc(lvp.since || "")}</small>`,
+      na: "LVP<small>N/D</small>" }[ls.cls] || "LVP";
+    lv.title = [ls.label, ...(lvp.reasons || []), lvpTip(st.lvp)].filter(Boolean).join("\n");
     const v = vmc(p), vm = $(".aw-vmc");
     vm.className = "aw-box aw-vmc " + (v || "").toLowerCase();
     vm.innerHTML = `${v || "–"}${p?.flight_category ? `<small>${esc(p.flight_category)}</small>` : ""}`;

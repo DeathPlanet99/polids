@@ -48,13 +48,34 @@ def test_aerodrome_status(client):
     assert st["suggested_runway"] == "29" and st["preferred"]["arr"] == "29"
     # kontrola online z ATIS: pas w użyciu z ATIS, litera B
     assert st["runway_in_use"] == {"arr": "33", "dep": "29", "source": "ATIS", "reason": "Z ATIS B"}
-    # typowy rozdział pasów z runway_config.json (AWOS › 2 PASY przy ATIS z jednym pasem)
+    # konfiguracja preferowana z runway_config.json (AWOS › 2 PASY przy ATIS z jednym pasem); EPWA bez AIP AD 2.21
     assert st["runway_config"] == {"arr": "33", "dep": "29"}
+    assert st["lvp"]["applies"] and len(st["lvp"]["rules"]) == 3
     assert st["atis"]["letter"] == "B" and st["atc_online"][0]["callsign"] == "EPWA_TWR"
     assert "ILS" in next(r for r in st["runways"] if r["designator"] == "33")["equipment"]
     chk = client.get("/api/aerodromes/EPWA/checklist").json()
     assert chk["id"] == "open-position" and chk["items"]
     assert client.get("/api/aerodromes/XXXX/status").status_code == 404
+
+
+def test_seed_from_aip(client):
+    """Import danych z data/seed: pasy w metrach ze źródłem, częstotliwości z godzinami, elewacje z AIP."""
+    bk = client.get("/api/aerodromes/EPBK").json()
+    rw = {r["designator"]: r for r in bk["runways"]}
+    assert set(rw) == {"09R", "27L", "09L", "27R"}
+    assert (rw["09R"]["length_m"], rw["09R"]["width_m"], rw["09R"]["surface"]) == (1350, 50, "CONC/ASPH")
+    assert (rw["27R"]["length_m"], rw["27R"]["surface"]) == (840, "GRASS")
+    assert bk["frequencies"][0] == {"kind": "RADIO", "description": "BIAŁYSTOK RADIO", "mhz": "123.205", "hours": "AUP",
+                                    "source": "AIP VFR AD 4.9"}
+    # EPSW: pas 07/25 z OurAirports nie istnieje
+    assert not any(r["designator"] in ("07", "25") for r in client.get("/api/aerodromes/EPSW").json()["runways"])
+    mo = client.get("/api/aerodromes/EPMO").json()
+    assert mo["elevation_ft"] == 344 and {r["length_m"] for r in mo["runways"]} == {2500}
+    ks = client.get("/api/aerodromes/EPKS").json()
+    assert any(f["kind"] == "GND" and f["hours"].startswith("MON-THU") for f in ks["frequencies"])
+    # lotnisko bez LVP w AIP
+    st = client.get("/api/aerodromes/EPRA/status").json()
+    assert st["lvp"]["applies"] is False and st["lvp"]["state"] is None
 
 
 def test_meteo_and_qnh(client):
