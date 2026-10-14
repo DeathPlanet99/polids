@@ -248,7 +248,7 @@ export default {
         ${MAPS.map((m) => m.key === "MID" ? `<div class="rb-mid">
             <div class="rb-btns">${LAYERS.map((l) => `<button type="button" data-ly="${l.id}" title="${esc(l.tip)}" aria-pressed="false">${esc(l.label)}</button>`).join("")}</div>
             <div class="rb-status"></div>
-            <div class="rb-legend"><span title="Sektory ACC: jeden obszar i jedna etykieta (stanowisko, częstotliwość) na stanowisko; granica tylko tam, gdzie zmienia się obsługujący. Sektorów bez nikogo nie rysujemy (zostaje granica FIR EPWW)."><i class="rb-sw on"></i>obsadzony</span><span title="TMA, CTR i FIS EPWW bez nikogo online: samo ID, bez częstotliwości (stanowisko i jego częstotliwość w dymku); sektory ACC bez nikogo: nie rysujemy; sąsiedzi: pole bez częstotliwości, nikt w całym stosie – ADVISORY ${ADVISORY_FQ}"><i class="rb-sw off"></i>nikt (samo ID)</span><span><i class="rb-sw cov"></i>↑ przejmuje inne (TWR)</span></div>
+            <div class="rb-legend"><span title="Sektory ACC: jeden obszar i jedna etykieta (stanowisko, częstotliwość) na stanowisko; granica tylko tam, gdzie zmienia się obsługujący. Sektorów bez nikogo nie rysujemy (zostaje granica FIR EPWW)."><i class="rb-sw on"></i>obsadzony</span><span title="TMA, CTR i FIS EPWW bez nikogo online: samo ID, bez częstotliwości (stanowisko i jego częstotliwość w dymku); sektory ACC bez nikogo: nie rysujemy; sąsiedzi: pole bez częstotliwości, nikt w całym stosie – ADVISORY ${ADVISORY_FQ}"><i class="rb-sw off"></i>nikt (TMA, CTR, FIS: samo ID)</span><span><i class="rb-sw cov"></i>↑ przejmuje inne (TWR)</span></div>
             ${panelHtml(m)}
           </div>` : panelHtml(m)).join("")}
         <div class="rb-loa" role="dialog" aria-label="LOA" hidden></div>
