@@ -1,6 +1,7 @@
 """Wszystkie stanowiska do RADIO i dopasowania kontrolerów online: plik .ese EPWW, vacs-data, pliki .ese sąsiadów."""
 
 import json
+from collections.abc import Collection
 from functools import lru_cache
 
 from sqlalchemy import select
@@ -8,8 +9,9 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import Aerodrome, AtcPosition, NavPoint
-from .neighbours import listed_callsigns, nb_positions
-from .radio import INFO_MID, merge_positions, neighbour_tab
+from .neighbours import listed_callsigns, nb_owners, nb_positions
+from .radio import INFO_MID, Station, merge_positions, neighbour_tab
+from .vatsim import match_positions
 
 
 @lru_cache(maxsize=1)
@@ -24,6 +26,32 @@ def all_positions(db: Session) -> list[dict]:
     ese = [{"callsign": p.callsign, "name": p.name, "frequency": p.frequency, "position_id": p.position_id,
             "prefix": p.prefix} for p in db.scalars(select(AtcPosition))]
     return merge_positions(ese, vacs_positions(), nb_positions(db), listed_callsigns(db))
+
+
+def online_stations(db: Session, positions: list[dict] | None = None) -> list:
+    """Stanowiska do dopasowania zalogowanych (/api/vatsim/online): najpierw plik .ese EPWW (kolejność z bazy), potem
+    pozostałe z all_positions (vacs-data, pliki .ese sąsiadów). positions: gotowy wynik all_positions."""
+    stations = list(db.scalars(select(AtcPosition)).all())
+    known = {p.callsign for p in stations}
+    return stations + [Station(p["callsign"], p["prefix"], p["frequency"] or "")
+                       for p in (positions if positions is not None else all_positions(db)) if p["callsign"] not in known]
+
+
+def sim_twins(stations: list, prefer: Collection[str]) -> dict[str, str]:
+    """Drugi znak stanowiska: zalogowany na nim kontroler jest w /api/vatsim/online także pod stanowiskiem sąsiada
+    z `prefer` o tym samym prefiksie, typie i częstotliwości (alias_of z match_positions, np. EKDK_CTR → EKDK_UN_CTR,
+    właściciel sektorów Danii). Symulacja logowania w MAP rysuje go tam tak samo. Najpierw tani filtr (typ
+    i częstotliwość jak u któregoś stanowiska z `prefer`), potem match_positions dla jednego kontrolera."""
+    def key(s):
+        return s.callsign.split("_")[-1], (s.frequency or "")[:7]
+    keys = {key(s) for s in stations if s.callsign in prefer}
+    out = {}
+    for s in stations:
+        if s.callsign in prefer or key(s) not in keys:
+            continue
+        hit = match_positions([{"callsign": s.callsign, "frequency": s.frequency or ""}], stations, prefer)
+        out.update({s.callsign: cs for cs, c in hit.items() if c.get("alias_of") == s.callsign})
+    return out
 
 
 # --- drzewo "Pozycje" w MAP (runda 12, Marek): FIR → ACC / FIS / lotniska → stanowiska
@@ -56,13 +84,16 @@ def tree_place(p: dict) -> tuple[str, str]:
 
 def position_tree(db: Session) -> dict:
     """Wszystkie stanowiska (all_positions: znak, nazwa, częstotliwość, rodzaj) z polami drzewa: fir, group, order
-    (kolejność w grupie lotniska); firs: FIR-y w kolejności drzewa z nazwami; airports: nazwa i położenie lotnisk
-    z grup (plakietki symulowanych stanowisk)."""
+    (kolejność w grupie lotniska), twin (drugi znak, sim_twins; tylko gdy jest); firs: FIR-y w kolejności drzewa
+    z nazwami; airports: nazwa i położenie lotnisk z grup (plakietki symulowanych stanowisk)."""
+    allp = all_positions(db)
+    twins = sim_twins(online_stations(db, allp), nb_owners(db))
     out = []
-    for p in all_positions(db):
+    for p in allp:
         fir, group = tree_place(p)
         out.append({k: p.get(k) for k in ("callsign", "name", "frequency", "facility")}
-                   | {"fir": fir, "group": group, "order": TREE_FACILITY_ORDER.get(p.get("facility") or "", 5)})
+                   | {"fir": fir, "group": group, "order": TREE_FACILITY_ORDER.get(p.get("facility") or "", 5)}
+                   | ({"twin": twins[p["callsign"]]} if p["callsign"] in twins else {}))
     icaos = {p["group"] for p in out if p["group"] not in ("ACC", "FIS")}
     airports = {a.icao: {"name": a.name, "lat": a.lat, "lon": a.lon}
                 for a in db.scalars(select(Aerodrome).where(Aerodrome.icao.in_(icaos)))}

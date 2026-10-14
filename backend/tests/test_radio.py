@@ -285,3 +285,5 @@ def test_positions_all_tree(client):
     assert ps["EDYY_CL_CTR"]["fir"] == "EDUU" and ps["EDGG_BAD_CTR"]["fir"] == "EDGG"
     assert (ps["EDDB_N_TWR"]["fir"], ps["EDDB_N_TWR"]["group"]) == ("EDWW", "EDDB")
     assert d["airports"]["EPGD"]["lat"] == pytest.approx(54.38, abs=0.05)
+    # symulacja EKDK_CTR (vacs-data) rysuje się też pod EKDK_UN_CTR, właścicielem sektorów z pliku Danii (alias_of)
+    assert ps["EKDK_CTR"]["twin"] == "EKDK_UN_CTR" and "twin" not in ps["EKDK_UN_CTR"] and "twin" not in ps["EPWW_N_CTR"]

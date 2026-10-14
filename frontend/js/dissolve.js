@@ -102,6 +102,15 @@ export function dissolve(key, geoms, lib = globalThis.polygonClipping) {
   return out;
 }
 
+// Duże części wielokąta: co najmniej MAIN_PART największej (ta zawsze). Etykieta sąsiada szukana w pobliżu Polski nie
+// trafia wtedy na mały oderwany kawałek (Bornholm w obszarze EKDK na wszystkich poziomach), gdy reszta leży dalej.
+export const MAIN_PART = 0.1;
+export function mainParts(g, share = MAIN_PART) {
+  const polys = g?.type === "Polygon" ? [g.coordinates] : g?.type === "MultiPolygon" ? g.coordinates : [];
+  const areas = polys.map((p) => ringStats(p?.[0]).area), top = Math.max(0, ...areas);
+  return { type: "MultiPolygon", coordinates: polys.filter((_, i) => areas[i] >= share * top) };
+}
+
 // Punkt etykiety wewnątrz wielokąta z dziurami, możliwie daleko od krawędzi (próbki na siatce w każdej części, jak
 // labelPoint w coverage.js, ale z dziurami: etykieta sektora ACC nie wypada w TMA, którą obsługuje ktoś inny).
 // within: [lonMin, latMin, lonMax, latMax] – szukaj tylko w tej ramce. Wynik [lat, lon] albo null.

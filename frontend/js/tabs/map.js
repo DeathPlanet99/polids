@@ -4,9 +4,9 @@ import { FACILITIES, PLANE_PATH, POSITION_COLORS, SymbolMarker, aircraftMarker, 
   drawFirs, fl, loadFirs, loadVacs, sliceOwner, symbolFor, symbolSvg, vacsLayer } from "../airspace.js";
 import { airspaceChain } from "../chains.js";
 import { labelPoint } from "../coverage.js";
-import { dissolve, pointIn } from "../dissolve.js";
+import { dissolve, mainParts, pointIn } from "../dissolve.js";
 import { displayName, loadDisplayNames } from "../posname.js";
-import { activeAtc, activeOnline, buildTree, countOf, matchItem, toggle } from "../postree.js";
+import { activeAtc, activeOnline, buildTree, countOf, firsOf, matchItem, toggle } from "../postree.js";
 
 // Kolory zależne od podkładu (ciemny / jasny)
 const THEME = {
@@ -61,7 +61,7 @@ const LEGEND = [
   ["air", "Przestrzeń", () => [
     lg(`<span class="swatch own"></span>`, "obsada wg kontrolerów online: obszar stanowiska (jeden kontur i wypełnienie w jego kolorze)"),
     lg(`<span class="lg-freq">133.475</span>`, "stanowisko i częstotliwość: jedna etykieta na stanowisko", "w"),
-    lg(`<b class="pos-sim">SYM</b>`, "stanowisko symulowane w sekcji Pozycje (kontur przerywany, plakietka lotniska z przerywaną ramką)"),
+    lg(`<b class="pos-sim">SYM</b>`, "stanowisko symulowane w sekcji Pozycje (kontur przerywany, plakietka lotniska albo CTR z przerywaną ramką)"),
     lg(`<span class="swatch fir"></span>`, "granica FIR (VATSpy, osobny przełącznik)"),
     `<p class="lgx-note">Obsada wg kontrolerów online: wszystkie widoczne wycinki (wybrany poziom, warstwy i listy) obsługiwane przez to samo
       stanowisko są jednym obszarem, bez granic między jego sektorami: granica jest tylko tam, gdzie zmienia się obsługujący. Przestrzeni,
@@ -642,9 +642,10 @@ function mainMap(ctx) {
       const st = { color: g.color, weight: 1.5, opacity: 1, fillColor: g.color, fillOpacity: 0.16 * f, ...(g.c.sim ? { dashArray: "6 4" } : {}) };
       if (g.d) L.geoJSON(g.d.geometry, { interactive: false, style: st }).addTo(layers.air);
       else g.vs.forEach((v) => L.geoJSON(v.f, { interactive: false, style: { ...st, stroke: false } }).addTo(layers.air));
-      // etykieta w obszarze stanowiska, daleko od krawędzi i poza dziurami (u sąsiada w pobliżu Polski); punkt w pamięci sumy
+      // etykieta w obszarze stanowiska, daleko od krawędzi i poza dziurami; u sąsiada w pobliżu Polski, ale tylko na
+      // dużej części (mainParts: nie na oderwanym kawałku, np. Bornholm w obszarze EKDK); punkt w pamięci sumy
       let at = null;
-      if (g.d) at = g.d.at ||= (g.nb && pointIn(g.d.geometry, NEAR)) || pointIn(g.d.geometry);
+      if (g.d) at = g.d.at ||= (g.nb && pointIn(mainParts(g.d.geometry), NEAR)) || pointIn(g.d.geometry);
       if (!at) at = center(g.vs.reduce((a, v) => (area(v.f.bb) > area(a.f.bb) ? v : a)).f);
       lbl(at, `<small>${esc(displayName(g.c.callsign))}${g.c.sim ? ' <b class="pos-sim">SYM</b>' : ""}</small><br><span class="freq on">${esc(g.c.frequency)}</span>`, g.size || 1, g.c);
     });
@@ -926,7 +927,7 @@ function mainMap(ctx) {
     slices = gj;
     migratePick();
     Object.assign(net, { online: onl, firs, positions, vacs, posBy: Object.fromEntries(positions.map((p) => [p.callsign, p])) });
-    net.act = activeOnline(onl, posSel, posFreq);
+    net.act = activeOnline(onl, posSel, posOpts);
     drawFirLayer();
     drawAirspace();
     AIR.forEach((a) => pickBtn(a.id));
@@ -934,7 +935,8 @@ function mainMap(ctx) {
     renderPos();
   };
   // podświetlenie obsady FIR-ów (VATSpy) tylko w FIR EPWW; FIR-y sąsiednie jako same kontury (ich sektory: warstwa sąsiadów).
-  // Obsada z zestawu aktywnego: stanowisko ukryte w sekcji Pozycje znika też z plakietki CTR.
+  // Obsada z zestawu aktywnego: stanowisko ukryte w sekcji Pozycje znika też z plakietki CTR, symulowane ACC ją dostaje
+  // (przerywana ramka, gdy w FIR-ze są same symulacje).
   const drawFirLayer = () => {
     layers.firs.clearLayers();
     const epwwOnline = Object.fromEntries(Object.entries(net.act?.firs || {}).filter(([id]) => id.startsWith("EPWW")));
@@ -944,18 +946,24 @@ function mainMap(ctx) {
   // --- Pozycje (runda 12, Marek): drzewo FIR → ACC / FIS / lotniska → stanowiska z polem wyboru. Zaznaczone = zestaw
   // aktywny: domyślnie zalogowani (zielona nazwa), kliknięcie symuluje logowanie stanowiska offline (SYM, kontur
   // przerywany) albo ukrywa zalogowanego. Z zestawu aktywnego korzystają sektoryzacja (obsada wg kontrolerów online),
-  // plakietki lotnisk i plakietka CTR FIR-u. Wybór i rozwinięte gałęzie do końca sesji przeglądarki (sessionStorage).
+  // plakietki lotnisk i plakietka CTR FIR-u. Wybór, rozwinięte gałęzie i wyszukiwanie do końca sesji przeglądarki (sessionStorage).
   // Rysujemy tylko rozwinięte gałęzie (ok. 600 stanowisk), przy wyszukiwaniu pasujące stanowiska.
   const ssGet = (k, d) => { try { const v = JSON.parse(sessionStorage.getItem(k)); return typeOf(v) === typeOf(d) ? v : d; } catch { return d; } };
   const ssSet = (k, v) => { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch { /* tryb prywatny */ } };
   let posSel = ssGet("map.pos.sel", { base: "online", ovr: {} });
   if (typeOf(posSel.ovr) !== "object") posSel = { base: "online", ovr: {} };
   const posOpen = new Set(ssGet("map.pos.open", []).filter((x) => typeof x === "string"));
-  let posData = null, posP = null, posErr = null;
-  const loadPos = () => (posP ||= api("/api/nav/positions/all").then((d) => { posData = d; posErr = null; })
+  $(".pos-q").value = ssGet("map.pos.q", "");
+  let posData = null, posIdx = new Map(), posP = null, posErr = null;
+  const loadPos = () => (posP ||= api("/api/nav/positions/all").then((d) => { posData = d; posIdx = new Map(d.positions.map((p) => [p.callsign, p])); posErr = null; })
     .catch((e) => { posErr = e.message; posP = null; }));
-  const posFreq = (cs) => posData?.positions.find((p) => p.callsign === cs)?.frequency || net.posBy[cs]?.frequency
-    || net.vacs?.acc_positions?.[cs]?.frequency || "";
+  // stanowisko do symulacji (postree.js): z listy wszystkich stanowisk (drugi znak: twin), częstotliwość także z .ese EPWW
+  // i z kolejności przejmowania; znak spoza nich (zalogowany spoza listy) nie jest symulowany
+  const posOf = (cs) => {
+    const p = posIdx.get(cs), e = net.posBy[cs], v = net.vacs?.acc_positions?.[cs];
+    return p || e || v ? { frequency: p?.frequency || e?.frequency || v?.frequency || "", twin: p?.twin } : null;
+  };
+  const posOpts = { posOf, firOf: (cs) => firsOf(cs, net.firs) };
   const POS_MAX = 200;  // stanowisk na liście przy wyszukiwaniu
   const STATE_TITLE = { on: "zalogowany", sim: "symulacja logowania", hid: "zalogowany, ukryty na mapie", off: "offline" };
   function renderPos() {
@@ -1001,7 +1009,7 @@ function mainMap(ctx) {
   const applyPos = (sel) => {
     posSel = sel;
     ssSet("map.pos.sel", posSel);
-    net.act = activeOnline(net.online, posSel, posFreq);
+    net.act = activeOnline(net.online, posSel, posOpts);
     drawFirLayer();
     drawAirspace();
     drawAtc();
@@ -1009,7 +1017,7 @@ function mainMap(ctx) {
   };
   $(".pos-tree").addEventListener("change", (e) => {
     const cs = e.target.dataset?.cs;
-    if (cs) applyPos(toggle(posSel, cs, e.target.checked, net.online));
+    if (cs) applyPos(toggle(posSel, cs, e.target.checked, net.online, posOpts));
   });
   $(".pos-tree").addEventListener("click", (e) => {
     const h = e.target.closest("[data-open]");
@@ -1018,7 +1026,7 @@ function mainMap(ctx) {
     ssSet("map.pos.open", [...posOpen]);
     renderPos();
   });
-  $(".pos-q").addEventListener("input", renderPos);
+  $(".pos-q").addEventListener("input", () => { ssSet("map.pos.q", $(".pos-q").value); renderPos(); });
   $(".pos-reset").addEventListener("click", () => applyPos({ base: "online", ovr: {} }));
   $(".pos-none").addEventListener("click", () => applyPos({ base: "none", ovr: {} }));
   // przełączniki i poziom

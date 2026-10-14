@@ -12,26 +12,51 @@ const BADGE = { DEL: "DEL", GND: "GND", RMP: "GND", TWR: "TWR", APP: "APP", DEP:
 // ovr: {znak: true | false} – odstępstwa od base kliknięte na liście.
 // Zestaw aktywny w kształcie /api/vatsim/online: positions (znak stanowiska → kontroler), controllers (EP**), firs (VATSpy),
 // live (znaki z sieci aktywnych kontrolerów), gone (znaki z sieci ukrytych) i sims (znaki symulowanych stanowisk).
-// online: dane z sieci albo null (błąd VATSIM: same symulacje); freqOf: częstotliwość stanowiska do symulacji.
-// Kontroler sąsiada pod drugim znakiem (alias_of, ten sam człowiek) znika razem ze stanowiskiem, pod którym jest zalogowany.
-export function activeOnline(online, state = {}, freqOf = () => "") {
+// online: dane z sieci albo null (błąd VATSIM: same symulacje). posOf(znak): stanowisko z listy (/api/nav/positions/all:
+// frequency, twin) albo nic – symulujemy tylko stanowiska z listy, więc zalogowany spoza listy (też po wylogowaniu)
+// nie staje się symulacją. firOf(znak): FIR-y VATSpy stanowiska CTR/FSS (firsOf), plakietka CTR symulowanego ACC.
+// Kontroler sąsiada pod drugim znakiem (alias_of, ten sam człowiek) idzie za stanowiskiem, pod którym jest zalogowany
+// (ukryty i po "wyczyść" włączony razem z nim); symulacja stanowiska z drugim znakiem (twin, np. EKDK_CTR → EKDK_UN_CTR,
+// właściciel sektorów Danii) jest tam wpisana tak samo jak zalogowany (alias_of), o ile nikt tam naprawdę nie siedzi.
+export function activeOnline(online, state = {}, { posOf = () => null, firOf = () => [] } = {}) {
   const ovr = state.ovr || {}, none = state.base === "none", src = online?.positions || {};
-  const sims = Object.keys(ovr).filter((cs) => ovr[cs] === true && !src[cs]);
+  const extra = strays(online), stray = new Set(extra.map((c) => c.callsign));
+  const sims = Object.keys(ovr).filter((cs) => ovr[cs] === true && !src[cs] && !stray.has(cs) && posOf(cs));
   if (!online && !sims.length && !none) return null;
   const positions = {};
   Object.entries(src).forEach(([cs, c]) => {
-    if (ovr[cs] ?? (!none && !(c.alias_of && ovr[c.alias_of] === false))) positions[cs] = c;
+    if (ovr[cs] ?? (c.alias_of ? ovr[c.alias_of] : undefined) ?? !none) positions[cs] = c;
   });
-  sims.forEach((cs) => { positions[cs] = { callsign: cs, frequency: freqOf(cs) || "", name: SIM_NAME, sim: true }; });
-  const extra = strays(online);
+  sims.forEach((cs) => { positions[cs] = { callsign: cs, frequency: posOf(cs)?.frequency || "", name: SIM_NAME, sim: true }; });
+  sims.forEach((cs) => {
+    const tw = posOf(cs)?.twin;
+    if (tw && !src[tw] && !positions[tw] && ovr[tw] !== false) positions[tw] = { ...positions[cs], alias_of: cs };
+  });
   const live = new Set([...Object.values(positions), ...extra.filter((c) => ovr[c.callsign] ?? !none)].map((c) => c.callsign));
   const gone = new Set([...Object.values(src), ...extra].map((c) => c.callsign).filter((cs) => !live.has(cs)));
   const keep = (c) => !gone.has(c.callsign);
+  const firs = Object.fromEntries(Object.entries(online?.firs || {}).map(([id, l]) => [id, (l || []).filter(keep)]).filter(([, l]) => l.length));
+  sims.forEach((cs) => firOf(cs).forEach((id) => (firs[id] ||= []).push(positions[cs])));
   return {
-    ...(online || {}), positions, live, gone, sims,
+    ...(online || {}), positions, live, gone, sims, firs,
     controllers: (online?.controllers || []).filter(keep),
-    firs: Object.fromEntries(Object.entries(online?.firs || {}).map(([id, l]) => [id, (l || []).filter(keep)]).filter(([, l]) => l.length)),
   };
+}
+
+// FIR-y (id z VATSpy, /api/vatsim/firs) stanowiska CTR/FSS jak online_firs w backendzie: najdłuższy pasujący prefiks
+// FIR-u albo UIR-u (EPWW_N_CTR → EPWW-N). Indeks prefiksów w pamięci dla danych VATSpy.
+const firIdx = new WeakMap();
+export function firsOf(cs, vatspy) {
+  if (!vatspy?.features || !/_(CTR|FSS)$/.test(cs || "")) return [];
+  let idx = firIdx.get(vatspy);
+  if (!idx) {
+    const ids = vatspy.features.map((f) => f.properties.id);
+    idx = [...vatspy.features.flatMap((f) => (f.properties.prefixes || []).map((pre) => [pre, [f.properties.id]])),
+      ...(vatspy.uirs || []).map((u) => [u.id, ids.filter((id) => (u.firs || []).includes(id.split("-")[0]))])];
+    idx.sort((a, b) => b[0].length - a[0].length);
+    firIdx.set(vatspy, idx);
+  }
+  return idx.find(([pre]) => cs === pre || cs.startsWith(pre + "_"))?.[1] || [];
 }
 
 // Plakietki lotnisk (/api/vatsim/atc) z zestawem aktywnym: bez ukrytych kontrolerów, z symulowanymi stanowiskami
@@ -107,14 +132,14 @@ export function matchItem(it, g, f, q) {
   return words.every((w) => hay.includes(w));
 }
 
-// Kliknięcie stanowiska: nowy stan wyboru. Stan zgodny z base = bez odstępstwa (base "online": zalogowany włączony,
-// offline wyłączony; base "none": wszystko wyłączone). Zalogowany pod znakiem sąsiada ukryty razem ze stanowiskiem
-// alias_of domyślnie jest wyłączony, więc jego włączenie to jawne odstępstwo.
-export function toggle(state, cs, checked, online) {
-  const ovr = { ...(state?.ovr || {}) }, c = online?.positions?.[cs];
-  const def = state?.base === "none" ? false
-    : c ? !(c.alias_of && ovr[c.alias_of] === false) : strays(online).some((x) => x.callsign === cs);
-  if (checked === def) delete ovr[cs];
-  else ovr[cs] = checked;
-  return { base: state?.base === "none" ? "none" : "online", ovr };
+// Kliknięcie stanowiska: nowy stan wyboru. Stan zgodny z tym, co bez odstępstwa dla tego znaku daje reszta wyboru
+// (base "online": zalogowany włączony, offline wyłączony; base "none": wyłączony; drugi znak – alias_of albo twin – jak
+// stanowisko, za którym idzie), zapisujemy bez odstępstwa. opts: jak w activeOnline.
+export function toggle(state, cs, checked, online, opts = {}) {
+  const base = state?.base === "none" ? "none" : "online", ovr = { ...(state?.ovr || {}) };
+  delete ovr[cs];
+  const a = activeOnline(online, { base, ovr }, opts);
+  const def = strays(online).some((c) => c.callsign === cs) ? !!a?.live.has(cs) : !!a?.positions[cs];
+  if (checked !== def) ovr[cs] = checked;
+  return { base, ovr };
 }

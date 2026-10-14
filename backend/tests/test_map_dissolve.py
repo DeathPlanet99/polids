@@ -65,6 +65,13 @@ const sq = { type: "Polygon", coordinates: [ring.map(([x, y]) => [x, y + 52]), h
 out.pt = d.pointIn(sq);
 out.ptWithin = d.pointIn(sq, [0.85, 52, 1, 53]);
 out.ptOut = d.pointIn(sq, [5, 5, 6, 6]);
+// etykieta sąsiada w pobliżu Polski (ramka NEAR) tylko na dużej części (mainParts), jak w tabs/map.js
+const sqr = (x0, y0, x1, y1) => [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]].map(([x, y]) => [x, y + 52])];
+const NEAR = [5, 51, 8, 54], label = (g) => d.pointIn(d.mainParts(g), NEAR) || d.pointIn(g);
+const islet = { type: "MultiPolygon", coordinates: [sqr(0, 0, 4, 2), sqr(6, 0, 6.3, 0.3)] };
+const half = { type: "MultiPolygon", coordinates: [sqr(0, 0, 4, 2), sqr(6, 0, 7, 1)] };
+out.parts = [d.mainParts(islet).coordinates.length, d.mainParts(half).coordinates.length, d.mainParts(null).coordinates.length];
+out.ptIslet = label(islet); out.ptIsletOld = d.pointIn(islet, NEAR); out.ptHalf = label(half);
 console.log(JSON.stringify(out));
 """
 
@@ -154,3 +161,12 @@ def test_label_point_avoids_hole(js):
     lat, lon = js["ptWithin"]
     assert lon >= 0.85
     assert js["ptOut"] is None
+
+
+def test_neighbour_label_not_on_small_part(js):
+    # mały oderwany kawałek (Bornholm w obszarze EKDK) w pobliżu Polski: etykieta na dużej części, nie na nim;
+    # część co najmniej 1/10 największej: etykieta w pobliżu Polski jak dotąd
+    assert js["parts"] == [1, 2, 0]
+    assert 6 < js["ptIsletOld"][1] < 6.3  # bez mainParts: na kawałku
+    assert 0 < js["ptIslet"][1] < 4 and 52 < js["ptIslet"][0] < 54
+    assert 6 < js["ptHalf"][1] < 7
