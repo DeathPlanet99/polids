@@ -28,6 +28,8 @@
 .aw-lvp small, .aw-vmc small { font: 700 10px var(--ui); letter-spacing: 1px; }
 .aw-lvp.on { background: #b0201a; border-color: #ff5a4a; color: #fff; }
 .aw-lvp.prep { color: var(--yellow); border-color: var(--yellow); }
+.aw-lvp.cancel { color: var(--green-hi); border-color: var(--green); }
+.aw-lvp.na { opacity: .6; }
 .aw-vmc.vmc { color: var(--green-hi); border-color: var(--green); }
 .aw-vmc.imc { color: #fff; background: #3a2a00; border-color: var(--yellow); }
 .aw-vmc small { color: var(--muted); }

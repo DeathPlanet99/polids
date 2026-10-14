@@ -19,7 +19,8 @@ from ..services.lvp import evaluate as evaluate_lvp
 from ..services.positions import all_positions
 from ..services.metar import parse_metar, qfe_from_qnh
 from ..services.procedures import procedures, strip_board
-from ..services.runways import equipment_for, runway_config, runway_heading, select_runways, wind_components
+from ..services.runways import (config_now, equipment_for, runway_config, runway_heading, select_runways,
+                                wind_components)
 from ..services.vatsim import airport_traffic, atis_in_use, controller_info, get_feed, parse_atis
 from ..services.weather import get_metars, get_tafs
 from ..services.sun import sun_times
@@ -115,7 +116,9 @@ def aerodrome(icao: str, db: Session = Depends(get_db)):
         "elevation_ft": ad.elevation_ft, "iata": ad.iata,
         "runways": [{"designator": r.designator, "opposite": r.opposite, "heading_true": r.heading_true,
                      "length_m": r.length_m, "width_m": r.width_m, "surface": r.surface} for r in ad.runways],
-        "frequencies": [{"kind": f.kind, "description": f.description, "mhz": f.mhz} for f in ad.frequencies],
+        # częstotliwości z AIP (data/seed/frequencies.csv): lista zapasowa w AERODROME, gdy .ese nie zna stanowisk
+        "frequencies": [{"kind": f.kind, "description": f.description, "mhz": f.mhz, "hours": f.hours,
+                         "note": f.note, "source": f.source} for f in ad.frequencies],
         "atc_positions": [{"callsign": p.callsign, "name": p.name, "frequency": p.frequency} for p in positions],
     }
 
@@ -146,8 +149,12 @@ async def status(icao: str, db: Session = Depends(get_db)):
     for r in rwys:
         r["headwind"], r["crosswind"] = wind_components(wd, ws, r["heading"])
     lvp = evaluate_lvp(parsed, ad.icao)
-    low_vis = lvp["state"] or ("IMC" if parsed and parsed.flight_category in ("IFR", "LIFR") else None)
-    pref = select_runways(rwys, wd, ws, equipment=equipment, low_vis=low_vis, config=cfg)
+    # odwołane LVP (stan CANCELLED) nie wymaga już podejścia precyzyjnego; zostaje IMC z kategorii METAR
+    low_vis = lvp["state"] if lvp["state"] in ("LVP", "PREP") else (
+        "IMC" if parsed and parsed.flight_category in ("IFR", "LIFR") else None)
+    now = datetime.now(timezone.utc)
+    pref = select_runways(rwys, wd, ws, equipment=equipment, low_vis=low_vis, config=cfg,
+                          gust=parsed.wind_gust if parsed else None, metar=parsed, now=now)
 
     # Kontrola w sieci VATSIM: ATIS (litera, pas w użyciu) i zalogowane stanowiska lotniska
     atc, atis, net_error = [], None, None
@@ -185,8 +192,9 @@ async def status(icao: str, db: Session = Depends(get_db)):
         "metar": metar, "parsed": parsed.to_dict() if parsed else None, "taf": taf,
         "qfe": qfe, "runways": rwys, "lvp": lvp, "sun": sun_times(ad.lat, ad.lon),
         "preferred": pref, "runway_in_use": in_use, "atis": atis, "atc_online": atc, "network_error": net_error,
-        # typowy rozdział pasów lotniska z runway_config.json (AWOS › 2 PASY, gdy ATIS podaje jeden pas)
-        "runway_config": {"arr": cfg.get("arr"), "dep": cfg.get("dep")},
+        # pasy preferowane lotniska teraz (AIP AD 2.21 w oknie czasowym albo konfiguracja słabego wiatru z
+        # runway_config.json): AWOS › 2 PASY, gdy ATIS podaje jeden pas
+        "runway_config": config_now(cfg, now),
         # zgodność wstecz
         "suggested_runway": pref["arr"], "suggestion_reason": pref["reason"],
         "errors": errors,

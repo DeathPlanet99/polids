@@ -41,13 +41,19 @@ class Runway(Base):
 
 
 class Frequency(Base):
+    """Częstotliwość lotniska z AIP (AD 2.18, AIP MIL AD 4.18, AIP VFR AD 4.8-4.9) albo, dla lądowisk spoza AIP,
+    z lotniska.dlapilota.pl (data/seed/frequencies.csv)."""
+
     __tablename__ = "frequencies"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     aerodrome_icao: Mapped[str] = mapped_column(ForeignKey("aerodromes.icao"), index=True)
-    kind: Mapped[str] = mapped_column(String(40))
-    description: Mapped[str | None] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(40))  # służba: TWR, APP, ATIS, AFIS, RADIO, PAR…
+    description: Mapped[str | None] = mapped_column(String(120))  # znak wywoławczy
     mhz: Mapped[str] = mapped_column(String(10))
+    hours: Mapped[str | None] = mapped_column(Text)  # godziny pracy jak w AIP: zima UTC, w nawiasie lato
+    note: Mapped[str | None] = mapped_column(Text)  # uwaga z AIP, np. EPRA: TWR cywilna i wojskowa na tej samej
+    source: Mapped[str | None] = mapped_column(String(80))
 
     aerodrome: Mapped[Aerodrome] = relationship(back_populates="frequencies")
 

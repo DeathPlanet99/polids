@@ -1,5 +1,52 @@
 {
-  "_uwaga": "Ustawienia wyboru pasa preferowanego (AERODROME). Jak w vatiris (runways_preferred.json): arr/dep = pas preferowany do ladowania/startu przy wietrze slabszym niz limit (kt), never = kierunki nigdy nie wybierane automatycznie. equipment nadpisuje wyposazenie odczytane z procedur w pliku .ese, np. {\"29\": [\"ILS\", \"RNP\"]}. DEFAULT dotyczy wszystkich lotnisk. Konfiguracje do sprawdzenia z LoA/AIP.",
+  "_uwaga": "Pasy preferowane do wyboru pasa w AERODROME (services/runways.py select_runways), z AIP AD 2.21 (AIRAC AMDT 10-26, 01.10.2026). Każdy wpis ma source (sekcja AIP). preferential = pasy preferowane z AIP: lista okien czasowych {hours, arr, dep}; hours jak w AIP: 'H24' albo 'HHMM-HHMM (HHMM-HHMM)', czas UTC zimą, w nawiasie latem (czas letni UE: od ostatniej niedzieli marca 01:00 UTC do ostatniej niedzieli października 01:00 UTC); arr/dep = pasy w kolejności z AIP ('26, potem 08'), brak klucza = AIP nie podaje pierwszeństwa dla lądowań albo startów. Pas preferowany obowiązuje, dopóki składowa w plecy i boczna z porywami nie przekracza tailwind_kt / crosswind_kt (liczba albo {arr, dep}) i dopóki nie zachodzi warunek z not_decisive (AIP: 'hałas nie decyduje'): all / arr / dep = progi pogody z METAR, warunek spełniony, gdy podstawa chmur BKN/OVC/VV < ceiling_ft albo widzialność < vis_m; non_precision = te same progi tylko dla kierunku bez ILS (AIP: podejście z minimami powyżej 300 ft AAL); ts = burza w METAR. Pozostałych warunków AIP (pas mokry lub zanieczyszczony, uskok wiatru) nie da się ocenić z METAR. Gdy pas preferowany odpada, pas wybieramy jak zwykle: LVP / przygotowanie LVP / IMC = kierunek z ILS, inaczej największa składowa czołowa. Lotniska bez pasów preferowanych w AIP: zasada słabego wiatru jak w vatiris (runways_preferred.json): arr/dep = pas preferowany przy wietrze słabszym niż limit (kt, DEFAULT), never = kierunki nigdy nie wybierane automatycznie. equipment nadpisuje wyposażenie odczytane z procedur w pliku .ese, np. {\"29\": [\"ILS\", \"RNP\"]}. verified: false = wpis niesprawdzony z AIP. Lotniska wojskowe (AIP MIL AD 4.20-4.22) i lotniska VFR nie publikują pasów preferowanych.",
   "DEFAULT": {"limit": 5},
-  "EPWA": {"arr": "33", "dep": "29"}
+  "EPWA": {
+    "arr": "33", "dep": "29", "verified": false,
+    "source": "NIEZWERYFIKOWANE z AIP: strona AD 2 EPWA daje się odczytać tylko do AD 2.20 pkt 6.1, bez AD 2.21 (pasy preferowane); konfiguracja z poprzedniej wersji (vatiris)"
+  },
+  "EPMO": {
+    "source": "AIP AD 2.21 pkt 1",
+    "preferential": [{"hours": "2100-0500 (2000-0400)", "arr": ["26", "08"], "dep": ["26", "08"]}],
+    "tailwind_kt": 5, "crosswind_kt": 15,
+    "not_decisive": {"all": {"vis_m": 1900}, "arr": {"ceiling_ft": 500, "non_precision": {"ceiling_ft": 800, "vis_m": 3000}}, "ts": true},
+    "aip": "Pasy preferowane ze względu na hałas 2100-0500 (2000-0400): lądowania RWY 26, potem 08; starty RWY 26, potem 08. Hałas nie decyduje przy wietrze bocznym z porywami > 15 kt, w plecy z porywami > 5 kt, pasie niesuchym, podstawie chmur do lądowania < 500 ft AAL, widzialności < 1,9 km, podejściu z minimami > 300 ft AAL przy podstawie < 800 ft albo widzialności < 3000 m, uskoku wiatru lub burzy."
+  },
+  "EPWR": {
+    "source": "AIP AD 2.21 pkt 1",
+    "preferential": [
+      {"hours": "0500-2100 (0400-2000)", "arr": ["29", "11"], "dep": ["29", "11"]},
+      {"hours": "2100-0500 (2000-0400)", "arr": ["11", "29"], "dep": ["29", "11"]}
+    ],
+    "tailwind_kt": 5, "crosswind_kt": 15,
+    "not_decisive": {"arr": {"ceiling_ft": 500, "vis_m": 1900, "non_precision": {"ceiling_ft": 800, "vis_m": 3000}}, "dep": {"vis_m": 1900}, "ts": true},
+    "aip": "Pasy preferowane ze względu na hałas: w dzień lądowania i starty RWY 29, potem 11; w nocy 2100-0500 (2000-0400) lądowania RWY 11, potem 29, starty RWY 29, potem 11 (gdy pogoda i stan techniczny pozwalają). Hałas nie decyduje przy pasie niesuchym, podstawie chmur do lądowania < 500 ft albo widzialności < 1900 m, podejściu z minimami > 300 ft przy podstawie < 800 ft albo widzialności < 3000 m, widzialności do startu < 1900 m, uskoku wiatru lub burzy, wietrze bocznym z porywami > 15 kt, w plecy z porywami > 5 kt."
+  },
+  "EPGD": {
+    "source": "AIP AD 2.21 pkt 1",
+    "preferential": [{"hours": "H24", "dep": ["29", "11"]}],
+    "tailwind_kt": 5, "crosswind_kt": 15,
+    "not_decisive": {"all": {"ceiling_ft": 492, "vis_m": 1900}, "ts": true},
+    "aip": "Starty H24 z RWY 29, potem 11; AIP nie podaje pierwszeństwa dla lądowań. Hałas nie decyduje przy pasie niesuchym, podstawie chmur < 150 m (492 ft) AAL albo widzialności < 1900 m, uskoku wiatru lub burzy, wietrze bocznym > 15 kt albo w plecy > 5 kt (z porywami)."
+  },
+  "EPPO": {
+    "source": "AIP AD 2.21 pkt 1 i 4",
+    "preferential": [
+      {"hours": "0500-2100 (0400-2000)", "arr": ["28", "10"]},
+      {"hours": "H24", "dep": ["28", "10"]}
+    ],
+    "tailwind_kt": {"arr": 5, "dep": 10}, "crosswind_kt": 15,
+    "not_decisive": {"arr": {"ceiling_ft": 800, "vis_m": 3000}, "dep": {"vis_m": 1900}, "ts": true},
+    "aip": "Lądowania (tylko 0500-2100 (0400-2000)) RWY 28, potem 10; starty H24 RWY 28, potem 10. Limit wiatru w plecy 5 kt dla lądowań i 10 kt dla startów, bocznego 15 kt, z porywami. Hałas nie decyduje przy pasie niesuchym, podstawie chmur do lądowania < 800 ft albo widzialności < 3000 m, widzialności do startu < 1900 m, uskoku wiatru lub burzy."
+  },
+  "EPRA": {"source": "AIP AD 2.20, AD 2.21 (NIL): bez pasów preferowanych"},
+  "EPLL": {"source": "AIP AD 2.20, AD 2.21 (NIL): bez pasów preferowanych"},
+  "EPSY": {"source": "AIP AD 2.21: tylko ograniczenie liczby operacji 2100-0500 (2000-0400), bez pasów preferowanych"},
+  "EPKK": {"source": "AIP AD 2.20, AD 2.21: bez pasów preferowanych i limitów wiatru"},
+  "EPKT": {"source": "AIP AD 2.20, AD 2.21: bez pasów preferowanych (w LVP starty z RWY 26)"},
+  "EPRZ": {"source": "AIP AD 2.20, AD 2.21 (NIL): bez pasów preferowanych (w LVP lądowania tylko RWY 27)"},
+  "EPLB": {"source": "AIP AD 2.20, AD 2.21: bez pasów preferowanych (lądowania CAT II tylko RWY 25)"},
+  "EPSC": {"source": "AIP AD 2.21 (NIL): bez pasów preferowanych"},
+  "EPBY": {"source": "AIP AD 2.21: bez pasów preferowanych"},
+  "EPZG": {"source": "AIP AD 2.20, AD 2.21 (NIL): bez pasów preferowanych"}
 }

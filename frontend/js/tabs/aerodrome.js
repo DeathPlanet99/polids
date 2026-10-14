@@ -1,4 +1,4 @@
-import { api, atisHtml, esc, fmt, h, hhmm, positionTip, remember, stash, stashed, vatsimBookings, vatsimOnline, lsGet, lsSet, ONLINE_EVENT } from "../api.js";
+import { api, atisHtml, esc, fmt, h, hhmm, lvpState, lvpTip, positionTip, remember, stash, stashed, vatsimBookings, vatsimOnline, lsGet, lsSet, ONLINE_EVENT } from "../api.js";
 import { colorize, wxLines, windVec, hwTxt, xwTxt, kt, validTxt, pointTip } from "./meteo.js";
 import { FIR_KEYS, FIR_LABELS, aeroArg, firOf, mountAeroCard, mountFirList, obsInfo, splitArg } from "../aerolist.js";
 import { mountAwos } from "../awos.js";
@@ -9,13 +9,26 @@ import { mountOverview } from "../overview.js";
 const TYPE_ORDER = ["CTR", "FSS", "APP", "DEP", "TWR", "GND", "DEL", "ATIS"];
 const byType = (a, b) => TYPE_ORDER.indexOf(a.callsign.split("_").pop()) - TYPE_ORDER.indexOf(b.callsign.split("_").pop()) || a.callsign.localeCompare(b.callsign);
 
+// Stan LVP z progami z AIP (dymek: przygotowanie, wprowadzenie, odwołanie, źródło); LVP w mocy pokazuje, czego
+// brakuje do odwołania, odwołane LVP godzinę odwołania (przez 30 min), "nie dotyczy" = AIP nie przewiduje LVP
 function lvpBox(lvp) {
   if (!lvp) return "";
-  const th = lvp.thresholds;
-  const rule = `LVP: RVR/widzialność < ${th.lvp.rvr_m} m lub podstawa ≤ ${th.lvp.ceiling_ft} ft · przygotowanie: < ${th.prep.rvr_m} m lub ≤ ${th.prep.ceiling_ft} ft`;
-  if (!lvp.state) return `<div class="lvp lvp-off" data-tip="${esc(rule)}">LVP <span>nie obowiązują</span></div>`;
-  const label = lvp.state === "LVP" ? "LVP W MOCY" : "PRZYGOTOWANIE LVP";
-  return `<div class="lvp lvp-${lvp.state.toLowerCase()}" data-tip="${esc(rule)}">${label}<span>${lvp.reasons.map(esc).join("<br>")}</span></div>`;
+  const s = lvpState(lvp), tip = esc(lvpTip(lvp));
+  if (s.cls === "na") return `<div class="lvp lvp-off lvp-na" data-tip="${tip}">LVP <span>nie dotyczy</span></div>`;
+  if (s.cls === "off") return `<div class="lvp lvp-off" data-tip="${tip}">LVP <span>nie obowiązują</span></div>`;
+  const scope = lvp.scope === "DEP" ? " · ODLOTY" : "";
+  return `<div class="lvp lvp-${s.cls}" data-tip="${tip}">${esc(s.label)}${scope}<span>${(lvp.reasons || []).map(esc).join("<br>")}</span></div>`;
+}
+
+// Częstotliwości z AIP (data/seed/frequencies.csv), gdy plik .ese nie zna stanowisk lotniska: służba, znak, MHz, uwaga
+// (np. EPRA: TWR cywilna i wojskowa na tej samej częstotliwości), godziny
+function aipFreqs(list) {
+  if (!list?.length) return "";
+  const srcs = new Set(list.map((x) => (/^AIP/.test(x.source || "") ? "AIP" : "lotniska.dlapilota.pl")));
+  return list.map((x) => `<div class="radio-row aip-freq" data-tip="${esc([x.description, x.note, x.hours && `godziny: ${x.hours}`, x.source && `źródło: ${x.source}`].filter(Boolean).join("\n"))}">
+      <span class="freq">${esc(x.mhz)}</span><span class="pos-txt"><span class="cs">${esc(x.kind)}</span><span class="nm">${esc(x.description || "")}</span>
+      ${x.note ? `<span class="fq-note">${esc(x.note)}</span>` : ""}${x.hours ? `<span class="hrs">${esc(x.hours)}</span>` : ""}</span></div>`).join("")
+    + `<p class="hint">wg ${[...srcs].sort().join(" i ")} · godziny UTC zimą, w nawiasie latem</p>`;
 }
 
 // Róża wiatrów: pasy jako prostokąty, strzałka wiatru skąd wieje.
@@ -320,7 +333,8 @@ export default {
         const ps = info.atc_positions.filter((p) => !(/information/i.test(p.name) && /_(APP|CTR)$/.test(p.callsign))).sort(byType);
         const extra = Object.keys(bookings).filter((cs) => cs.startsWith(icao + "_") && !ps.some((p) => p.callsign === cs));
         // nazwa stacji najwyżej tak szeroka jak najdłuższa w panelu: imiona i godziny rezerwacji w jednej kolumnie tuż za nią
-        el.style.setProperty("--nm-w", `${Math.max(0, ...ps.map((p) => (p.name || "").length))}ch`);
+        const names = ps.length ? ps.map((p) => p.name) : info.frequencies.map((x) => x.description);
+        el.style.setProperty("--nm-w", `${Math.max(0, ...names.map((n) => (n || "").length))}ch`);
         el.innerHTML = (ps.map((p) => {
           const on = online[p.callsign], books = bookings[p.callsign] || [];
           const cls = on ? "on" : books.length ? "booked" : "";
@@ -329,7 +343,7 @@ export default {
           return `<div class="radio-row ${cls}" ${tip ? `data-tip="${esc(tip)}"` : ""}><span class="freq ${cls}">${esc(p.frequency)}</span>
             <span class="pos-txt"><span class="cs">${esc(p.callsign)}</span><span class="nm" title="${esc(p.name)}">${esc(p.name)}</span>
             ${on ? `<b class="who">${esc(on.name || "")}</b>` : books.length ? `<span class="booked-txt">${hhmm(books[0].start)}–${hhmm(books[0].end)}</span>` : ""}</span></div>`;
-        }).join("") || info.frequencies.map((x) => `<div class="radio-row"><span class="freq">${esc(x.mhz)}</span><span class="nm">${esc(x.kind)} ${esc(x.description)}</span></div>`).join("")
+        }).join("") || aipFreqs(info.frequencies)
           || `<span class="hint">Brak danych</span>`)
           + extra.map((cs) => `<div class="radio-row booked" data-tip="${esc(positionTip(null, bookings[cs]))}"><span class="freq booked">-</span>
             <span class="pos-txt"><span class="cs">${esc(cs)}</span><span class="nm"></span>

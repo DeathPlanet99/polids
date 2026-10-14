@@ -8,7 +8,8 @@ from .config import settings
 # 3: indeks nav_points, poprawione sklejanie granic sektorów .ese. 4: sektory sąsiadów z ich plików .ese.
 # 5: sąsiedzi – jeden układ pasów na lotnisko, bez sektorów bez OWNER. 6: połączenie z wersją serwerową.
 # 7: stanowiska lotnisk z plików sąsiadów (karty lotnisk), pakiet EDGG. 8: sektory z data/seed/sectors.geojson.
-SCHEMA_VERSION = 8
+# 9: pasy, częstotliwości (godziny, źródło, uwaga) i elewacje lotnisk z AIP.
+SCHEMA_VERSION = 9
 
 
 class Base(DeclarativeBase):
