@@ -1,6 +1,7 @@
 import { api, esc, h } from "../api.js";
 
 const CHANGES = [
+  ["14.10.2026", "MAP: nowa sekcja Pozycje – lista stanowisk FIR EPWW i sąsiadów (ACC, FIS i lotniska, np. EPGD: GD APP, GD TWR, GD GND), domyślnie zaznaczeni zalogowani. Kliknięcie włącza stanowisko offline jak po zalogowaniu (SYM, przerywany kontur) albo ukrywa zalogowane; sektoryzacja i plakietki lotnisk rysują się wg tego wyboru. „jak online” wraca do stanu z sieci, „wyczyść” wyłącza wszystkie."],
   ["14.10.2026", "MAP: przy obsadzie wg kontrolerów online sektory obsługiwane przez to samo stanowisko są jednym obszarem w jego kolorze z jedną etykietą (stanowisko i częstotliwość); granica tylko tam, gdzie zmienia się obsługujący, przestrzeni bez nikogo nie rysujemy (gdy w FIR-ze nikogo nie ma, zostają same granice FIR-ów)."],
   ["12.10.2026", "0.12.1 – ATIS: pasy do lądowania i do startu czytane osobno (np. EPWA „APPROACH RUNWAY 33 … DEPARTURES RUNWAY 29” daje ARR 33 i DEP 29); pomijane są pasy zamknięte, na żądanie, przewidywane później i wspomniane w uwagach; osobne ATIS przylotowy i odlotowy są łączone."],
   ["12.10.2026", "Menu: INOP pod AD VFR; DOCS przeniesione do OTHER jako pierwsza podzakładka (stare adresy #docs przekierowują). AERODROME: listy lotnisk wszystkich FIR-ów w jednej kolumnie, z PgUp i PgDn. Panel częstotliwości: imię i nazwisko kontrolera zawsze widoczne obok stanowiska."],

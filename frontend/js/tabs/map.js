@@ -6,6 +6,7 @@ import { airspaceChain } from "../chains.js";
 import { labelPoint } from "../coverage.js";
 import { dissolve, pointIn } from "../dissolve.js";
 import { displayName, loadDisplayNames } from "../posname.js";
+import { activeAtc, activeOnline, buildTree, countOf, matchItem, toggle } from "../postree.js";
 
 // Kolory zależne od podkładu (ciemny / jasny)
 const THEME = {
@@ -60,6 +61,7 @@ const LEGEND = [
   ["air", "Przestrzeń", () => [
     lg(`<span class="swatch own"></span>`, "obsada wg kontrolerów online: obszar stanowiska (jeden kontur i wypełnienie w jego kolorze)"),
     lg(`<span class="lg-freq">133.475</span>`, "stanowisko i częstotliwość: jedna etykieta na stanowisko", "w"),
+    lg(`<b class="pos-sim">SYM</b>`, "stanowisko symulowane w sekcji Pozycje (kontur przerywany, plakietka lotniska z przerywaną ramką)"),
     lg(`<span class="swatch fir"></span>`, "granica FIR (VATSpy, osobny przełącznik)"),
     `<p class="lgx-note">Obsada wg kontrolerów online: wszystkie widoczne wycinki (wybrany poziom, warstwy i listy) obsługiwane przez to samo
       stanowisko są jednym obszarem, bez granic między jego sektorami: granica jest tylko tam, gdzie zmienia się obsługujący. Przestrzeni,
@@ -174,6 +176,14 @@ function mainMap(ctx) {
         ${sw("firs", "granice FIR-ów (VATSpy)", airOn("firs", true), `<span class="swatch fir"></span>`)}
         <div class="sector-info hint"></div>
       </section>
+      <section class="ms-card pos-card" data-sec="pos">
+        <h4>Pozycje <span class="pos-sum"></span></h4>
+        <div class="pos-bar"><input class="field pos-q" placeholder="szukaj: GD TWR, EDWW, 118.1…">
+          <button class="pos-reset" title="Bez zmian: aktywni są zalogowani w sieci">jak online</button>
+          <button class="pos-none" title="Wyłącz wszystkie stanowiska (także zalogowanych); potem włączaj pojedyncze">wyczyść</button></div>
+        <div class="pos-state hint"></div>
+        <div class="pos-tree"></div>
+      </section>
       <section class="ms-card" data-sec="route">
         <h4>Trasa</h4>
         <textarea class="field route" rows="3" placeholder="np. EPKK OKENO N871 POLON L980 VAMPU EPGD"></textarea>
@@ -240,11 +250,11 @@ function mainMap(ctx) {
   loadVacs().then((v) => pane.querySelectorAll(".own-src").forEach((el) => { el.textContent = v?.source_label || v?.source || "?"; }))
     .catch(() => pane.querySelectorAll(".own-src").forEach((el) => { el.textContent = "niedostępna, lista OWNER z .ese"; }));
 
-  // Sekcje panelu zwijane kliknięciem w nagłówek (stan w localStorage); legenda domyślnie zwinięta
+  // Sekcje panelu zwijane kliknięciem w nagłówek (stan w localStorage); legenda i Pozycje domyślnie zwinięte
   const secs = store.get("map.sections", {});
   pane.querySelectorAll(".ms-card[data-sec]").forEach((c) => {
     const k = c.dataset.sec;
-    c.classList.toggle("shut", typeof secs[k] === "boolean" ? secs[k] : k === "legend");
+    c.classList.toggle("shut", typeof secs[k] === "boolean" ? secs[k] : k === "legend" || k === "pos");
     const h4 = c.querySelector("h4");
     h4.classList.add("ms-tog");
     h4.title = "Zwiń / rozwiń";
@@ -427,7 +437,8 @@ function mainMap(ctx) {
   const atLevel = (pr, lv) => lv === null || (pr.lower_ft <= lv && pr.upper_ft > lv);
 
   // stan sieci do rysowania (odświeżany co minutę)
-  const net = { online: null, err: null, positions: [], posBy: {}, vacs: null, firs: null, firsAll: null, ctxo: null };
+  // act: zestaw aktywny (zalogowani z wyborem z sekcji Pozycje, postree.js); firs: granice FIR-ów z VATSpy
+  const net = { online: null, act: null, err: null, positions: [], posBy: {}, vacs: null, firs: null, firsAll: null, ctxo: null };
   // zalogowani spoza stanowisk .ese (np. EPWA_W_APP na innej częstotliwości): APP/DEP i TWR wg ICAO lotniska
   const unmatched = (o) => {
     const used = new Set(Object.values(o?.positions || {}).map((c) => c.callsign));
@@ -544,9 +555,9 @@ function mainMap(ctx) {
     lblCtl = [];
     if (!slices) { renderInfo(level()); return; }
     const lv = level(), all = lv === null;
-    net.useOnline = $(".online").checked && !!net.online;
-    const onl = net.useOnline ? net.online.positions : null;
-    const ctxo = onl ? { byId: Object.fromEntries(net.positions.map((p) => [p.position_id, p])), onl, vacs: net.vacs, extra: unmatched(net.online) } : null;
+    net.useOnline = $(".online").checked && !!net.act;
+    const onl = net.useOnline ? net.act.positions : null;
+    const ctxo = onl ? { byId: Object.fromEntries(net.positions.map((p) => [p.position_id, p])), onl, vacs: net.vacs, extra: unmatched(net.act) } : null;
     net.ctxo = ctxo;
     const shown = slices.features.filter((f) => {
       const pr = f.properties;
@@ -627,14 +638,15 @@ function mainMap(ctx) {
         size: d ? d.area : g.vs.reduce((a, v) => a + area(v.f.bb), 0) };
     }).sort((a, b) => b.size - a.size);
     groups.forEach((g) => {
-      const st = { color: g.color, weight: 1.5, opacity: 1, fillColor: g.color, fillOpacity: 0.16 * f };
+      // stanowisko symulowane (sekcja Pozycje): kontur przerywany i "SYM" w etykiecie
+      const st = { color: g.color, weight: 1.5, opacity: 1, fillColor: g.color, fillOpacity: 0.16 * f, ...(g.c.sim ? { dashArray: "6 4" } : {}) };
       if (g.d) L.geoJSON(g.d.geometry, { interactive: false, style: st }).addTo(layers.air);
       else g.vs.forEach((v) => L.geoJSON(v.f, { interactive: false, style: { ...st, stroke: false } }).addTo(layers.air));
       // etykieta w obszarze stanowiska, daleko od krawędzi i poza dziurami (u sąsiada w pobliżu Polski); punkt w pamięci sumy
       let at = null;
       if (g.d) at = g.d.at ||= (g.nb && pointIn(g.d.geometry, NEAR)) || pointIn(g.d.geometry);
       if (!at) at = center(g.vs.reduce((a, v) => (area(v.f.bb) > area(a.f.bb) ? v : a)).f);
-      lbl(at, `<small>${esc(displayName(g.c.callsign))}</small><br><span class="freq on">${esc(g.c.frequency)}</span>`, g.size || 1, g.c);
+      lbl(at, `<small>${esc(displayName(g.c.callsign))}${g.c.sim ? ' <b class="pos-sim">SYM</b>' : ""}</small><br><span class="freq on">${esc(g.c.frequency)}</span>`, g.size || 1, g.c);
     });
   }
 
@@ -746,7 +758,7 @@ function mainMap(ctx) {
   const itemsOf = (id) => {
     const m = new Map(), lv = level();
     // sąsiedzi: kto obsadza wycinek (pierwszy zalogowany z listy OWNER, jak kolor na mapie)
-    const onl = id === "nb" && $(".online").checked ? net.online?.positions : null;
+    const onl = id === "nb" && $(".online").checked ? net.act?.positions : null;
     (slices?.features || []).filter((f) => f.properties.pick === id).forEach((f) => {
       const pr = f.properties;
       let it = m.get(pr.key);
@@ -889,12 +901,14 @@ function mainMap(ctx) {
     parts.push(`${lv === null ? "Wszystkie poziomy" : "Na " + fl(lv)}: ${AIR.filter((a) => air[a.id]).map((a) => `${AIR_TAG[a.id]} ${cnt[a.id] || 0}`).join(" · ") || "żadna warstwa"}.`);
     const off = offLevel(lv, cnt);
     if (off) parts.push(`<span class="as-note">${off}</span>`);
-    if (net.err) parts.push(`<span class="error">${esc(net.err)}. Rysuję sam podział sektorów bez obsady.</span>`);
-    else if (net.online && $(".online").checked) {
-      // także zalogowani spoza stanowisk .ese (np. EPWA_W_APP na innej częstotliwości), bo też obsadzają TMA / CTR
-      const ep = [...Object.values(net.online.positions || {}), ...(net.online.controllers || [])].map((c) => c.callsign)
-        .filter((c) => c && c.startsWith("EP") && !/_(ATIS|DEL|GND)$/.test(c));
-      parts.push(`Online: ${ep.length ? [...new Set(ep)].map((c) => esc(displayName(c))).join(", ") : "brak kontrolerów EP"}`);
+    if (net.err) parts.push(`<span class="error">${esc(net.err)}.${net.act ? "" : " Rysuję sam podział sektorów bez obsady."}</span>`);
+    if (net.act && $(".online").checked) {
+      // także zalogowani spoza stanowisk .ese (np. EPWA_W_APP na innej częstotliwości), bo też obsadzają TMA / CTR;
+      // zestaw aktywny: bez ukrytych w sekcji Pozycje, z symulowanymi (SYM)
+      const ep = [...Object.values(net.act.positions), ...net.act.controllers].filter((c) => c.callsign?.startsWith("EP") && !/_(ATIS|DEL|GND)$/.test(c.callsign));
+      const sim = new Set(net.act.sims);
+      const names = [...new Set(ep.map((c) => c.callsign))].map((c) => esc(displayName(c)) + (sim.has(c) ? " (SYM)" : ""));
+      parts.push(`${net.online ? "Online" : "Symulacja"}: ${names.length ? names.join(", ") : "brak kontrolerów EP"}`);
     }
     el.innerHTML = parts.join("<br>");
   }
@@ -907,17 +921,106 @@ function mainMap(ctx) {
       vatsimOnline().then((x) => { net.err = null; return x; }).catch((e) => { net.err = e.message; return null; }),
       atcPositions().catch(() => []),
       loadVacs().catch(() => null),
+      loadPos(),
     ]);
     slices = gj;
     migratePick();
-    Object.assign(net, { online: onl, positions, vacs, posBy: Object.fromEntries(positions.map((p) => [p.callsign, p])) });
-    layers.firs.clearLayers();
-    // podświetlenie obsady FIR-ów (VATSpy) tylko w FIR EPWW; FIR-y sąsiednie jako same kontury (ich sektory: warstwa sąsiadów)
-    const epwwOnline = Object.fromEntries(Object.entries(onl?.firs || {}).filter(([id]) => id.startsWith("EPWW")));
-    if (firs && $(".firs").checked) drawFirs(layers.firs, firs, epwwOnline, { panes });
+    Object.assign(net, { online: onl, firs, positions, vacs, posBy: Object.fromEntries(positions.map((p) => [p.callsign, p])) });
+    net.act = activeOnline(onl, posSel, posFreq);
+    drawFirLayer();
     drawAirspace();
     AIR.forEach((a) => pickBtn(a.id));
+    drawAtc();
+    renderPos();
   };
+  // podświetlenie obsady FIR-ów (VATSpy) tylko w FIR EPWW; FIR-y sąsiednie jako same kontury (ich sektory: warstwa sąsiadów).
+  // Obsada z zestawu aktywnego: stanowisko ukryte w sekcji Pozycje znika też z plakietki CTR.
+  const drawFirLayer = () => {
+    layers.firs.clearLayers();
+    const epwwOnline = Object.fromEntries(Object.entries(net.act?.firs || {}).filter(([id]) => id.startsWith("EPWW")));
+    if (net.firs && $(".firs").checked) drawFirs(layers.firs, net.firs, epwwOnline, { panes });
+  };
+
+  // --- Pozycje (runda 12, Marek): drzewo FIR → ACC / FIS / lotniska → stanowiska z polem wyboru. Zaznaczone = zestaw
+  // aktywny: domyślnie zalogowani (zielona nazwa), kliknięcie symuluje logowanie stanowiska offline (SYM, kontur
+  // przerywany) albo ukrywa zalogowanego. Z zestawu aktywnego korzystają sektoryzacja (obsada wg kontrolerów online),
+  // plakietki lotnisk i plakietka CTR FIR-u. Wybór i rozwinięte gałęzie do końca sesji przeglądarki (sessionStorage).
+  // Rysujemy tylko rozwinięte gałęzie (ok. 600 stanowisk), przy wyszukiwaniu pasujące stanowiska.
+  const ssGet = (k, d) => { try { const v = JSON.parse(sessionStorage.getItem(k)); return typeOf(v) === typeOf(d) ? v : d; } catch { return d; } };
+  const ssSet = (k, v) => { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch { /* tryb prywatny */ } };
+  let posSel = ssGet("map.pos.sel", { base: "online", ovr: {} });
+  if (typeOf(posSel.ovr) !== "object") posSel = { base: "online", ovr: {} };
+  const posOpen = new Set(ssGet("map.pos.open", []).filter((x) => typeof x === "string"));
+  let posData = null, posP = null, posErr = null;
+  const loadPos = () => (posP ||= api("/api/nav/positions/all").then((d) => { posData = d; posErr = null; })
+    .catch((e) => { posErr = e.message; posP = null; }));
+  const posFreq = (cs) => posData?.positions.find((p) => p.callsign === cs)?.frequency || net.posBy[cs]?.frequency
+    || net.vacs?.acc_positions?.[cs]?.frequency || "";
+  const POS_MAX = 200;  // stanowisk na liście przy wyszukiwaniu
+  const STATE_TITLE = { on: "zalogowany", sim: "symulacja logowania", hid: "zalogowany, ukryty na mapie", off: "offline" };
+  function renderPos() {
+    const el = $(".pos-tree"), q = $(".pos-q").value.trim();
+    const tree = buildTree(posData, net.online, net.act, displayName);
+    const n = Object.keys(posSel.ovr).length, none = posSel.base === "none";
+    const all = countOf(tree.flatMap((f) => f.groups.flatMap((g) => g.items)));
+    $(".pos-sum").textContent = `${all.act} akt.${all.sim ? ` · ${all.sim} SYM` : ""}${none || n ? " · zmienione" : ""}`;
+    $(".pos-state").innerHTML = [
+      none ? `<b>Tylko wybrane</b> (po „wyczyść”): ${plural(all.act, "stanowisko", "stanowiska", "stanowisk")}.`
+        : n ? `Zmiany względem sieci: ${n} (symulowane ${all.sim}, ukryci ${all.onl - (all.act - all.sim)}).` : "Aktywni: zalogowani w sieci.",
+      !$(".online").checked ? '<span class="as-note">Obsada wg kontrolerów online wyłączona: wybór działa tylko na plakietki.</span>' : "",
+      posErr ? `<span class="error">${esc(posErr)}</span>` : "",
+    ].filter(Boolean).join(" ");
+    $(".pos-reset").disabled = !n && !none;
+    if (!posData && !net.online) { el.innerHTML = `<div class="pk-none">${posErr ? "brak listy stanowisk" : "ładowanie…"}</div>`; return; }
+    const scroll = el.querySelector(".pt-list")?.scrollTop || 0;
+    let left = POS_MAX, more = 0;
+    const cnt = (c) => `${c.onl ? `<span class="pt-on" title="zalogowani">● ${c.onl}</span>` : ""}${c.sim ? `<span class="pt-sim" title="symulowane">SYM ${c.sim}</span>` : ""}<small>${c.act}</small>`;
+    const row = (it) => `<label class="pt-i ${it.state}" title="${esc([it.cs, it.title, STATE_TITLE[it.state]].filter(Boolean).join(" · "))}">
+      <input type="checkbox" data-cs="${esc(it.cs)}" ${it.state === "on" || it.state === "sim" ? "checked" : ""}><span>${esc(it.name)}</span>${it.state === "sim" ? "<b>SYM</b>" : ""}<small>${esc(it.freq)}</small></label>`;
+    const html = tree.map((f) => {
+      const fItems = f.groups.flatMap((g) => g.items);
+      const groups = f.groups.map((g) => ({ g, its: q ? g.items.filter((it) => matchItem(it, g, f, q)) : g.items })).filter((x) => x.its.length);
+      if (q && !groups.length) return "";
+      const fOpen = !!q || posOpen.has(f.id);
+      const head = `<div class="pt-f${fOpen ? " open" : ""}" data-open="${esc(f.id)}"><span class="pk-car">${fOpen ? "▾" : "▸"}</span><b>${esc(f.label)}</b><i>${esc(f.name)}</i>${cnt(countOf(fItems))}</div>`;
+      if (!fOpen) return head;
+      return head + groups.map(({ g, its }) => {
+        const key = `${f.id}|${g.id}`, gOpen = !!q || posOpen.has(key);
+        const gh = `<div class="pt-g${gOpen ? " open" : ""}" data-open="${esc(key)}"><span class="pk-car">${gOpen ? "▾" : "▸"}</span><b>${esc(g.label)}</b><i>${esc(g.name)}</i>${cnt(countOf(g.items))}</div>`;
+        if (!gOpen) return gh;
+        const shown = its.slice(0, Math.max(0, left));
+        left -= shown.length;
+        more += its.length - shown.length;
+        return gh + shown.map(row).join("");
+      }).join("");
+    }).join("");
+    el.innerHTML = `<div class="pt-list">${html || `<div class="pk-none">${q ? "nic nie pasuje" : "brak stanowisk"}</div>`}${more
+      ? `<div class="pk-none">… i jeszcze ${more}: zawęź wyszukiwanie</div>` : ""}</div>`;
+    el.querySelector(".pt-list").scrollTop = scroll;
+  }
+  const applyPos = (sel) => {
+    posSel = sel;
+    ssSet("map.pos.sel", posSel);
+    net.act = activeOnline(net.online, posSel, posFreq);
+    drawFirLayer();
+    drawAirspace();
+    drawAtc();
+    renderPos();
+  };
+  $(".pos-tree").addEventListener("change", (e) => {
+    const cs = e.target.dataset?.cs;
+    if (cs) applyPos(toggle(posSel, cs, e.target.checked, net.online));
+  });
+  $(".pos-tree").addEventListener("click", (e) => {
+    const h = e.target.closest("[data-open]");
+    if (!h || $(".pos-q").value.trim()) return;
+    if (!posOpen.delete(h.dataset.open)) posOpen.add(h.dataset.open);
+    ssSet("map.pos.open", [...posOpen]);
+    renderPos();
+  });
+  $(".pos-q").addEventListener("input", renderPos);
+  $(".pos-reset").addEventListener("click", () => applyPos({ base: "online", ovr: {} }));
+  $(".pos-none").addEventListener("click", () => applyPos({ base: "none", ovr: {} }));
   // przełączniki i poziom
   const syncFl = () => {
     const all = $(".allfl").checked;
@@ -937,7 +1040,7 @@ function mainMap(ctx) {
     onLevel();
   });
   AIR.forEach((a) => $(".air-" + a.id).addEventListener("change", (e) => { air[a.id] = e.target.checked; saveAir(); drawAirspace(); }));
-  $(".online").addEventListener("change", () => { saveAir(); drawAirspace(); });
+  $(".online").addEventListener("change", () => { saveAir(); drawAirspace(); renderPos(); });
   $(".firs").addEventListener("change", () => { saveAir(); loadSectors(); });
   syncFl();
   every(60000, loadSectors);
@@ -1068,30 +1171,37 @@ function mainMap(ctx) {
   const isEp = (icao) => icao.startsWith("EP");
   const nearPl = (ap) => ap.lat >= 44 && ap.lat <= 60 && ap.lon >= 5 && ap.lon <= 35;
   const badgeFacilities = (ap) => (isEp(ap.icao) || (nearPl(ap) && FACILITIES.some(([k]) => k !== "ATIS" && ap.facilities[k])) ? ap.facilities : null);
+  // Dane z sieci (atcRaw) co 30 s; plakietki z zestawem aktywnym z sekcji Pozycje (bez ukrytych, z symulowanymi:
+  // plakietka z przerywaną ramką), przerysowane też po zmianie wyboru bez pobierania.
+  let atcRaw = { airports: [] }, atcErr = null;
   const loadAtc = async () => {
-    layers.atc.clearLayers();
     try {
-      atcData = await vatsimAtc();
+      atcRaw = await vatsimAtc();
+      atcErr = null;
     } catch (e) {
-      atcData = { airports: [] }; atcAds = new Set();
-      $(".atc-info").innerHTML = `<span class="error">${esc(e.message)}</span>`;
-      drawAds();
-      return;
+      atcRaw = { airports: [] };
+      atcErr = e.message;
     }
+    drawAtc();
+  };
+  function drawAtc() {
+    layers.atc.clearLayers();
+    atcData = activeAtc(atcRaw, net.act, posData?.airports);
     const shown = $(".atc").checked ? atcData.airports.map((ap) => ({ ...ap, facilities: badgeFacilities(ap) })).filter((ap) => ap.facilities) : [];
     const known = new Set(ads.map((a) => a.icao));
     atcAds = new Set(shown.map((a) => a.icao));
     shown.forEach((ap) => {
       // lotniska spoza listy (zagraniczne) dostają sam symbol pod plakietką
       if (!known.has(ap.icao)) pointMarker({ ident: ap.icao, kind: "AD", lat: ap.lat, lon: ap.lon, name: ap.name }, { label: false, tooltip: false, scale: 1.6 }).addTo(layers.atc);
-      const m = airportBadge(ap, panes, { cls: isEp(ap.icao) ? "" : "nb" }).addTo(layers.atc);
+      const m = airportBadge(ap, panes, { cls: [isEp(ap.icao) ? "" : "nb", ap.sim ? "sim" : ""].filter(Boolean).join(" ") }).addTo(layers.atc);
       m.unbindTooltip();
       bindAdCard(m, ap.icao, ads.find((a) => a.icao === ap.icao)?.city || ap.name);
       if (isEp(ap.icao)) m.on("click", () => ctx.open("aerodrome", ap.icao));
     });
-    $(".atc-info").textContent = $(".atc").checked ? `${plural(shown.length, "lotnisko", "lotniska", "lotnisk")} z kontrolerem · ${hhmm(new Date().toISOString())}` : "";
+    if (atcErr) $(".atc-info").innerHTML = `<span class="error">${esc(atcErr)}</span>`;
+    else $(".atc-info").textContent = $(".atc").checked ? `${plural(shown.length, "lotnisko", "lotniska", "lotnisk")} z kontrolerem · ${hhmm(new Date().toISOString())}` : "";
     drawAds();
-  };
+  }
   $(".atc").addEventListener("change", loadAtc);
   every(30000, loadAtc);
 

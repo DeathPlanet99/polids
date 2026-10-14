@@ -13,6 +13,7 @@ from ..importers.sct import parse_line_groups, read_text, sections
 from ..models import AirwaySegment, AtcPosition, NavPoint, Sector
 from ..services.http_cache import UpstreamError
 from ..services.neighbours import covered_firs, nb_positions, nb_sectors, owners_of
+from ..services.positions import position_tree
 from ..services.route import RouteResolver
 from ..services.vatsim import get_feed, match_positions
 
@@ -128,6 +129,14 @@ def positions(db: Session = Depends(get_db)):
     """Stanowiska ATC z pliku .ese (zakładka RADIO)."""
     return [{"callsign": p.callsign, "name": p.name, "frequency": p.frequency, "position_id": p.position_id,
              "prefix": p.prefix} for p in db.scalars(select(AtcPosition).order_by(AtcPosition.callsign))]
+
+
+@router.get("/positions/all")
+def positions_all(db: Session = Depends(get_db)):
+    """Wszystkie stanowiska (plik .ese EPWW, vacs-data, pliki .ese sąsiadów) do drzewa "Pozycje" w MAP:
+    fir (EPWW albo FIR sąsiada), group (ACC, FIS albo ICAO lotniska), order (APP, TWR, GND, DEL, ATIS);
+    firs: FIR-y w kolejności drzewa; airports: nazwa i położenie lotnisk z grup."""
+    return position_tree(db)
 
 
 @router.get("/sectors")
