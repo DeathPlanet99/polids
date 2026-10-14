@@ -157,7 +157,8 @@ class ImportLog(Base):
 
 
 class Sector(Base):
-    """Sektor przestrzeni z sekcji [AIRSPACE] pliku .ese (geometria jako GeoJSON)."""
+    """Sektor przestrzeni z pliku .ese EPWW, wczytany z data/seed/sectors.geojson (source EPWW; geometria
+    jako GeoJSON)."""
 
     __tablename__ = "sectors"
 
@@ -171,7 +172,8 @@ class Sector(Base):
 
 
 class NbSector(Base):
-    """Sektor FIR-u sąsiedniego z jego własnego pliku .ese (data/import/neighbours), tylko w rejonie Polski.
+    """Sektor FIR-u sąsiedniego z jego własnego pliku .ese (data/import/neighbours), tylko w rejonie Polski;
+    wczytany z data/seed/sectors.geojson.
 
     owners to już znaki stanowisk (identyfikatory z [POSITIONS] są ważne tylko w obrębie jednego pliku)."""
 
@@ -189,7 +191,8 @@ class NbSector(Base):
 
 
 class NbPosition(Base):
-    """Stanowisko z pliku .ese sąsiada, występujące w kolejności przejmowania jego sektorów (bez stanowisk EP**)."""
+    """Stanowisko z pliku .ese sąsiada (bez stanowisk EP**): z kolejności przejmowania sektorów FIR-ów pakietu albo
+    lotniska i FIR-u pakietu (prefiksy NB_SOURCES[…]["airports"], np. EDDF_TWR do karty lotniska w AERODROME)."""
 
     __tablename__ = "nb_positions"
 

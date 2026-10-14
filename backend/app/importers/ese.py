@@ -1,7 +1,9 @@
-"""Import pliku .ese EuroScope: stanowiska ATC ([POSITIONS]) i sektory ([AIRSPACE]).
+"""Plik .ese EuroScope: stanowiska ATC ([POSITIONS]) i sektory ([AIRSPACE]).
 
 Sektor składa się z linii granicznych (SECTORLINE, CIRCLE_SECTORLINE) wymienionych w BORDER; łączymy je w wielokąt.
-Właścicielem sektora jest pierwsze zalogowane stanowisko z listy OWNER."""
+Właścicielem sektora jest pierwsze zalogowane stanowisko z listy OWNER.
+Przy starcie aplikacji z pliku EPWW wczytujemy tylko stanowiska; sektory są w data/seed/sectors.geojson
+(generator: sectors_geojson.py, który używa parse_ese z tego modułu)."""
 
 import json
 import math
@@ -12,7 +14,7 @@ from pathlib import Path
 from sqlalchemy import delete, insert
 from sqlalchemy.orm import Session
 
-from ..models import AtcPosition, Sector
+from ..models import AtcPosition
 from .sct import parse_coord, read_text
 
 
@@ -82,11 +84,14 @@ def _circle(lat: float, lon: float, nm: float, n: int = 72) -> list[tuple[float,
     return pts + pts[:1]
 
 
-def parse_airspace(lines: list[str], airport: Callable[[str], tuple[float, float] | None] | None = None) -> list[dict]:
-    """Sektory z sekcji [AIRSPACE]: {fir, name, lower_ft, upper_ft, owners (ID stanowisk ":"), active, geometry}.
+def read_airspace(lines: list[str], airport: Callable[[str], tuple[float, float] | None] | None = None
+                  ) -> tuple[dict[str, list[tuple[float, float]]], list[dict]]:
+    """Linie graniczne i sektory z sekcji [AIRSPACE], jeszcze bez sklejania w wielokąty.
 
-    active: warunki ACTIVE:ICAO:pas (sektor istnieje tylko przy tym pasie w użyciu), lista "ICAO:pas".
-    airport: współrzędne lotniska dla CIRCLE_SECTORLINE:nazwa:ICAO:promień (bez niej takie okręgi pomijamy)."""
+    Wynik: ({nazwa linii: [(lat, lon), ...]}, [{fir, name, lower_ft, upper_ft, owners (ID stanowisk ":"), active,
+    border (nazwy linii z BORDER)}]). active: warunki ACTIVE:ICAO:pas (sektor istnieje tylko przy tym pasie w użyciu),
+    lista "ICAO:pas". airport: współrzędne lotniska dla CIRCLE_SECTORLINE:nazwa:ICAO:promień (bez niej takie okręgi
+    pomijamy)."""
     sectorlines: dict[str, list[tuple[float, float]]] = {}
     sectors = []
     cur_line = None
@@ -134,19 +139,34 @@ def parse_airspace(lines: list[str], airport: Callable[[str], tuple[float, float
             icao, _, rwy = rest.strip().partition(":")
             if icao:
                 cur_sector["active"].append(f"{icao.upper()}:{rwy.split(':')[0].upper()}")
+    return sectorlines, sectors
 
+
+def sector_ring(sectorlines: dict[str, list[tuple[float, float]]], border: list[str]) -> list[tuple[float, float]]:
+    """Zamknięty pierścień (lat, lon) sektora z jego linii BORDER ([] = nie da się go złożyć)."""
+    return _chain([sectorlines.get(b, []) for b in border])
+
+
+def assemble(sectorlines: dict[str, list[tuple[float, float]]], sectors: list[dict]) -> list[dict]:
+    """Sektory z read_airspace z geometrią (GeoJSON Polygon jako tekst, lon/lat do 5 miejsc); bez wielokąta pomijamy."""
     out = []
     for s in sectors:
-        ring = _chain([sectorlines.get(b, []) for b in s.pop("border")])
+        ring = sector_ring(sectorlines, s["border"])
         if len(ring) < 4:
             continue
-        s["geometry"] = json.dumps({"type": "Polygon", "coordinates": [[[round(lon, 5), round(lat, 5)]
-                                                                        for lat, lon in ring]]})
-        out.append(s)
+        out.append({**s, "geometry": json.dumps({"type": "Polygon", "coordinates": [[[round(lon, 5), round(lat, 5)]
+                                                                                      for lat, lon in ring]]})})
     return out
 
 
-def parse_ese(text: str, airport: Callable[[str], tuple[float, float] | None] | None = None) -> dict:
+def parse_airspace(lines: list[str], airport: Callable[[str], tuple[float, float] | None] | None = None) -> list[dict]:
+    """Sektory z sekcji [AIRSPACE]: {fir, name, lower_ft, upper_ft, owners (ID stanowisk ":"), active, border,
+    geometry}."""
+    return assemble(*read_airspace(lines, airport))
+
+
+def ese_sections(text: str) -> dict[str, list[str]]:
+    """Sekcje pliku .ese: {"[POSITIONS]": [wiersze], ...} bez komentarzy i pustych wierszy."""
     secs: dict[str, list[str]] = {}
     current = None
     for line in text.splitlines():
@@ -158,20 +178,25 @@ def parse_ese(text: str, airport: Callable[[str], tuple[float, float] | None] | 
             secs.setdefault(current, [])
         elif current and line:
             secs[current].append(line)
-    return {"positions": parse_positions(secs.get("[POSITIONS]", [])),
-            "sectors": parse_airspace(secs.get("[AIRSPACE]", []), airport)}
+    return secs
+
+
+def parse_ese(text: str, airport: Callable[[str], tuple[float, float] | None] | None = None) -> dict:
+    """Stanowiska, sektory (z geometrią) i linie graniczne (sectorlines: nazwa → [(lat, lon)]) pliku .ese."""
+    secs = ese_sections(text)
+    sectorlines, sectors = read_airspace(secs.get("[AIRSPACE]", []), airport)
+    return {"positions": parse_positions(secs.get("[POSITIONS]", [])), "sectors": assemble(sectorlines, sectors),
+            "sectorlines": sectorlines}
 
 
 def import_ese(db: Session, path: Path) -> dict:
-    data = parse_ese(read_text(path))
+    """Stanowiska ATC z pliku .ese EPWW. Sektory (tabela sectors) wczytujemy z data/seed/sectors.geojson."""
+    positions = parse_positions(ese_sections(read_text(path)).get("[POSITIONS]", []))
     db.execute(delete(AtcPosition))
-    db.execute(delete(Sector))
-    if data["positions"]:
-        db.execute(insert(AtcPosition), data["positions"])
-    if data["sectors"]:
-        db.execute(insert(Sector), [{k: v for k, v in sec.items() if k != "active"} for sec in data["sectors"]])
+    if positions:
+        db.execute(insert(AtcPosition), positions)
     db.commit()
-    return {"positions": len(data["positions"]), "sectors": len(data["sectors"])}
+    return {"positions": len(positions)}
 
 
 def parse_vfr_points(text: str) -> list[dict]:

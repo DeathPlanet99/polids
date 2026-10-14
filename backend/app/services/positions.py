@@ -20,7 +20,9 @@ def vacs_positions() -> list[dict]:
         return []
 
 
-def all_positions(db: Session) -> list[dict]:
+def all_positions(db: Session, airports: bool = False) -> list[dict]:
+    """airports=True: także stanowiska lotnisk z plików sąsiadów, które nie obsługują żadnego sektora (karty lotnisk
+    w AERODROME); RADIO, MAP i dopasowanie zalogowanych biorą listę bez nich."""
     ese = [{"callsign": p.callsign, "name": p.name, "frequency": p.frequency, "position_id": p.position_id,
             "prefix": p.prefix} for p in db.scalars(select(AtcPosition))]
-    return merge_positions(ese, vacs_positions(), nb_positions(db), listed_callsigns(db))
+    return merge_positions(ese, vacs_positions(), nb_positions(db, airports), listed_callsigns(db))

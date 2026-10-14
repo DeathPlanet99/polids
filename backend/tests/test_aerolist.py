@@ -82,7 +82,8 @@ def test_build_lists_dedupe_names_kinds():
     assert ep["EPDE"]["kind"] == "MIL" and ep["EPKS"]["kind"] == "MIL" and ep["EPEL"]["kind"] is None
     assert lists["ET"] == [{"icao": "ETNL", "name": "ROSTOCK-LAAGE", "kind": "MIL", "rank": 2, "alias": [],
                             "lat": 53.92, "lon": 12.28}]
-    assert [a["icao"] for a in lists["ED"]] == ["EDDB"] and lists["ED"][0]["name"] == "BERLIN BRANDENBURG"
+    ed = [a for a in lists["ED"] if a["icao"] not in aerolist.ED_EXTRA]  # EDBW, EDHP zawsze (bez współrzędnych)
+    assert [a["icao"] for a in ed] == ["EDDB"] and ed[0]["name"] == "BERLIN BRANDENBURG"
     assert [a["icao"] for a in lists["UMKK"]] == ["UMKK"] and [a["icao"] for a in lists["UMMV"]] == ["UMMS"]
     assert [a["icao"] for a in lists["UKLV"]] == ["UKLL"] and [a["icao"] for a in lists["ESAA"]] == ["ESSA"]
     assert lists["ESAA"][0]["name"] == "STOCKHOLM ARLANDA"
@@ -109,7 +110,8 @@ def test_heliports_mil_rank_alias():
     se = {a["icao"]: a for a in lists["ESAA"]}
     assert set(se) == {"ESSA", "ESSB", "ESDF"}
     assert se["ESDF"]["kind"] == "MIL" and se["ESSA"]["kind"] is None
-    assert [a["icao"] for a in lists["ED"]] == ["EDDM"] and lists["ED"][0]["alias"] == ["MUENCHEN", "MONACHIUM"]
+    ed = [a for a in lists["ED"] if a["icao"] not in aerolist.ED_EXTRA]
+    assert [a["icao"] for a in ed] == ["EDDM"] and ed[0]["alias"] == ["MUENCHEN", "MONACHIUM"]
     ep = {a["icao"]: a for a in lists["EPWW"]}
     assert (ep["EPWA"]["rank"], ep["EPBC"]["rank"], ep["EPMO"]["rank"]) == (0, 1, 1)
     assert ep["EPWA"]["name"] == "WARSZAWA CHOPIN" and ep["EPGB"]["rank"] == 2
@@ -118,6 +120,9 @@ def test_heliports_mil_rank_alias():
     assert lk["LKCV"]["kind"] == "MIL" and lk["LKCV"]["rank"] == 1
     assert aerolist.atc_airports([{"callsign": "EDDB_N_TWR"}, {"callsign": "EPWW_CTR"}, {"callsign": "EPKK_ATIS"},
                                   {"callsign": None}]) == {"EDDB", "EPKK"}
+    # stanowiska informacji ("Radio", "Information") to nie ATC: lądowisko z samym EDHF_I_TWR zostaje z rank 2
+    assert aerolist.atc_airports([{"callsign": "EDHF_I_TWR"}, {"callsign": "EPBC_I_TWR"}, {"callsign": "EDVE_TWR"},
+                                  {"callsign": "EPGD_I_APP"}, {"callsign": "LKAA_FIC_FSS"}]) == {"EDVE"}
 
 
 def test_main_airports_exist_in_lists(client):
@@ -130,10 +135,11 @@ def test_main_airports_exist_in_lists(client):
     # ESAA bez szpitalnych lądowisk śmigłowców
     assert not any("SJUKHUS" in a["name"] or "LASARETT" in a["name"] for a in lists["ESAA"].values())
     assert {"ESSA", "ESGG", "ESMS"} <= set(lists["ESAA"])
-    # lotniska ze stanowiskami w danych mają rank 1 (EPMO, EPBC, EPEL), bez stanowisk rank 2 (EPAR)
+    # lotniska ze stanowiskami ATC w danych mają rank 1 (EPMO, EPEL), bez stanowisk albo z samym stanowiskiem
+    # informacji (EPBC_I_TWR Babice Information) rank 2 (EPAR, EPBC)
     ep = lists["EPWW"]
     assert (ep["EPWA"]["rank"], ep["EPMO"]["rank"], ep["EPBC"]["rank"], ep["EPEL"]["rank"], ep["EPAR"]["rank"]) == \
-        (0, 1, 1, 1, 2)
+        (0, 1, 2, 1, 2)
     assert {"EPGB", "EPGN", "EPGO", "EPGW"} <= set(ep)
 
 
@@ -238,6 +244,58 @@ def test_card_foreign_airport(client, fakes):
     assert client.get("/api/aerodromes/ESHC/card").json()["name"] == "STOCKHOLM/SODERSJUKHUSET"
     assert client.get("/api/aerodromes/E%3CB%3E/card").status_code == 404
 
+
+
+def test_card_german_airport_positions_from_neighbour_files(client, fakes):
+    """Karta lotniska niemieckiego: stanowiska lotniska z plików .ese sąsiadów (EDGG, EDWW, EDMM), także te, które nie
+    obsługują żadnego sektora w rejonie Polski (EDDF_TWR, EDDF_GND, EDDF_DEL, ATIS), APP lotnisk z innych FIR-ów."""
+    d = client.get("/api/aerodromes/EDDF/card").json()
+    by = {p["callsign"]: p for p in d["positions"]}
+    assert {"EDDF_C_TWR", "EDDF_GND", "EDDF_DEL", "EDDF_A_ATIS", "EDDF_H_APP"} <= set(by)
+    assert {"APP", "TWR", "GND", "DEL", "ATIS"} <= {p["type"] for p in d["positions"]}
+    assert by["EDDF_GND"]["frequency"] == "121.805" and by["EDDF_GND"]["known"] and by["EDDF_GND"]["online"] is None
+    assert any(p["type"] == "APP" for p in client.get("/api/aerodromes/EDDL/card").json()["positions"])
+    assert {"TWR", "APP"} <= {p["type"] for p in client.get("/api/aerodromes/ETHN/card").json()["positions"]}
+
+
+ED_FIR_CODES = {"EDGG", "EDWW", "EDMM", "EDUU", "EDYY", "EDXX", "ETXX"}
+
+
+def test_ed_et_lists_cover_german_ese_airports(client, fakes):
+    """Marek: "dodać EDGG ese żeby na pewno były wszystkie lotniska w ED/ET". Każde lotnisko ED*/ET* z plików .ese
+    EDGG, EDWW i EDMM (prefiksy [POSITIONS], warunki ACTIVE sektorów, lotniska SID/STAR) jest na liście ED albo ET,
+    poza kodami FIR/UIR; lądowiska bez współrzędnych w navdata (EDBW, EDHP) z nazwą ze stanowiska (ED_EXTRA)."""
+    import re
+
+    from backend.app.config import DATA_DIR
+    from backend.app.importers.sct import read_text
+
+    refs: set[str] = set()
+    for key in ("EDGG", "EDWW", "EDMM"):
+        path = DATA_DIR / "import" / "neighbours" / f"{key}.ese"
+        if not path.exists():
+            pytest.skip(f"brak pliku {path.name}")
+        section = None
+        for line in read_text(path).splitlines():
+            if line.startswith("["):
+                section = line.strip().upper()
+                continue
+            f = line.split(":")
+            if section == "[POSITIONS]" and len(f) >= 7:
+                refs |= {f[0].split("_")[0].upper(), f[5].strip().upper()}
+            elif section == "[SIDSSTARS]" and f[0] in ("SID", "STAR") and len(f) > 2:
+                refs.add(f[1].strip().upper())
+            elif section == "[AIRSPACE]" and f[0] == "ACTIVE" and len(f) > 2:
+                refs.add(f[1].strip().upper())
+    refs = {r for r in refs if re.fullmatch(r"E[DT][A-Z]{2}", r)} - ED_FIR_CODES
+    listed = {a["icao"]: a for k in ("ED", "ET") for a in client.get(f"/api/aerodromes/fir/{k}").json()}
+    assert len(refs) > 400 and {"EDDF", "EDDL", "ETHN", "EDDB", "EDDM"} <= refs
+    assert refs - set(listed) == set()
+    assert (listed["EDBW"]["name"], listed["EDHP"]["name"]) == ("WERNEUCHEN", "PELLWORM")
+    # rank: z samą "Radio" (EDHF Itzehoe Radio) jak lądowisko bez stanowisk, z wieżą (EDVE) wyżej
+    assert (listed["EDHF"]["rank"], listed["EDVE"]["rank"], listed["EDBW"]["rank"]) == (2, 1, 2)
+    card = client.get("/api/aerodromes/EDBW/card").json()
+    assert card["fir"] == "ED" and [p["callsign"] for p in card["positions"]] == ["EDBW_I_TWR"]
 
 
 def test_card_upstream_errors(client, monkeypatch):

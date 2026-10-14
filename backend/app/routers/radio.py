@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..config import settings
 from ..database import get_db
+from ..importers.sectors_geojson import NO_SECTORS
 from ..models import Aerodrome, AtcPosition, ImportLog, NavPoint, NbSector, Sector
 from ..services import radioboard
 from ..services.http_cache import UpstreamError
@@ -130,8 +131,8 @@ async def bookings(db: Session = Depends(get_db)):
 
 @router.get("/sectors")
 def sectors(db: Session = Depends(get_db)):
-    """Wszystkie wycinki sektorów z pliku .ese (EPWW i sąsiedzi) do mapy zasięgu: rodzaj (acc/tma/ctr/fis/nb),
-    nazwa zbiorcza i lista OWNER przełożona na znaki stanowisk (kolejność przejmowania)."""
+    """Wszystkie wycinki sektorów (EPWW i sąsiedzi, data/seed/sectors.geojson) do mapy zasięgu: rodzaj
+    (acc/tma/ctr/fis/nb), nazwa zbiorcza i lista OWNER przełożona na znaki stanowisk (kolejność przejmowania)."""
     by_id = {p.position_id: p.callsign for p in db.scalars(select(AtcPosition))}
     covered = covered_firs(db)
     feats = []
@@ -152,7 +153,7 @@ def sectors(db: Session = Depends(get_db)):
             "lower_ft": s.lower_ft, "upper_ft": s.upper_ft, "owners": owners_of(s), "owner_ids": [],
             "source": s.source}})
     return {"type": "FeatureCollection", "features": feats,
-            "note": None if feats else "Brak sektorów: zaimportuj plik .ese (data/import)."}
+            "note": None if feats else NO_SECTORS}
 
 
 # --- RADIO jako jedna strona (PANDORA): GET /api/radio/board

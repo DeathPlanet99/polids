@@ -12,8 +12,9 @@ TYPES = ("CTR", "FSS", "APP", "DEP", "TWR", "GND", "DEL", "RMP", "ATIS", "FMP", 
 CIRCLE_NM = {"APP": 30, "DEP": 30, "TWR": 10}
 GROUND = ("GND", "DEL", "RMP", "ATIS")
 # FIR-y sąsiadów (katalogi vacs-data): nazwa pokazywana przy stanowiskach bez nazwy w pliku .ese
-FIR_NAMES = {"EDWW": "FIR Bremen", "EDMM": "FIR München", "EDUU": "UIR Rhein", "LK": "FIR Praha", "LZ": "FIR Bratislava",
-             "ES": "FIR Sverige", "EY": "FIR Vilnius", "EK": "FIR København", "UMKK": "FIR Kaliningrad"}
+FIR_NAMES = {"EDWW": "FIR Bremen", "EDMM": "FIR München", "EDGG": "FIR Langen", "EDUU": "UIR Rhein", "LK": "FIR Praha",
+             "LZ": "FIR Bratislava", "ES": "FIR Sverige", "EY": "FIR Vilnius", "EK": "FIR København",
+             "UMKK": "FIR Kaliningrad"}
 # prefiksy, które w katalogu FIR-u vacs-data są innym organem (EDYY = Maastricht UAC nad FIR Bremen)
 PREFIX_NAMES = {"EDYY": "UAC Maastricht", "EDUU": "UIR Rhein", "EDGG": "FIR Langen"}
 # prefiksy bez własnej granicy w VATSpy: FIR-y, nad którymi leży stanowisko (UIR Rhein nad Langen i München,
