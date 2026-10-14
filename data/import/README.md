@@ -17,13 +17,15 @@ Tu wrzuć pliki z pakietu sektorowego EuroScope (PL vACC / GNG). Aplikacja wczyt
 
 ## neighbours/
 
-Pliki `.ese` vACC sąsiadów: z nich rysujemy sektory sąsiednich FIR-ów (MAP, RADIO › GEO). Nazwa pliku musi zawierać klucz
-pakietu; z każdego pliku bierzemy tylko FIR-y tego pakietu, nigdy sektorów EPWW:
+Pliki `.ese` vACC sąsiadów: z nich rysujemy sektory sąsiednich FIR-ów (MAP, RADIO) i bierzemy stanowiska ich lotnisk
+(TWR, GND, DEL, ATIS, APP na kartach lotnisk w AERODROME). Nazwa pliku musi zawierać klucz pakietu; z każdego pliku
+bierzemy tylko FIR-y i lotniska tego pakietu, nigdy sektorów EPWW:
 
 | Plik | Klucz | FIR-y | Źródło (nazwa oryginalna) |
 |------|-------|-------|---------------------------|
 | `EDWW.ese` | EDWW | EDWW (z EDYY i EDUU HVL/OSE nad nim) | EDWW-EDWW_20261002090404-261001-0002 |
 | `EDMM.ese` | EDMM | EDMM (z EDUU nad nim) | EDMM-AeroNav_20261001160608-261001-0001 |
+| `EDGG.ese` | EDGG | EDGG (z EDUU nad nim); w rejonie Polski tylko pas na wschód od 10°E | EDGG-FULL_20261006174129-261001-0002 (AIRAC 2610) |
 | `ESAA.ese` | ESAA | ESAA | ESAA-Sweden_20261001222500-261001-0003 |
 | `EKDK.ese` | EKDK | EKDK | EKDK-Copenhagen_20261002185052-261001-0001 |
 | `EYVL.ese` | EYVL | EYVL | EYVL-Installer_20261001170439-261001-0001 |

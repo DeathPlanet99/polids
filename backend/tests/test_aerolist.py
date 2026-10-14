@@ -240,6 +240,56 @@ def test_card_foreign_airport(client, fakes):
 
 
 
+def test_card_german_airport_positions_from_neighbour_files(client, fakes):
+    """Karta lotniska niemieckiego: stanowiska lotniska z plików .ese sąsiadów (EDGG, EDWW, EDMM), także te, które nie
+    obsługują żadnego sektora w rejonie Polski (EDDF_TWR, EDDF_GND, EDDF_DEL, ATIS), APP lotnisk z innych FIR-ów."""
+    d = client.get("/api/aerodromes/EDDF/card").json()
+    by = {p["callsign"]: p for p in d["positions"]}
+    assert {"EDDF_C_TWR", "EDDF_GND", "EDDF_DEL", "EDDF_A_ATIS", "EDDF_H_APP"} <= set(by)
+    assert {"APP", "TWR", "GND", "DEL", "ATIS"} <= {p["type"] for p in d["positions"]}
+    assert by["EDDF_GND"]["frequency"] == "121.805" and by["EDDF_GND"]["known"] and by["EDDF_GND"]["online"] is None
+    assert any(p["type"] == "APP" for p in client.get("/api/aerodromes/EDDL/card").json()["positions"])
+    assert {"TWR", "APP"} <= {p["type"] for p in client.get("/api/aerodromes/ETHN/card").json()["positions"]}
+
+
+# lotniska z niemieckich plików .ese bez współrzędnych w navdata (icao.txt) ani w innych plikach w repozytorium:
+# ich nie dodajemy (tylko stanowiska "Radio" EDBW_I_TWR Werneuchen i EDHP_I_TWR Pellworm w pakiecie EDWW)
+ED_NO_COORDS = {"EDBW", "EDHP"}
+ED_FIR_CODES = {"EDGG", "EDWW", "EDMM", "EDUU", "EDYY", "EDXX", "ETXX"}
+
+
+def test_ed_et_lists_cover_german_ese_airports(client):
+    """Marek: "dodać EDGG ese żeby na pewno były wszystkie lotniska w ED/ET". Każde lotnisko ED*/ET* z plików .ese
+    EDGG, EDWW i EDMM (prefiksy [POSITIONS], warunki ACTIVE sektorów, lotniska SID/STAR) jest na liście ED albo ET,
+    poza kodami FIR/UIR i lotniskami bez współrzędnych (ED_NO_COORDS)."""
+    import re
+
+    from backend.app.config import DATA_DIR
+    from backend.app.importers.sct import read_text
+
+    refs: set[str] = set()
+    for key in ("EDGG", "EDWW", "EDMM"):
+        path = DATA_DIR / "import" / "neighbours" / f"{key}.ese"
+        if not path.exists():
+            pytest.skip(f"brak pliku {path.name}")
+        section = None
+        for line in read_text(path).splitlines():
+            if line.startswith("["):
+                section = line.strip().upper()
+                continue
+            f = line.split(":")
+            if section == "[POSITIONS]" and len(f) >= 7:
+                refs |= {f[0].split("_")[0].upper(), f[5].strip().upper()}
+            elif section == "[SIDSSTARS]" and f[0] in ("SID", "STAR") and len(f) > 2:
+                refs.add(f[1].strip().upper())
+            elif section == "[AIRSPACE]" and f[0] == "ACTIVE" and len(f) > 2:
+                refs.add(f[1].strip().upper())
+    refs = {r for r in refs if re.fullmatch(r"E[DT][A-Z]{2}", r)} - ED_FIR_CODES
+    listed = {a["icao"] for k in ("ED", "ET") for a in client.get(f"/api/aerodromes/fir/{k}").json()}
+    assert len(refs) > 400 and {"EDDF", "EDDL", "ETHN", "EDDB", "EDDM"} <= refs
+    assert refs - listed == ED_NO_COORDS
+
+
 def test_card_upstream_errors(client, monkeypatch):
     """Brak METAR-u albo sieci VATSIM: karta z komunikatem błędu i stanowiskami offline zamiast błędu 500."""
     from backend.app.services.http_cache import UpstreamError

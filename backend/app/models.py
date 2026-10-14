@@ -189,7 +189,8 @@ class NbSector(Base):
 
 
 class NbPosition(Base):
-    """Stanowisko z pliku .ese sąsiada, występujące w kolejności przejmowania jego sektorów (bez stanowisk EP**)."""
+    """Stanowisko z pliku .ese sąsiada (bez stanowisk EP**): z kolejności przejmowania sektorów FIR-ów pakietu albo
+    lotniska i FIR-u pakietu (prefiksy NB_SOURCES[…]["airports"], np. EDDF_TWR do karty lotniska w AERODROME)."""
 
     __tablename__ = "nb_positions"
 

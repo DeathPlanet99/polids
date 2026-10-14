@@ -224,7 +224,8 @@ def fir_lists(db: Session) -> dict[str, list[dict]]:
         nav = db.execute(select(NavPoint.ident, NavPoint.name, NavPoint.lat, NavPoint.lon)
                          .where(NavPoint.kind == "AD", NavPoint.source == "icao")).all()
         _cache.update(sig=sig, t=time.monotonic(),
-                      lists=build_lists(nav, list(db.scalars(select(Aerodrome))), atc=atc_airports(all_positions(db))))
+                      lists=build_lists(nav, list(db.scalars(select(Aerodrome))),
+                                        atc=atc_airports(all_positions(db, airports=True))))
     return _cache["lists"]
 
 

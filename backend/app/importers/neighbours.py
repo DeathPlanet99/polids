@@ -18,16 +18,19 @@ from .ese import parse_ese
 from .sct import read_text
 
 # klucz pliku (fragment nazwy pliku) → FIR-y (pierwszy człon nazwy sektora) brane z tego pliku, katalog vacs-data
+# i prefiksy ICAO lotnisk i FIR-ów pakietu (airports): ich stanowiska (TWR, GND, DEL, ATIS, APP…) trafiają do kart
+# lotnisk w AERODROME, także gdy nie obsługują żadnego sektora w rejonie Polski
 NB_SOURCES = {
-    "EDWW": {"firs": ["EDWW"], "vacs": "EDWW"},  # Bremen z sektorami EDYY (Maastricht) i EDUU HVL/OSE nad nim
-    "EDMM": {"firs": ["EDMM"], "vacs": "EDMM"},  # München z sektorami EDUU (Rhein) nad nim
-    "ESAA": {"firs": ["ESAA"], "vacs": "ES"},
-    "EKDK": {"firs": ["EKDK"], "vacs": "EK"},
-    "EYVL": {"firs": ["EYVL"], "vacs": "EY"},
-    "LKAA": {"firs": ["LKAA"], "vacs": "LK"},
-    "LZBB": {"firs": ["LZBB"], "vacs": "LZ"},
-    "UKBV": {"firs": ["UKLV"], "vacs": None},  # pakiet ukraiński: tylko Lwów (sąsiad Polski)
-    "ULLL": {"firs": ["UMKK"], "vacs": "UMKK"},  # pakiet rosyjski (Petersburg): tylko Kaliningrad
+    "EDWW": {"firs": ["EDWW"], "vacs": "EDWW", "airports": ("ED", "ET")},  # Bremen z EDYY (Maastricht) i EDUU HVL/OSE
+    "EDMM": {"firs": ["EDMM"], "vacs": "EDMM", "airports": ("ED", "ET")},  # München z sektorami EDUU (Rhein) nad nim
+    "EDGG": {"firs": ["EDGG"], "vacs": "EDGG", "airports": ("ED", "ET")},  # Langen z sektorami EDUU (Rhein) nad nim
+    "ESAA": {"firs": ["ESAA"], "vacs": "ES", "airports": ("ES",)},
+    "EKDK": {"firs": ["EKDK"], "vacs": "EK", "airports": ("EK",)},
+    "EYVL": {"firs": ["EYVL"], "vacs": "EY", "airports": ("EY",)},
+    "LKAA": {"firs": ["LKAA"], "vacs": "LK", "airports": ("LK",)},
+    "LZBB": {"firs": ["LZBB"], "vacs": "LZ", "airports": ("LZ",)},
+    "UKBV": {"firs": ["UKLV"], "vacs": None, "airports": ("UKL",)},  # pakiet ukraiński: tylko Lwów (sąsiad Polski)
+    "ULLL": {"firs": ["UMKK"], "vacs": "UMKK", "airports": ("UMK",)},  # pakiet rosyjski (Petersburg): tylko Kaliningrad
 }
 # rejon Polski z zapasem: lat min, lat max, lon min, lon max (sektory z ramką poza nim pomijamy)
 REGION = (46.5, 58.0, 10.0, 28.5)
@@ -159,11 +162,28 @@ def _airports(db: Session):
     return look
 
 
+def pack_positions(data: dict, key: str) -> list[dict]:
+    """Stanowiska pakietu `key` do tabeli nb_positions (bez EP**): stanowiska lotnisk i FIR-ów pakietu (znak zaczyna
+    się od prefiksu z NB_SOURCES[key]["airports"]: EDDF_TWR, EDDL_APP, LKPR_GND) oraz wszystkie z list OWNER sektorów
+    FIR-ów pakietu (też spoza nich, np. RU-WRC_FSS w pakiecie ULLL). Kolejność przejmowania, RADIO i MAP biorą
+    z tej tabeli tylko stanowiska z list OWNER sektorów sąsiada (services/neighbours.nb_positions), karty lotnisk
+    wszystkie."""
+    src = NB_SOURCES[key]
+    firs, prefixes = set(src["firs"]), tuple(src.get("airports") or ())
+    by_id = {p["position_id"]: p for p in data["positions"]}
+    owners = {by_id[o]["callsign"] for s in data["sectors"] if s["fir"].upper() in firs
+              for o in s["owners"].split(":") if o in by_id}
+    return [p for p in data["positions"] if not p["callsign"].upper().startswith("EP")
+            and (p["callsign"] in owners or p["callsign"].split("_")[0].upper().startswith(prefixes))]
+
+
 def import_nb_ese(db: Session, path: Path) -> dict:
     key = source_key(path)
     if not key:
         return {"skipped": f"nieznany pakiet (nazwa pliku powinna zawierać jeden z: {', '.join(NB_SOURCES)})"}
-    sectors, positions = select_sectors(parse_ese(read_text(path), _airports(db)), key)
+    data = parse_ese(read_text(path), _airports(db))
+    sectors, _ = select_sectors(data, key)
+    positions = pack_positions(data, key)
     db.execute(delete(NbSector).where(NbSector.source == key))
     db.execute(delete(NbPosition).where(NbPosition.source == key))
     if sectors:

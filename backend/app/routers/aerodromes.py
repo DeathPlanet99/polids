@@ -61,7 +61,7 @@ def _card_local(db: Session, code: str) -> dict:
     Listy FIR-ów liczone od nowa (pierwsze zapytanie, co godzinę, po imporcie) to ok. 0,1–0,3 s pracy CPU, więc karta
     woła tę funkcję w wątku (run_in_threadpool), żeby nie wstrzymać innych zapytań do serwera."""
     entry = airport_entry(db, code)
-    known = [p for p in all_positions(db) if (p.get("callsign") or "").upper().startswith(code + "_")]
+    known = [p for p in all_positions(db, airports=True) if (p.get("callsign") or "").upper().startswith(code + "_")]
     ad = db.get(Aerodrome, code)
     lat, lon = (entry["lat"], entry["lon"]) if entry else (ad.lat, ad.lon) if ad else (None, None)
     return {"entry": entry, "known": known, "lat": lat, "lon": lon, "fir": fir_key(code, lat, lon) if entry or known else None,

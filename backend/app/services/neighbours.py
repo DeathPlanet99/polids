@@ -15,11 +15,19 @@ def covered_firs(db: Session) -> set[str]:
     return {f.upper() for f in db.scalars(select(NbSector.fir).distinct())}
 
 
-def nb_positions(db: Session) -> list[dict]:
-    """Stanowiska z kolejności przejmowania sektorów sąsiadów (jedno na znak, pliki w kolejności NB_SOURCES)."""
+def nb_positions(db: Session, airports: bool = False) -> list[dict]:
+    """Stanowiska z plików sąsiadów (jedno na znak, pliki w kolejności NB_SOURCES): tylko te z kolejności przejmowania
+    sektorów sąsiada z tego samego pliku (RADIO, MAP, dopasowanie zalogowanych), z airports=True wszystkie zapisane –
+    także stanowiska lotnisk bez sektora (EDDF_TWR, EDDF_GND) do kart lotnisk w AERODROME."""
     order = {k: i for i, k in enumerate(NB_SOURCES)}
+    listed: dict[str, set[str]] = {}
+    if not airports:
+        for src, owners in db.execute(select(NbSector.source, NbSector.owners)):
+            listed.setdefault(src, set()).update(o for o in (owners or "").split(":") if o)
     out: dict[str, dict] = {}
     for p in sorted(db.scalars(select(NbPosition)), key=lambda p: (order.get(p.source, 99), p.callsign)):
+        if not airports and p.callsign not in listed.get(p.source, ()):
+            continue
         out.setdefault(p.callsign, {"callsign": p.callsign, "name": p.name, "frequency": p.frequency or "",
                                     "prefix": p.prefix, "source": p.source, "fir": NB_SOURCES.get(p.source, {}).get("vacs")})
     return list(out.values())

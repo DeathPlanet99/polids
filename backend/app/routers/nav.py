@@ -222,8 +222,9 @@ EP_CITY = {
     "EPPT": "Piotrków Trybunalski", "EPZR": "Żar",
 }
 FIS_REGION = {"WAW": "Warszawa", "GDN": "Gdańsk", "KRK": "Kraków", "POZ": "Poznań"}
-NB_FIR = {"EDMM": "München", "EDWW": "Bremen", "EKDK": "København", "ESAA": "Sverige", "EYVL": "Vilnius",
-          "LKAA": "Praha", "LZBB": "Bratislava", "UKLV": "Lviv", "UMKK": "Kaliningrad", "UMMV": "Minsk"}
+NB_FIR = {"EDGG": "Langen", "EDMM": "München", "EDWW": "Bremen", "EKDK": "København", "ESAA": "Sverige",
+          "EYVL": "Vilnius", "LKAA": "Praha", "LZBB": "Bratislava", "UKLV": "Lviv", "UMKK": "Kaliningrad",
+          "UMMV": "Minsk"}
 
 
 def slice_kind(fir: str, name: str) -> tuple[str, str] | None:
