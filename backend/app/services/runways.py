@@ -6,7 +6,8 @@ Bez takiego pasa zasada jak w vatiris (minsulander/vatiris, stores/wind.ts): pas
 słabym wietrze (poniżej progu, domyślnie 5 kt) pas preferowany z konfiguracji lotniska, ale tylko na lotniskach bez
 pasów preferowanych w AIP. Dodatkowo bierzemy pod uwagę wyposażenie pasów (ILS z pakietu sektorowego) i widzialność:
 przy LVP / przygotowaniu LVP / IMC wybieramy pas z ILS, o ile składowa w plecy nie przekracza limitu. W LVP pasy
-preferowane z AIP nie obowiązują (lądowania i starty w jednym kierunku, z ILS)."""
+preferowane z AIP nie obowiązują (lądowania i starty w jednym kierunku, z ILS), chyba że AIP AD 2.22 wymienia pasy
+dopuszczone w LVP (klucz lvp, np. EPWA: lądowania 33 albo 11, starty 29 albo 15)."""
 
 import json
 import math
@@ -258,7 +259,9 @@ def select_runways(runways: list[dict], wind_dir: int | None, wind_speed: int | 
     base = _wind_choice(rows, by, wind_dir, wind_speed, cfg, limit, low_vis, max_tailwind_kt)
     # w LVP decyduje kierunek z ILS, wspólny dla lądowań i startów: pasy preferowane (hałas) z AIP nie obowiązują,
     # inaczej np. EPGD przy płytkiej mgle (RVR < 550 m, widzialność 2000 m) miałby lądowania 11 i starty 29
-    if not aip or low_vis == "LVP":
+    if low_vis == "LVP":
+        return _lvp_choice(cfg.get("lvp") or {}, by, base, max_tailwind_kt)
+    if not aip:
         return base
     choice = _aip_choice(cfg, by, wind_dir, wind_speed, gust, metar, now or datetime.now(timezone.utc))
     (arr, arr_why), (dep, dep_why) = choice["arr"], choice["dep"]
@@ -274,6 +277,35 @@ def select_runways(runways: list[dict], wind_dir: int | None, wind_speed: int | 
     why = base["reason"] if base["reason"][1:2].isupper() else base["reason"][:1].lower() + base["reason"][1:]
     rest = [why] if not arr and not dep else [f"{'DEP' if arr else 'ARR'}: {why}"]
     return {"arr": arr or base["arr"], "dep": dep or base["dep"], "reason": "; ".join([*notes, *rest])}
+
+
+def _lvp_choice(lists: dict, by: dict, base: dict, max_tailwind_kt: float) -> dict:
+    """LVP z pasami dopuszczonymi przez AIP AD 2.22 (lists = {"arr": [...], "dep": [...]}, w kolejności AIP): pierwszy
+    pas z wiatrem w plecy w limicie, a gdy żaden, ten z największą składową czołową. Faza bez listy: wybór `base`."""
+    out, notes, skips = {}, [], False
+    for phase, label in (("arr", "ARR"), ("dep", "DEP")):
+        cands = [by[d] for d in lists.get(phase) or [] if d in by]
+        if not cands:
+            out[phase] = base[phase]
+            continue
+        skipped = []
+        for r in cands:
+            if r["headwind"] is None or -r["headwind"] <= max_tailwind_kt:
+                pick, why = r, f"{label} {r['designator']}" + (f", bo {_skipped(skipped)}" if skipped else "")
+                break
+            skipped.append((r["designator"], f"w plecy {_kt_over(r['headwind'], max_tailwind_kt)}"))
+        else:
+            pick = max(cands, key=lambda r: r["headwind"])
+            why = f"{label} {pick['designator']} mimo wiatru w plecy {_kt_over(pick['headwind'], max_tailwind_kt)}"
+        out[phase] = pick["designator"]
+        notes.append(why)
+        skips = skips or bool(skipped)
+    if not notes:
+        return base
+    reason = f"LVP w mocy (AIP AD 2.22): {('; ' if skips else ', ').join(notes)}"
+    if len(notes) == 1:   # druga faza bez listy z AIP: kierunek z ILS jak dotąd
+        reason += f"; {'DEP' if 'arr' in lists else 'ARR'}: {base['reason']}"
+    return {"arr": out["arr"], "dep": out["dep"], "reason": reason}
 
 
 def _wind_choice(rows: list[dict], by: dict, wind_dir, wind_speed, cfg: dict, limit, low_vis, max_tailwind_kt) -> dict:

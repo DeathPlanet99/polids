@@ -45,10 +45,11 @@ def test_frontend_and_config(client):
 def test_aerodrome_status(client):
     st = client.get("/api/aerodromes/EPWA/status").json()
     assert st["parsed"]["qnh"] == 1012
-    assert st["suggested_runway"] == "29" and st["preferred"]["arr"] == "29"
+    # AIP AD 2.21: doloty 33, odloty 29 (wiatr 280/15 w limicie bocznego 15 kt)
+    assert st["suggested_runway"] == "33" and (st["preferred"]["arr"], st["preferred"]["dep"]) == ("33", "29")
     # kontrola online z ATIS: pas w użyciu z ATIS, litera B
     assert st["runway_in_use"] == {"arr": "33", "dep": "29", "source": "ATIS", "reason": "Z ATIS B"}
-    # konfiguracja preferowana z runway_config.json (AWOS › 2 PASY przy ATIS z jednym pasem); EPWA bez AIP AD 2.21
+    # konfiguracja preferowana z runway_config.json (AWOS › 2 PASY przy ATIS z jednym pasem), AIP AD 2.21 H24
     assert st["runway_config"] == {"arr": "33", "dep": "29"}
     assert st["lvp"]["applies"] and len(st["lvp"]["rules"]) == 3
     assert st["atis"]["letter"] == "B" and st["atc_online"][0]["callsign"] == "EPWA_TWR"

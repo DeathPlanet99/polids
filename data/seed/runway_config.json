@@ -1,9 +1,13 @@
 {
-  "_uwaga": "Pasy preferowane do wyboru pasa w AERODROME (services/runways.py select_runways), z AIP AD 2.21 (AIRAC AMDT 10-26, 01.10.2026). Każdy wpis ma source (sekcja AIP). preferential = pasy preferowane z AIP: lista okien czasowych {hours, arr, dep}; hours jak w AIP: 'H24' albo 'HHMM-HHMM (HHMM-HHMM)', czas UTC zimą, w nawiasie latem (czas letni UE: od ostatniej niedzieli marca 01:00 UTC do ostatniej niedzieli października 01:00 UTC); arr/dep = pasy w kolejności z AIP ('26, potem 08'), brak klucza = AIP nie podaje pierwszeństwa dla lądowań albo startów. Pas preferowany obowiązuje, dopóki składowa w plecy i boczna z porywami nie przekracza tailwind_kt / crosswind_kt (liczba albo {arr, dep}) i dopóki nie zachodzi warunek z not_decisive (AIP: 'hałas nie decyduje'): all / arr / dep = progi pogody z METAR, warunek spełniony, gdy podstawa chmur BKN/OVC/VV < ceiling_ft albo widzialność < vis_m; non_precision = te same progi tylko dla kierunku bez ILS (AIP: podejście z minimami powyżej 300 ft AAL); ts = burza w METAR. Pozostałych warunków AIP (pas mokry lub zanieczyszczony, uskok wiatru) nie da się ocenić z METAR. Gdy pas preferowany odpada, pas wybieramy jak zwykle: LVP / przygotowanie LVP / IMC = kierunek z ILS, inaczej największa składowa czołowa. Lotniska bez pasów preferowanych w AIP: zasada słabego wiatru jak w vatiris (runways_preferred.json): arr/dep = pas preferowany przy wietrze słabszym niż limit (kt, DEFAULT), never = kierunki nigdy nie wybierane automatycznie. equipment nadpisuje wyposażenie odczytane z procedur w pliku .ese, np. {\"29\": [\"ILS\", \"RNP\"]}. verified: false = wpis niesprawdzony z AIP. Lotniska wojskowe (AIP MIL AD 4.20-4.22) i lotniska VFR nie publikują pasów preferowanych.",
+  "_uwaga": "Pasy preferowane do wyboru pasa w AERODROME (services/runways.py select_runways), z AIP AD 2.21 (AIRAC AMDT 10-26, 01.10.2026). Każdy wpis ma source (sekcja AIP). preferential = pasy preferowane z AIP: lista okien czasowych {hours, arr, dep}; hours jak w AIP: 'H24' albo 'HHMM-HHMM (HHMM-HHMM)', czas UTC zimą, w nawiasie latem (czas letni UE: od ostatniej niedzieli marca 01:00 UTC do ostatniej niedzieli października 01:00 UTC); arr/dep = pasy w kolejności z AIP ('26, potem 08'), brak klucza = AIP nie podaje pierwszeństwa dla lądowań albo startów. Pas preferowany obowiązuje, dopóki składowa w plecy i boczna z porywami nie przekracza tailwind_kt / crosswind_kt (liczba albo {arr, dep}) i dopóki nie zachodzi warunek z not_decisive (AIP: 'hałas nie decyduje'): all / arr / dep = progi pogody z METAR, warunek spełniony, gdy podstawa chmur BKN/OVC/VV < ceiling_ft albo widzialność < vis_m; non_precision = te same progi tylko dla kierunku bez ILS (AIP: podejście z minimami powyżej 300 ft AAL); ts = burza w METAR. Pozostałych warunków AIP (pas mokry lub zanieczyszczony, uskok wiatru) nie da się ocenić z METAR. Gdy pas preferowany odpada, pas wybieramy jak zwykle: LVP / przygotowanie LVP / IMC = kierunek z ILS, inaczej największa składowa czołowa. Lotniska bez pasów preferowanych w AIP: zasada słabego wiatru jak w vatiris (runways_preferred.json): arr/dep = pas preferowany przy wietrze słabszym niż limit (kt, DEFAULT), never = kierunki nigdy nie wybierane automatycznie. lvp = pasy dopuszczone w LVP wg AIP AD 2.22 ({arr, dep}, w kolejności): pierwszy z wiatrem w plecy w limicie, a gdy żaden, ten z największą składową czołową; faza bez listy jak dotąd (kierunek z ILS). equipment nadpisuje wyposażenie odczytane z procedur w pliku .ese, np. {\"29\": [\"ILS\", \"RNP\"]}. verified: false = wpis niesprawdzony z AIP. Lotniska wojskowe (AIP MIL AD 4.20-4.22) i lotniska VFR nie publikują pasów preferowanych.",
   "DEFAULT": {"limit": 5},
   "EPWA": {
-    "arr": "33", "dep": "29", "verified": false,
-    "source": "NIEZWERYFIKOWANE z AIP: strona AD 2 EPWA daje się odczytać tylko do AD 2.20 pkt 6.1, bez AD 2.21 (pasy preferowane); konfiguracja z poprzedniej wersji (vatiris)"
+    "source": "AIP AD 2.21 pkt 1, AD 2.22 pkt 7.1 (tekst AIP od Marka, 14.10.2026)",
+    "preferential": [{"hours": "H24", "arr": ["33", "11", "15", "29"], "dep": ["29", "15", "33", "11"]}],
+    "tailwind_kt": 5, "crosswind_kt": 15,
+    "not_decisive": {"all": {"vis_m": 1900}, "arr": {"ceiling_ft": 492}, "ts": true},
+    "lvp": {"arr": ["33", "11"], "dep": ["29", "15"]},
+    "aip": "Doloty: RWY 33, potem 11, 15, 29; odloty: RWY 29, potem 15, 33, 11 (H24). Hałas nie decyduje przy pasie nieczystym lub niesuchym, przy lądowaniu z pułapem chmur < 150 m (492 ft) nad lotniskiem, przy widzialności < 1,9 km, wietrze bocznym z porywami > 28 km/h (15 kt), w plecy z porywami > 9 km/h (5 kt), uskoku wiatru albo burzy. W LVP (AD 2.22 pkt 7.1): lądowania ILS CAT IIIA RWY 33 albo CAT II RWY 11, starty z RWY 29 albo 15 (33 lub 11 tylko na prośbę załogi)."
   },
   "EPMO": {
     "source": "AIP AD 2.21 pkt 1",
@@ -30,14 +34,15 @@
     "aip": "Starty H24 z RWY 29, potem 11; AIP nie podaje pierwszeństwa dla lądowań. Hałas nie decyduje przy pasie niesuchym, podstawie chmur < 150 m (492 ft) AAL albo widzialności < 1900 m, uskoku wiatru lub burzy, wietrze bocznym > 15 kt albo w plecy > 5 kt (z porywami)."
   },
   "EPPO": {
-    "source": "AIP AD 2.21 pkt 1 i 4",
+    "source": "AIP AD 2.21 pkt 1 i 4, AD 2.22 pkt 6.1 i 6.4.4 (tekst AD 2.22 od Marka, 14.10.2026)",
     "preferential": [
       {"hours": "0500-2100 (0400-2000)", "arr": ["28", "10"]},
       {"hours": "H24", "dep": ["28", "10"]}
     ],
     "tailwind_kt": {"arr": 5, "dep": 10}, "crosswind_kt": 15,
     "not_decisive": {"arr": {"ceiling_ft": 800, "vis_m": 3000}, "dep": {"vis_m": 1900}, "ts": true},
-    "aip": "Lądowania (tylko 0500-2100 (0400-2000)) RWY 28, potem 10; starty H24 RWY 28, potem 10. Limit wiatru w plecy 5 kt dla lądowań i 10 kt dla startów, bocznego 15 kt, z porywami. Hałas nie decyduje przy pasie niesuchym, podstawie chmur do lądowania < 800 ft albo widzialności < 3000 m, widzialności do startu < 1900 m, uskoku wiatru lub burzy."
+    "lvp": {"arr": ["28"], "dep": ["28", "10"]},
+    "aip": "Lądowania (tylko 0500-2100 (0400-2000)) RWY 28, potem 10; starty H24 RWY 28, potem 10. Limit wiatru w plecy 5 kt dla lądowań i 10 kt dla startów, bocznego 15 kt, z porywami. Hałas nie decyduje przy pasie niesuchym, podstawie chmur do lądowania < 800 ft albo widzialności < 3000 m, widzialności do startu < 1900 m, uskoku wiatru lub burzy. W LVP (AD 2.22 pkt 6.1 i 6.4.4): lądowania ILS CAT II tylko na RWY 28, starty z RWY 10 albo 28 (kolejności AIP nie podaje, pierwszy 28 jak lądowania)."
   },
   "EPRA": {"source": "AIP AD 2.20, AD 2.21 (NIL): bez pasów preferowanych"},
   "EPLL": {"source": "AIP AD 2.20, AD 2.21 (NIL): bez pasów preferowanych"},

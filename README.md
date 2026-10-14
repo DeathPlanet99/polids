@@ -112,14 +112,15 @@ do `main`. Instrukcja: [deploy/README.md](deploy/README.md).
 Jeśli na lotnisku nadaje ATIS, pas w użyciu bierzemy z jego tekstu. Bez ATIS-u (zasada z
 [vatiris](https://github.com/minsulander/vatiris)):
 
-1. pasy preferowane z AIP AD 2.21 (`data/seed/runway_config.json`: EPMO, EPWR, EPGD, EPPO) w swoich oknach czasowych
+1. pasy preferowane z AIP AD 2.21 (`data/seed/runway_config.json`: EPWA, EPMO, EPWR, EPGD, EPPO) w swoich oknach czasowych
    (godziny UTC zimą, w nawiasie latem; czas letni UE liczony bez tzdata), osobno dla lądowań i startów, w kolejności
    z AIP („26, potem 08”); pas odpada, gdy składowa w plecy albo boczna z porywami przekracza limit z AIP albo gdy
    zachodzi warunek, przy którym hałas nie decyduje (podstawa chmur, widzialność, podejście bez ILS, burza); w LVP
-   pasów preferowanych z AIP nie stosujemy (lądowania i starty w jednym kierunku, z ILS),
+   pasów preferowanych z AD 2.21 nie stosujemy: obowiązują pasy dopuszczone w LVP przez AD 2.22 (klucz `lvp`, EPWA:
+   lądowania 33 albo 11, starty 29 albo 15; EPPO: lądowania 28, starty 28 albo 10), a bez nich kierunek z ILS,
 2. LVP / przygotowanie LVP / IMC: kierunek z ILS, o ile wiatr w plecy nie przekracza 5 kt,
-3. słaby wiatr (< 5 kt), tylko lotniska bez pasów preferowanych w AIP: konfiguracja z `runway_config.json` (EPWA
-   ARR 33 / DEP 29, niezweryfikowana z AIP), bez niej kierunek z ILS,
+3. słaby wiatr (< 5 kt), tylko lotniska bez pasów preferowanych w AIP: konfiguracja preferowana lotniska (arr/dep
+   w `runway_config.json`, obecnie żadne lotnisko jej nie ma), bez niej kierunek z ILS,
 4. w pozostałych przypadkach największa składowa czołowa.
 
 Wyposażenie pasów (ILS, RNP, VOR, NDB) czytane jest z nazw procedur w `.ese`. Pasa niesuchego i uskoku wiatru z METAR
@@ -131,8 +132,8 @@ Progi z AIP AD 2.22 i AIP MIL AD 4.20 w `data/seed/lvp.json`: przygotowanie, wpr
 podstawa chmur; lotniska wojskowe: widzialność z odpowiednikiem RVR, tylko odloty). LVP po wprowadzeniu trwa do spełnienia
 warunków odwołania (histereza w pamięci procesu, po restarcie albo przerwie w METAR-ach ponad 90 min od zera; starszy
 METAR z innego zapytania dostaje stan z nowszego), potem przez 30 min od godziny odwołania „LVP ODWOŁANE”. Lotniska, dla
-których AIP nie przewiduje LVP (VFR, część wojskowych, EPRA, EPZG), mają „nie dotyczy”. EPWA i EPPO: wartości domyślne,
-niezweryfikowane z AIP (strona AIP nieczytelna).
+których AIP nie przewiduje LVP (VFR, część wojskowych, EPRA, EPZG), mają „nie dotyczy”. EPWA i EPPO: z tekstu AD 2.22
+wklejonego przez Marka (strony eAIP urywały się przy pobieraniu).
 
 ## Znane ograniczenia
 

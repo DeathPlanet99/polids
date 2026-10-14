@@ -238,7 +238,8 @@ def test_notam_only_for_aerodrome():
 
 def test_lvp():
     assert evaluate_lvp(parse_metar("EPWA 051630Z 31004KT 0400 R29/0350N FG VV002 08/08 Q1009"), "EPWA")["state"] == "LVP"
-    prep = evaluate_lvp(parse_metar("EPWA 051630Z 31004KT 0700 BR OVC006 08/08 Q1009"), "EPWA")
+    # EPWA: AIP nie podaje fazy przygotowania, EPPO tak (RVR ≤ 800 m, bez grupy RVR widzialność)
+    prep = evaluate_lvp(parse_metar("EPPO 051630Z 28004KT 0700 BR OVC006 08/08 Q1009"), "EPPO")
     assert prep["state"] == "PREP" and "widzialność 700 m" in prep["reasons"][0]
     assert evaluate_lvp(parse_metar("EPWA 051630Z 31004KT CAVOK 08/02 Q1009"), "EPWA")["state"] is None
 
