@@ -7,9 +7,9 @@ słabym wietrze (poniżej progu, domyślnie 5 kt) pas preferowany z konfiguracji
 pasów preferowanych w AIP. Dodatkowo bierzemy pod uwagę wyposażenie pasów (ILS z pakietu sektorowego) i widzialność:
 przy LVP / przygotowaniu LVP / IMC wybieramy do lądowania pas z ILS, o ile składowa w plecy nie przekracza limitu (do
 startu na lotniskach z pasami preferowanymi pas z listy AIP). W LVP pasy preferowane z AD 2.21 nie obowiązują: pasy
-dopuszczone w LVP przez AIP AD 2.22 (klucz lvp, np. EPWA: lądowania 33 albo 11, starty 29 albo 15), a bez nich
-lądowania i starty w jednym kierunku, z ILS. Starty nie pod prąd lądowań (ten sam pas, przeciwny kierunek): w LVP
-nigdy, poza LVP na lotniskach z kilkoma pasami (EPWA) i gdy hałas nie decyduje."""
+dopuszczone w LVP przez AIP AD 2.22 (klucz lvp, np. EPWA: lądowania 33 albo 11, starty 29 albo 15, para w limicie
+wiatru), a bez nich lądowania i starty w jednym kierunku, z ILS. Starty nie pod prąd lądowań (ten sam pas, przeciwny
+kierunek): w LVP nigdy, poza LVP na lotniskach z kilkoma pasami (EPWA) i gdy hałas nie decyduje."""
 
 import json
 import math
@@ -20,9 +20,9 @@ from functools import lru_cache
 from ..config import DATA_DIR, settings
 from .lvp import rvr_value
 
-# najniższy RVR podejścia ILS danej kategorii (ICAO Annex 6: CAT II nie mniej niż 300 m); kategoria pasa z AIP AD 2.22
-# w runway_config.json (lvp.cat)
-CAT_MIN_RVR_M = {"II": 300}
+# najniższy RVR podejścia ILS danej kategorii (ICAO Annex 6: CAT II nie mniej niż 300 m, CAT IIIA 175 m); kategoria pasa
+# z AIP AD 2.22 w runway_config.json (lvp.cat)
+CAT_MIN_RVR_M = {"II": 300, "IIIA": 175}
 
 
 def runway_heading(designator: str, heading_true: float | None) -> float:
@@ -206,15 +206,16 @@ def _same_runway(a: str | None, b: str | None) -> bool:
     return bool(ma and mb) and (int(ma[1]) - int(mb[1])) % 36 == 18 and {"L": "R", "R": "L"}.get(ma[2], ma[2]) == mb[2]
 
 
-def _rvr(metar, designator: str | None = None) -> int | None:
-    """RVR z METAR (m): pasa `designator`, gdy METAR go podaje, inaczej najniższy; bez grupy RVR widzialność (jak rvr_m
-    w lvp.json)."""
-    if metar is None:
-        return None
+def _rvr(metar, designator: str) -> tuple[str, int | None]:
+    """(etykieta, m): RVR pasa `designator` ("RVR"), gdy METAR go podaje, inaczej najniższy ("RVR 33"); bez grupy RVR
+    widzialność ("widzialność", jak rvr_m w lvp.json)."""
     rvr = {r["runway"]: v for r in getattr(metar, "rvr", None) or [] if (v := rvr_value(r["value"])) is not None}
     if designator in rvr:
-        return rvr[designator]
-    return min(rvr.values()) if rvr else getattr(metar, "visibility_m", None)
+        return "RVR", rvr[designator]
+    if rvr:
+        low = min(rvr, key=rvr.get)
+        return f"RVR {low}", rvr[low]
+    return "widzialność", getattr(metar, "visibility_m", None)
 
 
 def _first_ok(prefs: list[str], check, avoid: str | None) -> tuple[str | None, list[tuple[str, str]]]:
@@ -242,7 +243,7 @@ def _aip_choice(cfg: dict, by: dict, wind_dir, wind_speed, gust, metar, t: datet
     speed = None if wind_speed is None else max(wind_speed, gust or 0)
     gusty = speed is not None and speed > wind_speed
     multi = any(a != b and not _same_runway(a, b) for a in by for b in by)
-    out = {}
+    out, arr_skipped = {}, []
     for phase in ("arr", "dep"):
         prefs = [d for d in now[phase] if d in by]
         if not prefs:
@@ -257,6 +258,10 @@ def _aip_choice(cfg: dict, by: dict, wind_dir, wind_speed, gust, metar, t: datet
         np = phase == "arr" and not by[prefs[0]]["ils"]
         block = _weather_block(cfg.get("not_decisive") or {}, phase, metar, np)
         d, skipped = (None, []) if block else _first_ok(prefs, check, arr if multi else None)
+        if phase == "arr":
+            arr_skipped = skipped
+        elif not d and sorted(skipped) == sorted(arr_skipped):   # te same pasy i powody co do lądowań: raz, jako ARR/DEP
+            skipped = arr_skipped
         if d:
             hrs = now["hours"][phase]
             out[phase] = (d, f"{d} wg AIP ({'H24' if hrs == 'H24' else hrs + ' UTC'})"
@@ -273,9 +278,12 @@ def _aip_choice(cfg: dict, by: dict, wind_dir, wind_speed, gust, metar, t: datet
 
 
 def _skipped(items: list[tuple[str, str]]) -> str:
-    """'26: w plecy 8 kt > 5 kt'; ten sam powód dla wszystkich kierunków (wiatr boczny) tylko raz."""
+    """'26: w plecy 8 kt > 5 kt'; ten sam powód dla wszystkich kierunków (wiatr boczny) tylko raz, a z listy dłuższej
+    niż dwa pasy (EPWA) dwa pierwsze i '…' (składowe wiatru wszystkich pasów są w tabeli pasów)."""
     whys = {w for _, w in items}
-    return whys.pop() if len(items) > 1 and len(whys) == 1 else "; ".join(f"{d}: {w}" for d, w in items)
+    if len(items) > 1 and len(whys) == 1:
+        return whys.pop()
+    return "; ".join([f"{d}: {w}" for d, w in items[:2]] + ["…"] * (len(items) > 2))
 
 
 def select_runways(runways: list[dict], wind_dir: int | None, wind_speed: int | None, *,
@@ -316,7 +324,8 @@ def select_runways(runways: list[dict], wind_dir: int | None, wind_speed: int | 
         return base
     choice = _aip_choice(cfg, by, wind_dir, wind_speed, gust, metar, t, base["arr"])
     (arr, arr_why), (dep, dep_why) = choice["arr"], choice["dep"]
-    if arr_why and arr_why == dep_why:
+    both = arr_why and arr_why == dep_why
+    if both:
         notes = [f"ARR/DEP {arr_why}"]
     else:
         notes = [f"{k} {w}" for k, w in (("ARR", arr_why), ("DEP", dep_why)) if w]
@@ -328,7 +337,7 @@ def select_runways(runways: list[dict], wind_dir: int | None, wind_speed: int | 
     alt = choice.get("alt")
     if alt and alt[0] != base["dep"]:
         # starty bez pierwszeństwa AIP: pas z listy startów AIP, nie kierunek z ILS wybrany do lądowań
-        rest = ([] if arr else [f"ARR: {why}"]) + [alt[1]]
+        rest = ([] if arr else [why if both else f"ARR: {why}"]) + [alt[1]]
         return {"arr": arr or base["arr"], "dep": alt[0], "reason": "; ".join([*notes, *rest])}
     rest = [why] if not arr and not dep else [f"{'DEP' if arr else 'ARR'}: {why}"]
     return {"arr": arr or base["arr"], "dep": dep or base["dep"], "reason": "; ".join([*notes, *rest])}
@@ -340,71 +349,78 @@ def _lc(why: str) -> str:
 
 
 def _lvp_choice(cfg: dict, by: dict, base: dict, wind_dir, wind_speed, gust, metar, max_tailwind_kt: float) -> dict:
-    """LVP z pasami dopuszczonymi przez AIP AD 2.22 (cfg["lvp"] = {"arr": [...], "dep": [...]}, w kolejności AIP):
-    pierwszy pas z wiatrem w plecy (z porywami) w limicie lotniska (tailwind_kt, bez niego max_tailwind_kt), a gdy
-    żaden, ten z największą składową czołową. Lądowania tylko na pasach, których kategoria ILS (lvp.cat) dopuszcza RVR
-    z METAR (EPWA RWY 11 CAT II od 300 m); starty nigdy pod prąd lądowań (ten sam pas, przeciwny kierunek: EPPO
-    lądowania 28, starty też 28); przy RVR poniżej lvp.dep_min_rvr_m ostrzeżenie, że starty są niedozwolone. Faza bez
-    listy: wybór `base`."""
+    """LVP z pasami dopuszczonymi przez AIP AD 2.22 (cfg["lvp"] = {"arr": [...], "dep": [...]}, w kolejności AIP).
+    Lądowania tylko na pasach, których kategoria ILS (lvp.cat) dopuszcza RVR z METAR (EPWA RWY 11 CAT II od 300 m),
+    starty nigdy pod prąd lądowań (ten sam pas, przeciwny kierunek: EPPO lądowania 28, starty też 28). Pierwszy pas do
+    lądowania, przy którym i lądowania, i starty mają wiatr w plecy z porywami w limicie lotniska (tailwind_kt, bez
+    niego max_tailwind_kt): EPWA przy 070/10 lądowania 11 i starty 15, nie 33 i 29 z wiatrem w plecy. Bez takiej pary
+    osobno pierwszy pas w limicie, a gdy żaden, ten z największą składową czołową (gdy wszystkie pasy do lądowania są
+    poniżej minimów, ten z najniższymi: EPWA 33). Przy RVR pasa startowego poniżej lvp.dep_min_rvr_m ostrzeżenie, że
+    starty są niedozwolone. Faza bez listy: wybór `base`, starty też nie pod prąd lądowań."""
     lists = cfg.get("lvp") or {}
+    cat = lists.get("cat") or {}
     speed = None if wind_speed is None else max(wind_speed, gust or 0)
     g = " z porywami" if speed is not None and speed > wind_speed else ""
+    arrs, deps = ([d for d in lists.get(p) or [] if d in by] for p in ("arr", "dep"))
 
-    def tail(r):   # składowa w plecy z porywami, None przy wietrze zmiennym albo bez danych
-        return None if wind_dir is None or speed is None else -wind_components(wind_dir, speed, r["heading"])[0]
-
-    out, notes, skips, missing = {}, [], False, []
-    for phase, label in (("arr", "ARR"), ("dep", "DEP")):
-        cands = [by[d] for d in lists.get(phase) or [] if d in by]
-        if not cands:
-            out[phase] = base[phase]
-            missing.append(label)
-            continue
+    def tail(d, phase):   # wiatr w plecy z porywami ponad limit (przy wietrze zmiennym i bez danych nie sprawdzamy)
         lim = _limit(cfg, "tailwind_kt", phase)
         lim = max_tailwind_kt if lim is None else lim
-        below, recip = {}, {}   # pas -> powód odrzucenia niezależny od wiatru
-        for r in cands:
-            d = r["designator"]
-            cat = (lists.get("cat") or {}).get(d) if phase == "arr" else None
-            need = CAT_MIN_RVR_M.get(cat)
-            rvr = _rvr(metar, d) if need else None
-            if rvr is not None and rvr < need:
-                below[d] = f"CAT {cat}: RVR {rvr} m < {need} m"
-            if phase == "dep" and _same_runway(d, out["arr"]):
-                recip[d] = f"przeciwnie do lądowań na {out['arr']}"
-        if len(recip) == len(cands):   # AIP daje do startu tylko przeciwny kierunek
-            recip = {}
-        excl, skipped = {**below, **recip}, []
-        for r in cands:
-            d, tw = r["designator"], tail(r)
-            why = excl.get(d) or (f"w plecy{g} {_kt_over(tw, lim)}" if tw is not None and tw > lim else None)
-            if not why:
-                pick, note = r, f"{label} {d}" + (f", bo {_skipped(skipped)}" if skipped else "")
-                break
-            skipped.append((d, why))
-        else:
-            pool = [r for r in cands if r["designator"] not in excl] or [r for r in cands if r["designator"] not in recip]
-            pick = max(pool, key=lambda r: r["headwind"] or 0)
-            d, tw = pick["designator"], tail(pick)
-            parts = [f"mimo wiatru w plecy{g} {_kt_over(tw, lim)}" if tw is not None and tw > lim else "",
-                     f"poniżej minimów {below[d]}" if d in below else ""]
-            other = [(x, w) for x, w in skipped if x in excl and x != d]
-            note = " ".join(filter(None, [f"{label} {d}", ", ".join(filter(None, parts))])) \
-                + (f", bo {_skipped(other)}" if other else "")
-        out[phase] = pick["designator"]
-        notes.append(note)
-        skips = skips or bool(skipped)
+        tw = None if wind_dir is None or speed is None else -wind_components(wind_dir, speed, by[d]["heading"])[0]
+        return f"w plecy{g} {_kt_over(tw, lim)}" if tw is not None and tw > lim else None
+
+    def below(d):   # lądowanie poniżej minimów kategorii ILS pasa
+        need = CAT_MIN_RVR_M.get(cat.get(d))
+        what, v = _rvr(metar, d)
+        return f"CAT {cat[d]}: {what} {v} m < {need} m" if need and v is not None and v < need else None
+
+    def dep_for(arr):   # do startu bez przeciwnego kierunku pasa lądowań, chyba że AIP daje tylko ten
+        return [d for d in deps if not _same_runway(d, arr)] or deps
+
+    def dep_tail(arr):   # przy lądowaniach na arr żaden pas do startu nie ma wiatru w limicie
+        ds = dep_for(arr)
+        return f"DEP {ds[0]} {tail(ds[0], 'dep')}" if ds and all(tail(d, "dep") for d in ds) else None
+
+    def note(label, d, skipped, phase):   # "ARR 33 mimo wiatru w plecy 8 kt > 5 kt, bo 11: CAT II: RVR 250 m < 300 m"
+        over, low = tail(d, phase), phase == "arr" and below(d)
+        extra = ", ".join(filter(None, [over and f"mimo wiatru {over}", low and f"poniżej minimów {low}"]))
+        return " ".join(filter(None, [label, d, extra])) + (f", bo {_skipped(skipped)}" if skipped else "")
+
+    notes, missing, arr, dep = [], [], base["arr"], base["dep"]
+    if arrs:
+        arr, skipped = _first_ok(arrs, lambda d: below(d) or tail(d, "arr") or dep_tail(d), None)
+        if not arr:   # żadna para w limitach: pas do lądowania bez względu na starty
+            arr, skipped = _first_ok(arrs, lambda d: below(d) or tail(d, "arr"), None)
+        if not arr:
+            pool = [d for d in arrs if not below(d)] or [min(arrs, key=lambda d: CAT_MIN_RVR_M.get(cat.get(d), 0))]
+            arr = max(pool, key=lambda d: by[d]["headwind"] or 0)
+            skipped = [] if below(arr) else [(d, below(d)) for d in arrs if below(d)]
+        notes.append(note("ARR", arr, skipped, "arr"))
+    else:
+        missing.append("ARR")
+    if deps:
+        ds = dep_for(arr)
+        dep, skipped = _first_ok(ds, lambda d: tail(d, "dep"), None)
+        if not dep:
+            dep, skipped = max(ds, key=lambda d: by[d]["headwind"] or 0), []
+        notes.append(note("DEP", dep, skipped, "dep"))
+    elif _same_runway(dep, arr):
+        dep = arr
+        notes.append(f"DEP {arr}")
+    else:
+        missing.append("DEP")
     if not notes:
         return base
-    reason = f"LVP w mocy (AIP AD 2.22): {('; ' if skips else ', ').join(notes)}"
+    plain = all(n.count(" ") == 1 for n in notes)   # same pasy: "ARR 33, DEP 29"
+    reason = f"LVP w mocy (AIP AD 2.22): {(', ' if plain else '; ').join(notes)}"
     if missing:   # faza bez listy z AIP: wybór jak bez niej (kierunek z ILS)
         reason += f"; {missing[0]}: {_lc(base['reason'].removeprefix('LVP w mocy: '))}"
     if wind_dir is None and speed != 0:   # wiatru w plecy nie sprawdzaliśmy
         reason += f"; wiatr zmienny{g} {speed} kt" if speed is not None else "; brak danych o wietrze"
-    dep_min, rvr = lists.get("dep_min_rvr_m"), _rvr(metar)
-    if dep_min and rvr is not None and rvr < dep_min:
-        reason += f"; starty niedozwolone: RVR {rvr} m < {dep_min} m"
-    return {"arr": out["arr"], "dep": out["dep"], "reason": reason}
+    what, v = _rvr(metar, dep)
+    if lists.get("dep_min_rvr_m") and v is not None and v < lists["dep_min_rvr_m"]:
+        reason += f"; starty niedozwolone: {what} {v} m < {lists['dep_min_rvr_m']} m"
+    return {"arr": arr, "dep": dep, "reason": reason}
 
 
 def _wind_choice(rows: list[dict], by: dict, wind_dir, wind_speed, cfg: dict, limit, low_vis, max_tailwind_kt,

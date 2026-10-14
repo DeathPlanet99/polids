@@ -120,10 +120,12 @@ Jeśli na lotnisku nadaje ATIS, pas w użyciu bierzemy z jego tekstu. Bez ATIS-u
    start pod prąd lądowań (ten sam pas, przeciwny kierunek) tylko na lotnisku z jednym pasem, gdzie AIP to dopuszcza
    (EPPO przy 100/08: ARR 10, DEP 28), na EPWA następny pas z listy (przy 190/10: ARR 11, DEP 15, nie 29); w LVP
    pasów preferowanych z AD 2.21 nie stosujemy: obowiązują pasy dopuszczone w LVP przez AD 2.22 (klucz `lvp`, EPWA:
-   lądowania 33 albo 11, starty 29 albo 15; EPPO: lądowania 28, starty 28 albo 10), pierwszy z wiatrem w plecy
-   z porywami w limicie lotniska, starty nigdy pod prąd lądowań (EPWA 33/29 albo 11/15, EPPO 28/28), lądowania na
-   RWY 11 (ILS CAT II) tylko przy RVR ≥ 300 m, a przy RVR < 125 m ostrzeżenie „starty niedozwolone”; bez list
-   z AD 2.22 kierunek z ILS,
+   lądowania 33 albo 11, starty 29 albo 15; EPPO: lądowania 28, starty 28 albo 10), starty nigdy pod prąd lądowań
+   (EPWA 33/29 albo 11/15, EPPO 28/28), pierwsza para z wiatrem w plecy z porywami w limicie lotniska (EPWA przy
+   070/10: 11/15, nie 33/29 z 7 kt w plecy), bez niej osobno pierwszy pas w limicie; lądowania tylko od minimów
+   kategorii ILS (RWY 11 CAT II od RVR 300 m, RWY 33 CAT IIIA od 175 m; poniżej minimów na wszystkich pasach pas
+   z najniższymi, z uwagą), a przy RVR pasa startowego < 125 m ostrzeżenie „starty niedozwolone” (bez grupy RVR
+   widzialność, tak też nazwana); bez list z AD 2.22 kierunek z ILS,
 2. LVP / przygotowanie LVP / IMC: kierunek z ILS, o ile wiatr w plecy nie przekracza 5 kt (przy ciszy i wietrze
    zmiennym pierwszy w kolejności lądowań z AIP),
 3. słaby wiatr (< 5 kt), tylko lotniska bez pasów preferowanych w AIP: konfiguracja preferowana lotniska (arr/dep
