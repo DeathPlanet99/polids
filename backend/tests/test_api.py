@@ -66,7 +66,9 @@ def test_seed_from_aip(client):
     assert (rw["09R"]["length_m"], rw["09R"]["width_m"], rw["09R"]["surface"]) == (1350, 50, "CONC/ASPH")
     assert (rw["27R"]["length_m"], rw["27R"]["surface"]) == (840, "GRASS")
     assert bk["frequencies"][0] == {"kind": "RADIO", "description": "BIAŁYSTOK RADIO", "mhz": "123.205", "hours": "AUP",
-                                    "source": "AIP VFR AD 4.9"}
+                                    "note": None, "source": "AIP VFR AD 4.9"}
+    ra = client.get("/api/aerodromes/EPRA").json()["frequencies"]
+    assert [f["note"] for f in ra if f["kind"] == "TWR"] == ["TWR cywilna", "TWR wojskowa (MIL)"]
     # EPSW: pas 07/25 z OurAirports nie istnieje
     assert not any(r["designator"] in ("07", "25") for r in client.get("/api/aerodromes/EPSW").json()["runways"])
     mo = client.get("/api/aerodromes/EPMO").json()

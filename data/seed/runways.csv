@@ -42,8 +42,7 @@ EPJS,14,32,150,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,airfi
 EPJS,18,36,280,50,GRASS,,,,,,,,,lotniska.dlapilota.pl,dlapilota bez oznaczenia (kurs 002/182)
 EPKA,11R,29L,900,30,CONC,110.3,290.3,50.898203,20.725628,,50.895442,20.737469,,lotniska.dlapilota.pl; progi: EPWW-Sector.sct,"długość: dlapilota 900 m, airfield.directory 1040 m, OurAirports 1155 m (pas mógł być wydłużony)"
 EPKA,11L,29R,900,200,GRASS,110.3,290.3,50.899553,20.726406,,50.89675,20.738431,,lotniska.dlapilota.pl + airfield.directory + OurAirports; progi: EPWW-Sector.sct,
-EPKB,09,27,640,27,ASPH,,,,,,,,,lotniska.dlapilota.pl,"lądowisko spoza AIP; airfield.directory 629 m, OurAirports 620 m"
-EPKB,09,27,1020,35,GRASS,,,,,,,,,lotniska.dlapilota.pl,lądowisko spoza AIP; równoległy pas trawiasty (oba źródła oznaczają go 09/27); airfield.directory 900 m
+EPKB,09,27,640,27,ASPH,,,,,,,,,lotniska.dlapilota.pl,"lądowisko spoza AIP; airfield.directory 629 m, OurAirports 620 m; równoległy pas trawiasty 1020×35 m (airfield.directory 900 m) ma w obu źródłach to samo oznaczenie 09/27, więc nie ma osobnego wiersza (pasy rozróżniamy po oznaczeniu)"
 EPKD,09,27,600,30,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,"lądowisko spoza AIP; RWY 09 wznosi się 2,6% na pierwszych 300 m"
 EPKE,15,33,1105,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,szerokość tylko z dlapilota
 EPKE,07,25,500,50,GRASS,,,,,,,,,lotniska.dlapilota.pl + airfield.directory,szerokość tylko z dlapilota

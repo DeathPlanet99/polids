@@ -59,14 +59,27 @@ def _f(v):
 
 
 def seed_aerodromes(db: Session):
-    """Lotniska (airports.csv z OurAirports, elewacja z AIP), pasy i częstotliwości z AIP (runways.csv, frequencies.csv
-    w metrach, ze źródłem w każdym wierszu) oraz pomoce nawigacyjne (navaids.csv)."""
+    """Lotniska (airports.csv z OurAirports, elewacja z AIP albo z lotniska.dlapilota.pl), pasy i częstotliwości z AIP
+    (runways.csv w metrach, frequencies.csv z godzinami i uwagą, ze źródłem w każdym wierszu) oraz pomoce nawigacyjne
+    (navaids.csv). Pasy i częstotliwości lotniska, którego nie ma w airports.csv (np. po aktualizacji z OurAirports),
+    pomijamy z ostrzeżeniem: klucz obcy nie może zatrzymać startu aplikacji."""
+    known = set()
     for a in _csv("airports.csv"):
         db.add(Aerodrome(icao=a["ident"], name=a["name"], kind=a["type"], lat=float(a["latitude_deg"]),
                          lon=float(a["longitude_deg"]), elevation_ft=_f(a["elevation_ft"]),
                          city=a["municipality"] or None, iata=a["iata_code"] or None))
+        known.add(a["ident"])
     db.flush()
+
+    def orphan(name: str, r: dict) -> bool:
+        if r["airport_ident"] in known:
+            return False
+        log.warning("%s: lotniska %s nie ma w airports.csv, pomijam wiersz", name, r["airport_ident"])
+        return True
+
     for r in _csv("runways.csv"):
+        if orphan("runways.csv", r):
+            continue
         common = {"aerodrome_icao": r["airport_ident"], "surface": r["surface"] or None,
                   "length_m": _f(r["length_m"]), "width_m": _f(r["width_m"])}
         for end, other in (("le", "he"), ("he", "le")):
@@ -75,8 +88,11 @@ def seed_aerodromes(db: Session):
                               heading_true=_f(r[f"{end}_heading_degT"]), lat=_f(r[f"{end}_latitude_deg"]),
                               lon=_f(r[f"{end}_longitude_deg"]), **common))
     for fq in _csv("frequencies.csv"):
+        if orphan("frequencies.csv", fq):
+            continue
         db.add(Frequency(aerodrome_icao=fq["airport_ident"], kind=fq["service"], description=fq["callsign"] or None,
-                         mhz=fq["frequency_mhz"], hours=fq["hours"] or None, source=fq["source"] or None))
+                         mhz=fq["frequency_mhz"], hours=fq["hours"] or None, note=fq.get("note") or None,
+                         source=fq["source"] or None))
     for n in _csv("navaids.csv"):
         khz = _f(n["frequency_khz"])
         freq = None if khz is None else (f"{khz / 1000:.3f}" if n["type"] in ("VOR", "VOR-DME", "VORTAC", "DME")

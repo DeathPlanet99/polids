@@ -52,6 +52,7 @@ class Frequency(Base):
     description: Mapped[str | None] = mapped_column(String(120))  # znak wywoławczy
     mhz: Mapped[str] = mapped_column(String(10))
     hours: Mapped[str | None] = mapped_column(Text)  # godziny pracy jak w AIP: zima UTC, w nawiasie lato
+    note: Mapped[str | None] = mapped_column(Text)  # uwaga z AIP, np. EPRA: TWR cywilna i wojskowa na tej samej
     source: Mapped[str | None] = mapped_column(String(80))
 
     aerodrome: Mapped[Aerodrome] = relationship(back_populates="frequencies")

@@ -118,7 +118,7 @@ def aerodrome(icao: str, db: Session = Depends(get_db)):
                      "length_m": r.length_m, "width_m": r.width_m, "surface": r.surface} for r in ad.runways],
         # częstotliwości z AIP (data/seed/frequencies.csv): lista zapasowa w AERODROME, gdy .ese nie zna stanowisk
         "frequencies": [{"kind": f.kind, "description": f.description, "mhz": f.mhz, "hours": f.hours,
-                         "source": f.source} for f in ad.frequencies],
+                         "note": f.note, "source": f.source} for f in ad.frequencies],
         "atc_positions": [{"callsign": p.callsign, "name": p.name, "frequency": p.frequency} for p in positions],
     }
 

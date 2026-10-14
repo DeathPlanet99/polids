@@ -1,9 +1,11 @@
 # Dane z AIP: pasy preferowane (AD 2.21) z oknami czasowymi i limitami wiatru, progi LVP (AD 2.22, AIP MIL AD 4.20)
 # z histerezą i stanem "LVP odwołane"
+import csv
+import importlib.util
 import json
 from datetime import datetime, timedelta, timezone
 
-from backend.app.config import settings
+from backend.app.config import DATA_DIR, settings
 from backend.app.services import lvp
 from backend.app.services.metar import parse_metar
 from backend.app.services.runways import (config_now, eu_summer_time, preferential_now, runway_config, select_runways,
@@ -273,3 +275,75 @@ def test_runway_config_hours_all_parse():
             for t in (DAY, NIGHT, datetime(2026, 1, 15, 4, 30, tzinfo=UTC)):
                 window_active(rule.get("hours", "H24"), t)
             assert rule.get("arr") or rule.get("dep"), icao
+
+
+def _seed_rows(name):
+    with open(settings.seed_dir / name, encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def test_seed_runways_unique_and_elevations():
+    # pasy rozróżniamy po oznaczeniu (wybór pasa, AERODROME, AWOS): jedno oznaczenie na lotnisko
+    seen = set()
+    for r in _seed_rows("runways.csv"):
+        for end in (r["le_ident"], r["he_ident"]):
+            assert (r["airport_ident"], end) not in seen, (r["airport_ident"], end)
+            seen.add((r["airport_ident"], end))
+    # lotniska z pasami mają elewację (punkt podejścia w /api/meteo/approach-points liczony od elewacji)
+    ap = {a["ident"]: a for a in _seed_rows("airports.csv")}
+    assert all(ap[i]["elevation_ft"] for i, _ in seen)
+    assert (ap["EPDS"]["elevation_ft"], ap["EPDS"]["elevation_source"]) == ("1644", "lotniska.dlapilota.pl")
+    # EPRA: TWR cywilna i wojskowa na tej samej częstotliwości rozróżnia uwaga
+    radom = [f["note"] for f in _seed_rows("frequencies.csv") if f["airport_ident"] == "EPRA" and f["service"] == "TWR"]
+    assert radom == ["TWR cywilna", "TWR wojskowa (MIL)"]
+
+
+def test_seed_skips_rows_without_aerodrome(tmp_path, monkeypatch, caplog):
+    # lotnisko usunięte z airports.csv (np. po aktualizacji z OurAirports): bez błędu klucza obcego przy starcie
+    from sqlalchemy import func, select
+    from sqlalchemy.orm import Session
+
+    from backend.app.database import Base, _make_engine
+    from backend.app.importers.seed import seed_aerodromes
+    from backend.app.models import Frequency, Runway
+
+    for name in ("airports.csv", "runways.csv", "frequencies.csv"):
+        rows = [r for r in _seed_rows(name) if name != "airports.csv" or r["ident"] != "EPKB"]
+        with open(tmp_path / name, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0]), lineterminator="\n")
+            w.writeheader()
+            w.writerows(rows)
+    monkeypatch.setattr(settings, "seed_dir", tmp_path)
+    eng = _make_engine(f"sqlite:///{(tmp_path / 'seed.db').as_posix()}")
+    Base.metadata.create_all(eng)
+    with Session(eng) as db:
+        seed_aerodromes(db)
+        db.commit()
+        assert not db.scalar(select(func.count()).select_from(Frequency).where(Frequency.aerodrome_icao == "EPKB"))
+        assert db.scalar(select(func.count()).select_from(Runway).where(Runway.aerodrome_icao == "EPKT")) == 2
+    assert "frequencies.csv: lotniska EPKB nie ma w airports.csv" in caplog.text
+    eng.dispose()
+
+
+def test_fetch_ourairports_keeps_sources_and_referenced(tmp_path, monkeypatch, capsys):
+    spec = importlib.util.spec_from_file_location("fetch_ourairports", DATA_DIR.parent / "scripts" / "fetch_ourairports.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    hdr = "ident,type,name,latitude_deg,longitude_deg,elevation_ft,elevation_source,municipality,iata_code\n"
+    (tmp_path / "airports.csv").write_text(
+        hdr + "EPDS,small_airport,Witków,50.8,16.1,1644,lotniska.dlapilota.pl,Witków,\n"
+        "EPKB,small_airport,Kazimierz Biskupi,52.3,18.1,362,lotniska.dlapilota.pl,Kazimierz Biskupi,\n"
+        "EPKT,large_airport,Katowice,50.47,19.08,1008,AIP AD 2.2,Katowice,KTW\n", "utf-8")
+    (tmp_path / "frequencies.csv").write_text("airport_ident,service\nEPKB,RADIO\nEPKT,TWR\n", "utf-8")
+    oa = [{"ident": "EPDS", "iso_country": "PL", "type": "small_airport", "name": "Witkow", "latitude_deg": "50.8",
+           "longitude_deg": "16.1", "elevation_ft": "", "municipality": "Witków", "iata_code": ""},
+          {"ident": "EPKT", "iso_country": "PL", "type": "large_airport", "name": "Katowice", "latitude_deg": "50.47",
+           "longitude_deg": "19.08", "elevation_ft": "995", "municipality": "Katowice", "iata_code": "KTW"}]
+    monkeypatch.setattr(mod, "SEED", tmp_path)
+    monkeypatch.setattr(mod, "get", lambda name: [dict(a) for a in oa] if name == "airports.csv" else [])
+    mod.main()
+    rows = {r["ident"]: r for r in csv.DictReader(open(tmp_path / "airports.csv", encoding="utf-8"))}
+    # elewacje ze źródłem zostają (także spoza AIP), EPKB (zniknęło z OurAirports, ma częstotliwość) zostaje
+    assert (rows["EPDS"]["elevation_ft"], rows["EPKT"]["elevation_ft"]) == ("1644", "1008")
+    assert rows["EPKB"]["elevation_source"] == "lotniska.dlapilota.pl"
+    assert "UWAGA: EPKB" in capsys.readouterr().out

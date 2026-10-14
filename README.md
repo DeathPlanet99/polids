@@ -87,9 +87,10 @@ do `main`. Instrukcja: [deploy/README.md](deploy/README.md).
 ## Aktualizacja danych
 
 - nowa sektorówka: podmienić pliki w `data/import/` i przebudować obraz (na serwerze wystarczy push)
-- OurAirports: `python scripts/fetch_ourairports.py` (tylko lotniska i pomoce; elewacje z AIP zostają, pasów i częstotliwości
-  skrypt nie nadpisuje)
-- pasy, częstotliwości (z godzinami pracy), pasy preferowane i progi LVP z AIP Polska / AIP MIL (eAIP PAŻP): ręcznie
+- OurAirports: `python scripts/fetch_ourairports.py` (tylko lotniska i pomoce; elewacje ze źródłem, z AIP albo
+  lotniska.dlapilota.pl, zostają; lotnisko z pasami lub częstotliwościami, którego OurAirports już nie ma, zostaje
+  z ostrzeżeniem; pasów i częstotliwości skrypt nie nadpisuje)
+- pasy, częstotliwości (z godzinami pracy i uwagą), pasy preferowane i progi LVP z AIP Polska / AIP MIL (eAIP PAŻP): ręcznie
   w `data/seed/runways.csv` (metry), `frequencies.csv`, `runway_config.json`, `lvp.json`; każdy wiersz/wpis ma źródło
   (sekcja AIP albo serwis dla lotnisk VFR). Po zmianie CSV podbić `SCHEMA_VERSION` w `backend/app/database.py`
   (przy starcie pełny import danych)
@@ -161,7 +162,7 @@ niezweryfikowane z AIP (strona AIP nieczytelna).
 - lotniska, pomoce: [OurAirports](https://ourairports.com/data/) (public domain)
 - pasy, częstotliwości, elewacje, pasy preferowane i progi LVP: AIP Polska i AIP MIL (PAŻP, eAIP, AIRAC AMDT 10-26);
   lotniska VFR spoza AIP: [lotniska.dlapilota.pl](https://lotniska.dlapilota.pl), [airfield.directory](https://airfield.directory),
-  progi pasów z `EPWW-Sector.sct` albo OurAirports (źródło w kolumnie `source`)
+  progi pasów z `EPWW-Sector.sct` albo OurAirports (źródło w kolumnie `source` i `elevation_source`)
 - Leaflet (BSD-2), CARTO/OpenStreetMap (ODbL), Esri World Gray Canvas
 - ATFCM/CDM: [vIFF](https://viffsys.com) (Roger Puig), tylko odczyt
 - granice FIR: [vatspy-data-project](https://github.com/vatsimnetwork/vatspy-data-project) (CC BY-SA 4.0)

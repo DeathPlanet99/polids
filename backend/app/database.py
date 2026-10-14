@@ -7,8 +7,9 @@ from .config import settings
 # Podnieś przy każdej zmianie tabel (albo sposobu importu danych): stara baza zostanie zbudowana od nowa z plików w repo.
 # 3: indeks nav_points, poprawione sklejanie granic sektorów .ese. 4: sektory sąsiadów z ich plików .ese.
 # 5: sąsiedzi – jeden układ pasów na lotnisko, bez sektorów bez OWNER. 6: połączenie z wersją serwerową.
-# 7: pasy, częstotliwości (godziny, źródło) i elewacje lotnisk z AIP.
-SCHEMA_VERSION = 7
+# 7: pasy, częstotliwości (godziny, źródło) i elewacje lotnisk z AIP. 8: uwagi do częstotliwości, elewacje lądowisk
+# spoza AIP.
+SCHEMA_VERSION = 8
 
 
 class Base(DeclarativeBase):

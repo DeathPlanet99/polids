@@ -20,13 +20,14 @@ function lvpBox(lvp) {
   return `<div class="lvp lvp-${s.cls}" data-tip="${tip}">${esc(s.label)}${scope}<span>${(lvp.reasons || []).map(esc).join("<br>")}</span></div>`;
 }
 
-// Częstotliwości z AIP (data/seed/frequencies.csv), gdy plik .ese nie zna stanowisk lotniska: służba, znak, MHz, godziny
+// Częstotliwości z AIP (data/seed/frequencies.csv), gdy plik .ese nie zna stanowisk lotniska: służba, znak, MHz, uwaga
+// (np. EPRA: TWR cywilna i wojskowa na tej samej częstotliwości), godziny
 function aipFreqs(list) {
   if (!list?.length) return "";
   const srcs = new Set(list.map((x) => (/^AIP/.test(x.source || "") ? "AIP" : "lotniska.dlapilota.pl")));
-  return list.map((x) => `<div class="radio-row aip-freq" data-tip="${esc([x.description, x.hours && `godziny: ${x.hours}`, x.source && `źródło: ${x.source}`].filter(Boolean).join("\n"))}">
+  return list.map((x) => `<div class="radio-row aip-freq" data-tip="${esc([x.description, x.note, x.hours && `godziny: ${x.hours}`, x.source && `źródło: ${x.source}`].filter(Boolean).join("\n"))}">
       <span class="freq">${esc(x.mhz)}</span><span class="pos-txt"><span class="cs">${esc(x.kind)}</span><span class="nm">${esc(x.description || "")}</span>
-      ${x.hours ? `<span class="hrs">${esc(x.hours)}</span>` : ""}</span></div>`).join("")
+      ${x.note ? `<span class="fq-note">${esc(x.note)}</span>` : ""}${x.hours ? `<span class="hrs">${esc(x.hours)}</span>` : ""}</span></div>`).join("")
     + `<p class="hint">wg ${[...srcs].sort().join(" i ")} · godziny UTC zimą, w nawiasie latem</p>`;
 }
 
