@@ -109,7 +109,17 @@ const bboxOf = (g) => {
   polys.forEach((p) => p[0].forEach(([x, y]) => { b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], y); b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], y); }));
   return b;
 };
+// ramka pierścienia (raz na pierścień): punkty poza nią odpadają bez przeglądania wierzchołków (declutter sprawdza
+// setki punktów etykiet w dużych sumach wycinków)
+const ringBox = new WeakMap();
 const inRing = (x, y, ring) => {
+  let bb = ringBox.get(ring);
+  if (!bb) {
+    bb = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const [px, py] of ring) { bb[0] = Math.min(bb[0], px); bb[1] = Math.min(bb[1], py); bb[2] = Math.max(bb[2], px); bb[3] = Math.max(bb[3], py); }
+    ringBox.set(ring, bb);
+  }
+  if (x < bb[0] || x > bb[2] || y < bb[1] || y > bb[3]) return false;
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const [xi, yi] = ring[i], [xj, yj] = ring[j];
@@ -392,7 +402,11 @@ function mainMap(ctx) {
     drawTraffic();
     trafficInfo();
   }).catch(() => loadAtc());
-  $(".aeros").addEventListener("change", (e) => (e.target.checked ? layers.ads.addTo(map) : map.removeLayer(layers.ads)));
+  $(".aeros").addEventListener("change", (e) => {
+    if (e.target.checked) layers.ads.addTo(map);
+    else map.removeLayer(layers.ads);
+    relabel();
+  });
 
   // --- Przestrzeń: wszystkie wycinki sektorów z pliku .ese (ACC EPWW, TMA, CTR, FIS/CTA/ATZ, sąsiedzi) z granicami pionowymi.
   // Na mapie tylko wycinki obejmujące wybrany poziom (albo wszystkie), z wybranych list; obsada wg kontrolerów online.
@@ -537,6 +551,8 @@ function mainMap(ctx) {
       return boxes[boxes.push({ x: c.x, y: c.y, w: r.width, h: r.height, k }) - 1];
     };
     [layers.atc, layers.firs].forEach((lg) => lg.eachLayer((m) => rect(m.getElement?.()?.querySelector(".atcb")?.getBoundingClientRect(), 1)));
+    // nazwy punktów trasy (wybrany lot i trasa wpisana ręcznie: stałe dymki nad asLbl)
+    [layers.flight, layers.route].forEach((lg) => lg.eachLayer((m) => rect(m.getTooltip?.()?.getElement()?.getBoundingClientRect(), 1)));
     // nazwa lotniska (stały dymek nad asLbl) razem z symbolem lotniska z jej lewej strony (kanwa pod asLbl)
     layers.ads.eachLayer((m) => {
       const b = m instanceof L.Tooltip && rect(m.getElement()?.getBoundingClientRect(), 1), x0 = b && map.latLngToLayerPoint(m.getLatLng()).x - 12;
@@ -547,39 +563,63 @@ function mainMap(ctx) {
     const o = map.containerPointToLayerPoint([0, 0]), { x: W, y: H } = map.getSize(), F = 1e5;
     [[-F, -F, 0, H + F], [W, -F, W + F, H + F], [0, -F, W, 0], [0, H, W, H + F]].forEach(([x0, y0, x1, y1]) =>
       boxes.push({ x: o.x + (x0 + x1) / 2, y: o.y + (y0 + y1) / 2, w: x1 - x0, h: y1 - y0, k: 3 }));
+    // punkt warstwy mapy w obszarze: rzut odwrotny Web Mercator (EPSG:3857, jak layerPointToLatLng) wprost ze wzoru,
+    // bo próbek etykiet są setki na etykietę
+    const po = map.getPixelOrigin(), S = map.options.crs.scale(map.getZoom());
+    const inArea = (x, y, g) => inGeom(((x + po.x) / S) * 360 - 180, (Math.atan(Math.exp(Math.PI * (1 - (2 * (y + po.y)) / S))) * 360) / Math.PI - 90, g);
+    // najpierw wszystkie wymiary (jeden przebieg układu strony), dopiero potem przesunięcia
     const ms = [];
-    layers.airLbl.eachLayer((m) => ms.push(m));
-    ms.sort((a, b) => !!a.options.shift - !!b.options.shift || (b.options.shift || 0) - (a.options.shift || 0)).forEach((m) => {
+    layers.airLbl.eachLayer((m) => {
       const el = m.getElement()?.firstElementChild;
       if (!el) return;
       el.style.marginTop = el.style.marginLeft = "";
-      const p = map.latLngToLayerPoint(m.getLatLng()), w = el.offsetWidth, hh = el.offsetHeight, g = m.options.geom;
+      ms.push({ m, el });
+    });
+    ms.forEach((x) => { x.w = x.el.offsetWidth; x.hh = x.el.offsetHeight; });
+    const prio = (m) => m.options.shift || 0;
+    ms.sort((a, b) => !!prio(a.m) - !!prio(b.m) || prio(b.m) - prio(a.m)).forEach(({ m, el, w, hh }) => {
       if (!w) return;  // mapa ukryta (inna zakładka): przeliczy activate
+      const p = map.latLngToLayerPoint(m.getLatLng()), g = m.options.geom;
       // ile etykiety leży we własnym obszarze: środek (waga 5) i narożniki jej środkowej połowy (brzeg etykiety może
-      // wystawać za granicę); przesunięta nie mniej niż na miejscu
-      const inside = (dx, dy) => [[0, 0, 5], [-w / 4, -hh / 4], [w / 4, -hh / 4], [-w / 4, hh / 4], [w / 4, hh / 4]].reduce((s, [ox, oy, k = 1]) => {
-        const ll = map.layerPointToLatLng([p.x + dx + ox, p.y + dy + oy]);
-        return s + (inGeom(ll.lng, ll.lat, g) ? k : 0);
-      }, 0);
+      // wystawać za granicę); przesunięta nie mniej niż na miejscu. Zapamiętane: to samo miejsce sprawdza kilka poziomów
+      const probe = (dx, dy, pts) => pts.filter(([ox, oy]) => inArea(p.x + dx + ox, p.y + dy + oy, g)).length;
+      const half = [[-w / 4, -hh / 4], [w / 4, -hh / 4], [-w / 4, hh / 4], [w / 4, hh / 4]];
+      const edge = [[-w / 2, -hh / 2], [w / 2, -hh / 2], [-w / 2, hh / 2], [w / 2, hh / 2]];
+      const memo = (f) => {
+        const seen = new Map();
+        return (dx, dy) => {
+          const key = dx * 8192 + dy;  // dx, dy: całe piksele, |dy| < 4096
+          let v = seen.get(key);
+          if (v === undefined) seen.set(key, (v = f(dx, dy)));
+          return v;
+        };
+      };
+      const mid = memo((dx, dy) => inArea(p.x + dx, p.y + dy, g));
+      const inside = memo((dx, dy) => (mid(dx, dy) ? 5 : 0) + probe(dx, dy, half));
+      // co najmniej k (od 5: środek w obszarze, więc narożniki sprawdzane dopiero przy środku w obszarze)
+      const atLeast = (k) => (dx, dy) => (k < 5 || mid(dx, dy)) && inside(dx, dy) >= k;
       const at0 = g ? inside(0, 0) : 0, box = { x: p.x, y: p.y, w, h: hh };
-      // bez wolnego miejsca: wystarczy środek etykiety w obszarze, a w obszarze mniejszym niż etykieta (np. CTR wieży
-      // przy małym zoomie) także tuż obok niego; etykieta całkiem poza widokiem mapy zostaje na miejscu
+      // bez wolnego miejsca: wystarczy środek etykiety w obszarze; ostatecznie tuż obok obszaru (do 3 pierścieni), gdy
+      // tam wyraźnie mniej zasłonięta. Obszar mniejszy niż etykieta (np. CTR wieży przy małym zoomie): obok bez kary;
+      // obszar, który mieści etykietę (sektor ACC przy zoomie 5): etykieta dalej go dotyka, a kara za wyjście z niego
+      // to 1/8 pola etykiety (styk z inną etykietą jej nie przebija, częstotliwość pod plakietką albo inną etykietą tak).
+      // Etykieta całkiem poza widokiem mapy zostaje na miejscu
       const away = p.x + w / 2 < o.x || p.x - w / 2 > o.x + W || p.y + hh / 2 < o.y || p.y - hh / 2 > o.y + H;
-      const tiers = !g || away ? [] : [[(x, y) => inside(x, y) >= at0, 6], [(x, y) => inside(x, y) >= Math.min(at0, 5), 6],
-        ...(at0 < 9 ? [[() => true, 3]] : [])];
-      let best = { dx: 0, dy: 0, c: 0 };
-      tiers.some(([ok, rings], i) => {
-        const r = nudge(box, boxes, ok, rings);
-        if (!i || r.c < best.c) best = r;
-        return !best.c;
-      });
-      const { dx, dy } = best;
+      const { dx, dy } = !g || away ? { dx: 0, dy: 0 } : nudge(box, boxes, [
+        { ok: atLeast(at0) },
+        { ok: atLeast(Math.min(at0, 5)) },
+        at0 < 9 ? { rings: 3 } : { ok: (x, y) => inside(x, y) > 0 || probe(x, y, edge) > 0, rings: 3, add: (w * hh) / 8 },
+      ]);
       if (dx) el.style.marginLeft = `${dx}px`;
       if (dy) el.style.marginTop = `${dy}px`;
       boxes.push({ x: p.x + dx, y: p.y + dy, w, h: hh, k: 3 });
     });
   };
   map.on("moveend", declutter);  // po zoomend (drawAds: nazwy lotnisk zależą od zoomu)
+  // nakładki zmienione bez ruchu mapy (wykres TV, panel lotu, nazwy lotnisk): etykiety od nowa przed następną klatką,
+  // raz na klatkę (inaczej zostają pod nakładką do najbliższego odświeżenia plakietek i wtedy same skaczą)
+  let relabelAt = 0;
+  const relabel = () => { relabelAt ||= requestAnimationFrame(() => { relabelAt = 0; declutter(); }); };
   const area = (bb) => (bb[2] - bb[0]) * (bb[3] - bb[1]);
   const center = (f) => L.latLngBounds([f.bb[1], f.bb[0]], [f.bb[3], f.bb[2]]).getCenter();
   // sąsiedzi: etykieta stanowiska na wycinku z największą częścią w pobliżu Polski (sektory ESMM sięgają daleko na północ)
@@ -1270,6 +1310,7 @@ function mainMap(ctx) {
   const redrawRoute = () => {
     layers.route.clearLayers();
     if (route) drawRoute(layers.route, route.points, theme.route);
+    relabel();  // nazwy punktów trasy to przeszkody dla etykiet stanowisk
   };
 
   // --- samoloty z VATSIM; kliknięcie otwiera szczegóły lotu (jak "Flight details" w NM UI) w prawym górnym rogu mapy:
@@ -1277,6 +1318,7 @@ function mainMap(ctx) {
   let selected = null, flight = null;
   const redrawFlight = () => {
     layers.flight.clearLayers();
+    relabel();
     if (!flight) return;
     if (flight.points.length) drawRoute(layers.flight, flight.points, theme.flight);
   };
@@ -1298,6 +1340,7 @@ function mainMap(ctx) {
       if (!e.target.matches?.("details[data-x]")) return;
       fdOpen[e.target.dataset.x] = e.target.open;
       store.set("map.fd.open", fdOpen);
+      relabel();
     }, true);
     return el;
   };
@@ -1310,6 +1353,7 @@ function mainMap(ctx) {
     const { x: w, y: hgt } = map.getSize(), ch = chartH();
     const clash = ch && w < chartEl.offsetWidth + 420 + 40;
     fdEl.style.maxHeight = Math.max(200, hgt - 20 - (clash ? ch + 34 : 0)) + "px";
+    relabel();  // wykres TV albo panel lotu pokazany, ukryty albo innej wielkości
   };
   map.on("resize", fitFd);
   const t4 = (v) => (v ? esc(v) : "–");
@@ -1321,7 +1365,7 @@ function mainMap(ctx) {
   };
   const renderFd = () => {
     const { cs, vat: p, viff: v } = fd;
-    if (!cs) { fdEl.style.display = "none"; fdEl.innerHTML = ""; return; }
+    if (!cs) { fdEl.style.display = "none"; fdEl.innerHTML = ""; relabel(); return; }
     const keep = fdEl.dataset.cs === cs ? fdEl.querySelector(".fd-body")?.scrollTop || 0 : 0;
     fdEl.dataset.cs = cs;
     fdEl.style.display = "";
@@ -1384,7 +1428,7 @@ function mainMap(ctx) {
     cs = String(cs).trim().toUpperCase();
     selected = cs;
     flight = null;
-    layers.flight.clearLayers();
+    redrawFlight();
     Object.assign(fd, { cs, vat: undefined, viff: undefined, vatErr: null, viffErr: null });
     renderFd();
     drawTraffic();
@@ -1425,7 +1469,7 @@ function mainMap(ctx) {
   every(60000, refreshFd);
   const closeFlight = () => {
     selected = null; flight = null; fd.cs = null;
-    layers.flight.clearLayers();
+    redrawFlight();
     renderFd();
     drawTraffic();
     if (viffData) renderChart();
@@ -1513,7 +1557,7 @@ function mainMap(ctx) {
         (r.warnings.length ? `<div class="error">${r.warnings.map(esc).join("<br>")}</div>` : "");
     } catch (e) { info.innerHTML = `<span class="error">${esc(e.message)}</span>`; }
   });
-  $(".clear-route").addEventListener("click", () => { route = null; layers.route.clearLayers(); $(".route-info").textContent = ""; });
+  $(".clear-route").addEventListener("click", () => { route = null; redrawRoute(); $(".route-info").textContent = ""; });
 
   setBase(baseName);
   loadSectors();

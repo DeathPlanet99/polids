@@ -1,5 +1,6 @@
 """MAP: etykieta stanowiska z częstotliwością nie wpada pod nazwę lotniska, plakietkę ani inną etykietę
-(nudge z frontend/js/coverage.js: najbliższe wolne miejsce w obrębie własnego obszaru, inaczej najmniej zasłonięte)."""
+(nudge z frontend/js/coverage.js: najbliższe wolne miejsce w obrębie własnego obszaru, inaczej najmniej zasłonięte,
+a ostatecznie tuż obok obszaru, gdy tam wyraźnie mniej zasłonięta)."""
 import json
 import shutil
 import subprocess
@@ -22,17 +23,30 @@ const name = { x: 25, y: 8, w: 40, h: 14 };
 out.name = nudge(LBL, [name]);
 out.nameOver = over(out.name, name);
 // w górę nie wolno (tam granica własnego obszaru): w dół, pod nazwę
-out.down = nudge(LBL, [name], (dx, dy) => dy > 0);
+out.down = nudge(LBL, [name], [{ ok: (dx, dy) => dy > 0 }]);
 out.downOver = over(out.down, name);
 // nigdzie wolnego miejsca w obszarze (ok tylko blisko): najmniej zasłonięte z dozwolonych, ok zawsze spełnione
 const wall = [{ x: 0, y: 0, w: 400, h: 400, k: 1 }, { x: -30, y: 0, w: 20, h: 30, k: 3 }];
 const near = (dx, dy) => Math.abs(dx) <= 20 && Math.abs(dy) <= 10;
-out.wall = nudge(LBL, wall, near);
+out.wall = nudge(LBL, wall, [{ ok: near }]);
 out.wallOk = near(out.wall.dx, out.wall.dy);
 // na miejscu plakietka; w górę cała wcześniej postawiona etykieta (waga 3), w dół część nazwy lotniska (waga 1):
 // mniejsze zło to nazwa, nie inna etykieta
 const badge = { x: 0, y: 0, w: 68, h: 30 }, other = { x: 0, y: -36, w: 68, h: 30, k: 3 }, low = { x: 0, y: 46, w: 68, h: 30 };
-out.prio = nudge(LBL, [badge, other, low], (dx, dy) => dx === 0 && Math.abs(dy) === 36);
+out.prio = nudge(LBL, [badge, other, low], [{ ok: (dx, dy) => dx === 0 && Math.abs(dy) === 36 }]);
+// sektor ACC przy zoomie 5 (EPWW C): w obszarze tylko miejsca pod inną etykietą (częstotliwość EPWW N zasłonięta),
+// tuż obok obszaru wolno (ostatni poziom z karą 1/8 pola etykiety): etykieta wychodzi obok
+const inArea = (dx, dy) => Math.abs(dx) <= 10 && Math.abs(dy) <= 9;
+const lastTier = (ok) => [{ ok }, { ok }, { ok: () => true, rings: 3, add: (68 * 30) / 8 }];
+const nb = { x: 0, y: 14, w: 68, h: 30, k: 3 };
+out.out = nudge(LBL, [nb], lastTier(inArea));
+out.outOver = over(out.out, nb);
+// tylko styk z inną etykietą (bez zasłonięcia, w pasie marginesu): zostaje w obszarze
+const touch = { x: 0, y: 31, w: 68, h: 30, k: 3 };
+out.touch = nudge(LBL, [touch], lastTier((dx, dy) => !dx && !dy));
+// kara przebita tylko wyraźnie: obok obszaru też zasłonięta prawie tak samo, więc zostaje na miejscu
+const wide = { x: 0, y: 0, w: 400, h: 400, k: 1 };
+out.same = nudge(LBL, [wide], lastTier((dx, dy) => !dx && !dy));
 console.log(JSON.stringify(out));
 """
 
@@ -72,3 +86,15 @@ def test_label_least_covered_when_no_room(js):
 
 def test_label_not_on_other_label(js):
     assert (js["prio"]["dx"], js["prio"]["dy"]) == (0, 36)
+
+
+def test_label_leaves_crowded_area(js):
+    # w obszarze wszędzie pod inną etykietą: tuż obok obszaru, bez zasłonięcia (zoom 5, EPWW C nad EPWW N)
+    assert js["out"]["c"] > 0 and not js["outOver"]
+    assert (js["out"]["dx"], js["out"]["dy"]) != (0, 0)
+
+
+def test_label_touching_stays_in_area(js):
+    # styk z inną etykietą (margines 2 px) to mniej niż kara za wyjście z obszaru
+    assert (js["touch"]["dx"], js["touch"]["dy"]) == (0, 0) and 0 < js["touch"]["c"] < 68 * 30 / 8
+    assert (js["same"]["dx"], js["same"]["dy"]) == (0, 0)

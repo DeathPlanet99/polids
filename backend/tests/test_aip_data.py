@@ -74,6 +74,10 @@ def test_runway_reason_whole_knots():
     # 5.4 kt > 5 kt: w całych węzłach byłoby "5 kt > 5 kt", więc jedno miejsce po przecinku
     assert "26: w plecy 5.4 kt > 5 kt" in why("10706KT 9999")
     assert "boczny 20 kt > 15 kt" in why("35020KT 9999")
+    # z porywem: składowa z porywu, więc "z porywami" (tabela pasów pokazuje TW ze średniego wiatru: tu 26 "TW 5")
+    assert why("09005G12KT 9999") == "ARR/DEP 08 wg AIP (2000-0400 UTC), bo 26: w plecy z porywami 12 kt > 5 kt"
+    assert "boczny z porywami 20 kt > 15 kt" in why("35012G20KT 9999")
+    assert "wiatr zmienny z porywami 12 kt > 5 kt" in why("VRB04G12KT 9999")
 
 
 def test_runway_preference_not_decisive_weather():

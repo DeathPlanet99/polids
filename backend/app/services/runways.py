@@ -157,18 +157,20 @@ def _kt_over(v: float, limit: float) -> str:
     return f"{whole if whole > limit else f'{v:g}'} kt > {limit:g} kt"
 
 
-def _over_limits(r: dict, wind_dir: int | None, speed: int | None, tail_max, cross_max) -> str | None:
+def _over_limits(r: dict, wind_dir: int | None, speed: int | None, tail_max, cross_max, gusty: bool = False) -> str | None:
     """Powód odrzucenia pasa preferowanego: składowa w plecy albo boczna z porywami ponad limit AIP (None = w limicie).
-    Wiatr zmienny (VRB) o prędkości ponad limit wiatru w plecy odrzuca pas, bo kierunku nie znamy."""
+    Wiatr zmienny (VRB) o prędkości ponad limit wiatru w plecy odrzuca pas, bo kierunku nie znamy. gusty: `speed`
+    to poryw, więc w powodzie "z porywami" (tabela pasów w AERODROME liczy TW / L / R ze średniego wiatru)."""
     if speed is None:
         return None
+    g = " z porywami" if gusty else ""
     if wind_dir is None:
-        return f"wiatr zmienny {speed} kt > {tail_max:g} kt" if tail_max is not None and speed > tail_max else None
+        return f"wiatr zmienny{g} {speed} kt > {tail_max:g} kt" if tail_max is not None and speed > tail_max else None
     head, cross = wind_components(wind_dir, speed, r["heading"])
     if tail_max is not None and -head > tail_max:
-        return f"w plecy {_kt_over(head, tail_max)}"
+        return f"w plecy{g} {_kt_over(head, tail_max)}"
     if cross_max is not None and abs(cross) > cross_max:
-        return f"boczny {_kt_over(cross, cross_max)}"
+        return f"boczny{g} {_kt_over(cross, cross_max)}"
     return None
 
 
@@ -194,6 +196,7 @@ def _aip_choice(cfg: dict, by: dict, wind_dir, wind_speed, gust, metar, t: datet
     """Pas preferowany z AIP dla lądowań i startów: {"arr": (pas | None, uwaga | None), "dep": (...)}."""
     now = preferential_now(cfg, t)
     speed = None if wind_speed is None else max(wind_speed, gust or 0)
+    gusty = speed is not None and speed > wind_speed
     out = {}
     for phase in ("arr", "dep"):
         prefs = [d for d in now[phase] if d in by]
@@ -208,7 +211,7 @@ def _aip_choice(cfg: dict, by: dict, wind_dir, wind_speed, gust, metar, t: datet
         skipped = []
         tail, cross = _limit(cfg, "tailwind_kt", phase), _limit(cfg, "crosswind_kt", phase)
         for d in prefs:
-            why = _over_limits(by[d], wind_dir, speed, tail, cross)
+            why = _over_limits(by[d], wind_dir, speed, tail, cross, gusty)
             if not why:
                 hrs = now["hours"][phase]
                 out[phase] = (d, f"{d} wg AIP ({'H24' if hrs == 'H24' else hrs + ' UTC'})"
