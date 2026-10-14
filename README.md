@@ -12,7 +12,7 @@ w stylu EUROCONTROL NM UI. Backend FastAPI + SQLite, frontend w czystym JS, cał
 | AERODROME | podzakładki jak w PANDORZE: 0 = OVERVIEW całego FIR EPWW (jeden TL dla kraju: FL080, a FL090, gdy na którymkolwiek lotnisku QNH ≤ 995 hPa; METAR/TAF ze stanem LVP, aktywne NOTAM-y, restrykcje ECFMP i vIFF, Airport Monitor vIFF; filtr stanowiska: APP/ACC zawęża lotniska i pokazuje checklistę otwarcia, TWR przenosi do lotniska); EPWW, ESAA, ED, ET, LKAA, LZBB, UMKK, EYVL, UMMV, UKLV = listy lotnisk FIR-u (także VFR i MIL) z wyszukiwarką WYŚWIETL / WYCZYŚĆ; lotnisko zagraniczne: karta z METAR, TAF, ATIS i stanowiskami APP/TWR/GND/DEL/ATIS; lotnisko polskie: PRZEGLĄD (wiatr, pasy, ATIS, LVP, NOTAM, częstotliwości, wiatr na podejściu), AWOS (wiatr co 5 s, RVR z METAR albo symulowany, układ 1 PAS / 2 PASY z osobnym pasem DEP i ARR) i RUCH jak DMAN/AMAN (drabiny TSAT, TTOT i ELDT, na lotniskach bez A-CDM EOBT i ETOT; widok AMAN z punktami wejścia i odstępem FLOW) |
 | AD CIV / AD MIL / AD VFR, INOP | eAIP PAŻP; INOP: om.plvacc.pl (procedury operacyjne PL vACC) |
 | CALLSIGN, AIRCRAFT | callsigny, typy samolotów (WTC, RECAT-EU, wymiary, zdjęcia, przyciski producentów) |
-| MAP | ruch VATSIM (odlot / przylot / tranzyt), przestrzeń na wybranym poziomie FL (ACC, TMA, CTA, CTR, FIS, sektory sąsiadów z ich plików `.ese`), przepustowość i szczegóły lotów z vIFF; ATIS linia po linii, dane kontrolera po najechaniu na plakietkę lub opis stanowiska, lista sąsiednich FIR-ów domyślnie zwinięta |
+| MAP | ruch VATSIM (odlot / przylot / tranzyt), przestrzeń na wybranym poziomie FL (ACC, TMA, CTA, CTR, FIS, sektory sąsiadów z ich plików `.ese`), przepustowość i szczegóły lotów z vIFF; ATIS linia po linii, dane kontrolera po najechaniu na plakietkę lub opis stanowiska, lista sąsiednich FIR-ów domyślnie zwinięta; obsada wg kontrolerów online: sektory jednego stanowiska jako jeden obszar z jedną etykietą (granica tylko tam, gdzie zmienia się obsługujący), przestrzeni bez nikogo nie rysujemy |
 | PHRASEOLOGY | baza frazeologii EUROCONTROL |
 | CHECKLIST, EMERGENCY | checklisty stanowiska, procedury awaryjne EUROCONTROL |
 | SYT OP | wszystkie aktywne NOTAM-y FIR EPWW i głównych lotnisk (cv.plvacc.pl) z filtrem lokalizacji i tekstu, sortowaniem i pełną treścią |
@@ -139,6 +139,8 @@ Wyposażenie pasów (ILS, RNP, VOR, NDB) czytane jest z nazw procedur w `.ese`. 
   [vatger/atciss](https://github.com/vatger/atciss) (MIT)
 - lotniska, pasy, pomoce: [OurAirports](https://ourairports.com/data/) (public domain)
 - Leaflet (BSD-2), CARTO/OpenStreetMap (ODbL), Esri World Gray Canvas
+- [polygon-clipping](https://github.com/mfogel/polygon-clipping) 0.15.7 (MIT, z splaytree MIT i robust-predicates
+  Unlicense) w `frontend/vendor/polygon-clipping/`: suma sektorów jednego stanowiska na mapie
 - ATFCM/CDM: [vIFF](https://viffsys.com) (Roger Puig), tylko odczyt
 - granice FIR: [vatspy-data-project](https://github.com/vatsimnetwork/vatspy-data-project) (CC BY-SA 4.0)
 - callsigny i nazwy sektorów niemieckich: [VATSIM Germany Knowledgebase](https://knowledgebase.vatsim-germany.org/shelves/centersektoren)

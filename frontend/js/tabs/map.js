@@ -1,9 +1,10 @@
 import { BASEMAPS, LIGHT_BASEMAPS, api, atcPositions, atisHtml, esc, h, hhmm, lsGet, lsSet, vatsimAtc, vatsimOnline } from "../api.js";
 import { chartHtml, delayClass, listRow, loadRatio, stateChip, tvGroup, tvLabel } from "../viffchart.js";
-import { FACILITIES, PLANE_PATH, SymbolMarker, aircraftMarker, airportBadge, altLabel, atcPanes, atcRows, atcTooltip, colorFor, controllerRows, drawFirs, fl,
-  loadFirs, loadVacs, sliceOwner, symbolFor, symbolSvg, vacsLayer } from "../airspace.js";
+import { FACILITIES, PLANE_PATH, POSITION_COLORS, SymbolMarker, aircraftMarker, airportBadge, altLabel, atcPanes, atcRows, atcTooltip, colorFor, controllerRows,
+  drawFirs, fl, loadFirs, loadVacs, sliceOwner, symbolFor, symbolSvg, vacsLayer } from "../airspace.js";
 import { airspaceChain } from "../chains.js";
 import { labelPoint } from "../coverage.js";
+import { dissolve, pointIn } from "../dissolve.js";
 import { displayName, loadDisplayNames } from "../posname.js";
 
 // Kolory zależne od podkładu (ciemny / jasny)
@@ -57,16 +58,19 @@ const LEVELS = [15, 50, 100, 200, 300, 370];
 // Legenda w zakładkach (zwinięta domyślnie razem z całą sekcją)
 const LEGEND = [
   ["air", "Przestrzeń", () => [
-    lg(`<span class="swatch sec"></span>`, "sektor ACC obsadzony (kolor stanowiska)"), lg(`<span class="swatch idle"></span>`, "sektor bez kontrolera (sam kontur)"),
-    lg(`<span class="swatch own"></span>`, "TMA, CTA, CTR obsadzona (kolor APP, TWR albo ACC)"),
-    lg(`<span class="swatch tma"></span>`, "TMA bez kontrolera (sam kontur)"), lg(`<span class="swatch cta"></span>`, "CTA bez kontrolera (sam kontur)"),
-    lg(`<span class="swatch ctr"></span>`, "CTR bez kontrolera (sam kontur)"),
-    lg(`<span class="swatch fis"></span>`, "FIS (wypełniony, gdy online)"),
-    lg(`<span class="swatch atz"></span>`, "ATZ / TRA"), lg(`<span class="swatch nb"></span>`, "sektor FIR-u sąsiedniego"),
-    lg(`<span class="swatch fir"></span>`, "granica FIR (VATSpy)"), lg(`<span class="lg-freq">133.475</span>`, "częstotliwość obsługującego", "w"),
+    lg(`<span class="swatch own"></span>`, "obsada wg kontrolerów online: obszar stanowiska (jeden kontur i wypełnienie w jego kolorze)"),
+    lg(`<span class="lg-freq">133.475</span>`, "stanowisko i częstotliwość: jedna etykieta na stanowisko", "w"),
+    lg(`<span class="swatch fir"></span>`, "granica FIR (VATSpy, osobny przełącznik)"),
+    `<p class="lgx-note">Obsada wg kontrolerów online: wszystkie widoczne wycinki (wybrany poziom, warstwy i listy) obsługiwane przez to samo
+      stanowisko są jednym obszarem, bez granic między jego sektorami: granica jest tylko tam, gdzie zmienia się obsługujący. Przestrzeni,
+      której nikt nie obsługuje, nie rysujemy (nikt online w FIR-ze: pusto, zostają granice FIR-ów).</p>`,
+    `<p class="lgx-note"><b>Podział pełny</b> (obsada wyłączona): każdy sektor osobno.</p>`,
+    lg(`<span class="swatch sec"></span>`, "sektor ACC (kolor pierwszego stanowiska z pliku .ese)"),
+    lg(`<span class="swatch tma"></span>`, "TMA (kontur)"), lg(`<span class="swatch cta"></span>`, "CTA (kontur)"), lg(`<span class="swatch ctr"></span>`, "CTR (kontur)"),
+    lg(`<span class="swatch fis"></span>`, "FIS"), lg(`<span class="swatch atz"></span>`, "ATZ / TRA"), lg(`<span class="swatch nb"></span>`, "sektor FIR-u sąsiedniego"),
     `<p class="lgx-note">Przestrzenie i ich granice pionowe z pliku .ese: na mapie tylko te, które obejmują wybrany poziom
-      (dolna ≤ FL &lt; górna), albo wszystkie przy „wszystkie poziomy". Najedź na mapę: lista wszystkich widocznych przestrzeni w tym miejscu.
-      Sektor ACC: pierwsze stanowisko online z kolejności przejmowania (<span class="own-src">…</span>) w warstwie LOW (do FL335), MID (do FL365)
+      (dolna ≤ FL &lt; górna), albo wszystkie przy „wszystkie poziomy". Najedź na mapę: lista wszystkich widocznych przestrzeni w tym miejscu
+      (także tych bez nikogo). Sektor ACC: pierwsze stanowisko online z kolejności przejmowania (<span class="own-src">…</span>) w warstwie LOW (do FL335), MID (do FL365)
       albo HIGH. TMA, CTA i CTR: najpierw APP / TWR z listy OWNER pliku .ese, potem ACC (TMA: top-down z tabeli om.plvacc.pl,
       reszta: lista OWNER .ese). W dymku cała kolejność z częstotliwościami: obsługujący na zielonym tle, zalogowani na zielono,
       niezalogowani szarzy. FIS i ATZ: lista OWNER z pliku .ese. Sąsiedzi: sektory i listy OWNER z plików .ese
@@ -384,6 +388,7 @@ function mainMap(ctx) {
   // Na mapie tylko wycinki obejmujące wybrany poziom (albo wszystkie), z wybranych list; obsada wg kontrolerów online.
   // Granice pionowe z .ese: eAIP PANSA nie był osiągalny przy pisaniu tego kodu, więc nie został z nim uzgodniony.
   let slicesP = null, slices = null, sliceErr = null;
+  const shapeNo = new Map();
   const loadSlices = () => (slicesP ||= api("/api/nav/slices").then((gj) => {
     gj.features.forEach((f) => {
       const pr = f.properties;
@@ -394,6 +399,9 @@ function mainMap(ctx) {
         : ["acc", "ctr", "cta"].includes(pr.kind) ? pr.group : `${pr.kind}:${pr.group}`;
       f.bb = bboxOf(f.geometry);
       f.gk = `${pr.fir}|${pr.name}|${JSON.stringify(f.geometry.coordinates)}`;  // ten sam kształt na kilku poziomach
+      // krótki numer kształtu: klucz sumy wycinków stanowiska (dissolve)
+      if (!shapeNo.has(f.gk)) shapeNo.set(f.gk, shapeNo.size);
+      f.gi = shapeNo.get(f.gk);
     });
     return gj;
   }).catch((e) => { slicesP = null; throw e; }));
@@ -545,6 +553,15 @@ function mainMap(ctx) {
       return air[pr.pick] && (!pick[pr.pick] || pick[pr.pick].has(pr.key)) && atLevel(pr, lv);
     });
     shown.forEach((f) => vis.push({ f, pr: f.properties, own: ownerOf(f.properties, ctxo) }));
+    if (net.useOnline) drawOwned(all);
+    else drawSlices(all);
+    declutter();
+    renderInfo(lv);
+    pane.querySelectorAll(".pk:not([hidden])").forEach((el) => renderPicker(el.dataset.air));
+  }
+
+  // Podział pełny (obsada wyłączona albo brak danych VATSIM): każdy wycinek osobno, styl wg rodzaju przestrzeni.
+  function drawSlices(all) {
     // rysowanie od spodu: FIS, ATZ, sąsiedzi, ACC, CTA, TMA, CTR; ten sam kształt na kilku poziomach tylko raz (obsadzony wygrywa)
     const order = { fis: 0, atz: 1, oth: 0, nb: 2, acc: 3, cta: 4, tma: 4, ctr: 5 };
     const drawn = new Map();
@@ -580,9 +597,45 @@ function mainMap(ctx) {
         lbl(at, `<small>${esc(displayName(c.callsign))}</small><br><span class="freq on">${esc(c.frequency)}</span>`, area(v.f.bb), c);
       }
     });
-    declutter();
-    renderInfo(lv);
-    pane.querySelectorAll(".pk:not([hidden])").forEach((el) => renderPicker(el.dataset.air));
+  }
+
+  // Obsada wg kontrolerów online (runda 12, Marek): widoczne wycinki tego samego obsługującego (APP / TWR w TMA, CTA i CTR,
+  // ACC także top-down, sąsiad, FIS) jako jeden obszar w kolorze stanowiska z jedną etykietą: granica tylko tam, gdzie
+  // zmienia się obsługujący. Wycinków bez nikogo nie rysujemy. Grupa = kontroler (znak z sieci; ten sam kontroler pod
+  // znakiem sąsiada z alias_of też), kolor wg stanowiska z kolejności przejmowania (stałe kolory ACC EPWW).
+  const ownedGroups = () => {
+    const by = new Map();
+    vis.forEach((v) => {
+      const c = v.own.c || v.own.top;
+      if (!c) return;
+      let g = by.get(c.callsign);
+      if (!g) by.set(c.callsign, (g = { c, vs: [], gi: new Set(), keys: [], nb: true }));
+      const pk = v.own.key || v.own.who;
+      if (pk && !g.keys.includes(pk)) g.keys.push(pk);
+      if (v.pr.kind !== "nb") g.nb = false;
+      if (!g.gi.has(v.f.gi)) { g.gi.add(v.f.gi); g.vs.push(v); }  // ten sam kształt na kilku poziomach raz
+    });
+    return [...by.values()];
+  };
+  // Suma wycinków stanowiska (dissolve.js) w pamięci wg znaku i zestawu kształtów; po błędzie sumy same wypełnienia
+  // wycinków, bez konturów między nimi. Od największego obszaru: mniejsze (CTR wieży w TMA) na wierzchu.
+  function drawOwned(all) {
+    const f = all ? 0.6 : 1;  // wszystkie poziomy: nakładające się obszary słabiej
+    const groups = ownedGroups().map((g) => {
+      const d = dissolve(`${g.c.callsign}|${[...g.gi].sort((a, b) => a - b).join(",")}`, g.vs.map((v) => v.f.geometry));
+      return { ...g, d, color: colorFor(g.keys.find((k) => POSITION_COLORS[k]) || g.keys[0] || g.c.callsign),
+        size: d ? d.area : g.vs.reduce((a, v) => a + area(v.f.bb), 0) };
+    }).sort((a, b) => b.size - a.size);
+    groups.forEach((g) => {
+      const st = { color: g.color, weight: 1.5, opacity: 1, fillColor: g.color, fillOpacity: 0.16 * f };
+      if (g.d) L.geoJSON(g.d.geometry, { interactive: false, style: st }).addTo(layers.air);
+      else g.vs.forEach((v) => L.geoJSON(v.f, { interactive: false, style: { ...st, stroke: false } }).addTo(layers.air));
+      // etykieta w obszarze stanowiska, daleko od krawędzi i poza dziurami (u sąsiada w pobliżu Polski); punkt w pamięci sumy
+      let at = null;
+      if (g.d) at = g.d.at ||= (g.nb && pointIn(g.d.geometry, NEAR)) || pointIn(g.d.geometry);
+      if (!at) at = center(g.vs.reduce((a, v) => (area(v.f.bb) > area(a.f.bb) ? v : a)).f);
+      lbl(at, `<small>${esc(displayName(g.c.callsign))}</small><br><span class="freq on">${esc(g.c.frequency)}</span>`, g.size || 1, g.c);
+    });
   }
 
   // --- dymek po najechaniu: wszystkie widoczne przestrzenie w tym miejscu (Leaflet podaje zdarzenia tylko górnej warstwie,
