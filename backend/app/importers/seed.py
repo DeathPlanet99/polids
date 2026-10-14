@@ -24,7 +24,7 @@ from .aircraft_json import import_aircraft_json
 from .callsigns import import_gr_operator_info, import_icao_airlines
 from .ese import import_ese
 from .neighbours import import_nb_ese, source_key
-from .sectors_geojson import FILENAME, geojson_path, import_sectors_geojson
+from .sectors_geojson import COMMAND, FILENAME, geojson_path, import_sectors_geojson, stale
 from .navdata import import_airways, import_icao_airports, import_isec
 from .sct import import_sct
 
@@ -174,6 +174,11 @@ def import_sectors(db: Session, force: bool = False) -> list[dict]:
         db.commit()
         return []
     res = _import_file(db, path, import_sectors_geojson, name, force)
+    # nowy plik .ese bez ponownego wygenerowania: stanowiska byłyby już z nowego pliku, a sektory (i ID stanowisk
+    # w ich OWNER) ze starego; build obrazu Dockera przerywa wtedy --check, tu zostaje ostrzeżenie w logu
+    if problems := stale(path):
+        log.warning("%s nie pasuje do plików .ese albo generatora (%s): uruchom %s", FILENAME, "; ".join(problems),
+                    COMMAND)
     return [res] if res else []
 
 

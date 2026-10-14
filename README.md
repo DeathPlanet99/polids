@@ -90,8 +90,9 @@ do `main`. Instrukcja: [deploy/README.md](deploy/README.md).
 - nowa sektorówka: podmienić pliki w `data/import/`, odświeżyć sektory (`python -m backend.app.importers.sectors_geojson`)
   i przebudować obraz (na serwerze wystarczy push)
 - sektory EPWW i sąsiadów (MAP, RADIO): aplikacja bierze je z `data/seed/sectors.geojson`, a ten plik generuje
-  `python -m backend.app.importers.sectors_geojson` z plików `.ese` (`--check`: czy plik pasuje do plików `.ese`; test
-  przypomina o tym po podmianie pliku). Ręczne poprawki w pliku działają po restarcie aplikacji, generator je nadpisze
+  `python -m backend.app.importers.sectors_geojson` z plików `.ese` (`--check`: czy plik pasuje do plików `.ese`
+  i ustawień generatora; po podmianie pliku przypomina o tym test, ostrzeżenie w logu przy starcie, a build obrazu
+  Dockera się przerywa). Ręczne poprawki w pliku działają po restarcie aplikacji, generator je nadpisze
 - OurAirports: `python scripts/fetch_ourairports.py`
 - typy samolotów: `python scripts/build_aircraft_seed.py <ścieżka do aircraft-db>`
 - logo i ikony: `frontend/icons/` (paczka logo PolIDS, opcja „FIR EPWW”)

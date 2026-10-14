@@ -109,6 +109,8 @@ def test_committed_geojson_format():
     assert all(round(x, 5) == x and round(y, 5) == y for x, y in pts)
     sources = {f["properties"]["source"] for f in fc["features"]}
     assert {"EPWW", "EDGG", "EDWW", "EDMM", "LKAA", "UKBV"} <= sources
+    epww, nb, bad = sg._rows(fc)  # import przy starcie nie pomija żadnego sektora
+    assert (len(epww) + len(nb), bad) == (len(fc["features"]), 0)
 
 
 def test_check_detects_changed_new_and_removed_files(import_dir):
@@ -135,6 +137,67 @@ def test_check_command_message(monkeypatch, tmp_path, capsys):
     assert sg.main(["--check"]) == 1
     out = capsys.readouterr().out
     assert "EPWW-Sector.ese: plik się zmienił" in out and sg.COMMAND in out
+
+
+def test_check_detects_generator_changes(import_dir, tmp_path, monkeypatch):
+    """--check także po zmianie ustawień generatora (FIR-y pakietów, rejon, wiatr do wyboru pasów, uproszczenie,
+    wersja) i współrzędnych lotnisk okręgów CIRCLE_SECTORLINE (airports.csv, icao.txt), nie tylko plików .ese."""
+    import copy
+
+    from backend.app.importers import neighbours
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    csv = seed / "airports.csv"
+    csv.write_text("ident,type,name,latitude_deg,longitude_deg\nLKBE,small_airport,Benesov,49.74,14.64\n", "utf-8")
+    nb = import_dir / "neighbours" / "SF_-_LKAA.ese"
+    nb.write_text(NB_TEXT + "CIRCLE_SECTORLINE:BE:LKBE:2.5\nCIRCLE_SECTORLINE:XX:LKXX:2.5\n", encoding="utf-8")
+    fc = sg.build(import_dir, seed_dir=seed)
+    gen = fc["generator"]
+    assert gen["airports"] == {"LKBE": [49.74, 14.64], "LKXX": None}
+    assert (gen["version"], gen["wind_from"], gen["firs"]["UKBV"]) == (sg.GENERATOR_VERSION, 250, ["UKLV"])
+    assert sg.check(fc, import_dir, seed) == []
+    assert json.loads(sg.dumps(fc))["generator"] == gen
+    firs = copy.deepcopy(neighbours.NB_SOURCES)
+    firs["LKAA"]["firs"].append("LKXX")
+    for name, value, problem in (("WIND_FROM", 70, "inne wind_from (w pliku 250, w kodzie 70)"),
+                                 ("REGION", (40.0, 58.0, 10.0, 28.5), "inne region (w pliku [46.5, 58.0, 10.0, 28.5], "
+                                                                      "w kodzie [40.0, 58.0, 10.0, 28.5])"),
+                                 ("SIMPLIFY_DEG", 0.002, "inne simplify_deg (w pliku 0.001, w kodzie 0.002)"),
+                                 ("NB_SOURCES", firs, "inne firs (LKAA)")):
+        with monkeypatch.context() as m:
+            m.setattr(neighbours, name, value)
+            assert sg.check(fc, import_dir, seed) == [f"generator: {problem}"]
+    with monkeypatch.context() as m:
+        m.setattr(sg, "GENERATOR_VERSION", sg.GENERATOR_VERSION + 1)
+        assert sg.check(fc, import_dir, seed) == [f"generator: inne version (w pliku {sg.GENERATOR_VERSION - 1}, "
+                                                  f"w kodzie {sg.GENERATOR_VERSION})"]
+    # inny środek okręgu LKBE, nowe lotnisko LKXX w airports.csv
+    csv.write_text("ident,type,name,latitude_deg,longitude_deg\nLKBE,small_airport,Benesov,49.75,14.64\n"
+                   "LKXX,small_airport,X,50.0,15.0\n", "utf-8")
+    assert [p.split(":")[0] for p in sg.check(fc, import_dir, seed)] == ["LKBE", "LKXX"]
+    # plik sprzed zapisu ustawień generatora
+    del fc["generator"]
+    assert sg.check(fc, import_dir, seed) == ["generator: brak wersji i ustawień generatora w pliku"]
+
+
+def test_startup_warns_about_stale_geojson(db, tmp_path, monkeypatch, caplog):
+    """Przy starcie aplikacji: plik niepasujący do plików .ese z repozytorium daje ostrzeżenie w logu z poleceniem
+    generatora (sektory i tak się wczytują); aktualny plik bez ostrzeżenia."""
+    from backend.app.importers import seed
+    monkeypatch.setattr(settings, "seed_dir", tmp_path)
+    path = tmp_path / sg.FILENAME
+    fc = json.loads(GEOJSON.read_text("utf-8"))
+    path.write_text(sg.dumps(fc), encoding="utf-8")
+    with caplog.at_level("WARNING", logger="polids.seed"):
+        assert seed.import_sectors(db)[0]["sectors"] > 400
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+    fc["sources"]["EPWW-Sector.ese"] = "0" * 64
+    path.write_text(sg.dumps(fc), encoding="utf-8")
+    os.utime(path, (path.stat().st_atime, path.stat().st_mtime + 5))
+    with caplog.at_level("WARNING", logger="polids.seed"):
+        assert seed.import_sectors(db)[0]["sectors"] > 400
+    warn = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warn) == 1 and "EPWW-Sector.ese: plik się zmienił" in warn[0] and sg.COMMAND in warn[0]
 
 
 def test_build_properties_and_shared_borders(import_dir):
@@ -179,9 +242,21 @@ def test_import_geojson_with_hand_edit(db, tmp_path):
         {"type": "Feature", "properties": {"source": "EPWW", "fir": "EPWW", "name": "ZLY", "lower_ft": 0,
                                            "upper_ft": 1000, "owners": []}, "geometry": {"type": "Point"}},
     ]
+    # literówki w ręcznej poprawce: punkt bez szerokości, tekst zamiast współrzędnych, za krótki pierścień, zły
+    # wielokąt w MultiPolygon, NaN, active jako liczba – sektor pominięty, import i RADIO działają dalej
+    props = {"source": "EDWW", "fir": "EDWW", "name": "LITEROWKA", "lower_ft": 0, "upper_ft": 1000, "owners": ["X"]}
+    ring = sq["coordinates"][0]
+    for geom in ({"type": "Polygon", "coordinates": [ring[:2] + [[14.5]] + ring[3:]]},
+                 {"type": "Polygon", "coordinates": "abc"}, {"type": "Polygon", "coordinates": [ring[:3]]},
+                 {"type": "Polygon", "coordinates": [[[14, 52], [15, "52"], [15, 53], [14, 52]]]},
+                 {"type": "Polygon", "coordinates": [[[14, 52], [15, float("nan")], [15, 53], [14, 52]]]},
+                 {"type": "MultiPolygon", "coordinates": [sq["coordinates"], [[[14, 52], [15, 52]]]]},
+                 {"type": "MultiPolygon", "coordinates": [[]]}):
+        fc["features"].append({"type": "Feature", "properties": props, "geometry": geom})
+    fc["features"].append({"type": "Feature", "properties": {**props, "active": 5}, "geometry": sq})
     path = tmp_path / "sectors.geojson"
     path.write_text(sg.dumps(fc), encoding="utf-8")
-    assert sg.import_sectors_geojson(db, path) == {"sectors": 1, "nb_sectors": 1, "skipped": 1}
+    assert sg.import_sectors_geojson(db, path) == {"sectors": 1, "nb_sectors": 1, "skipped": 9}
     s = db.scalars(select(Sector)).one()
     assert (s.fir, s.name, s.lower_ft, s.upper_ft, s.owners) == ("EPWW", "EPWWB", 9500, 24500, "BL:CL")
     n = db.scalars(select(NbSector)).one()

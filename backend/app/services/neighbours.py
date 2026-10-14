@@ -20,12 +20,16 @@ def nb_positions(db: Session, airports: bool = False) -> list[dict]:
     sektorów sąsiada z tego samego pliku (RADIO, MAP, dopasowanie zalogowanych), z airports=True wszystkie zapisane –
     także stanowiska lotnisk bez sektora (EDDF_TWR, EDDF_GND) do kart lotnisk w AERODROME."""
     order = {k: i for i, k in enumerate(NB_SOURCES)}
+    # same kolumny i filtr w SQL: stanowisk lotnisk bez sektora jest ponad 1000, a ta lista jest w każdym zapytaniu
+    # RADIO i dopasowania zalogowanych (obiekty ORM dla wszystkich wierszy: kilkukrotnie wolniej)
+    stmt = select(NbPosition.source, NbPosition.callsign, NbPosition.name, NbPosition.frequency, NbPosition.prefix)
     listed: dict[str, set[str]] = {}
     if not airports:
         for src, owners in db.execute(select(NbSector.source, NbSector.owners)):
             listed.setdefault(src, set()).update(o for o in (owners or "").split(":") if o)
+        stmt = stmt.where(NbPosition.callsign.in_(set().union(*listed.values())))
     out: dict[str, dict] = {}
-    for p in sorted(db.scalars(select(NbPosition)), key=lambda p: (order.get(p.source, 99), p.callsign)):
+    for p in sorted(db.execute(stmt), key=lambda p: (order.get(p.source, 99), p.callsign)):
         if not airports and p.callsign not in listed.get(p.source, ()):
             continue
         out.setdefault(p.callsign, {"callsign": p.callsign, "name": p.name, "frequency": p.frequency or "",

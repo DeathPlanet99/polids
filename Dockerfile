@@ -15,6 +15,10 @@ COPY backend ./backend
 COPY frontend ./frontend
 COPY data ./data
 
+# sectors.geojson musi pasować do plików .ese i generatora (inaczej sektory i stanowiska z różnych wersji):
+# bez tego build się przerywa, a działający kontener zostaje
+RUN python -m backend.app.importers.sectors_geojson --check
+
 # baza budowana w obrazie, przy starcie kontenera nic się już nie importuje
 RUN useradd --system --uid 10001 --no-create-home --home-dir /app polids \
  && python -m backend.app.importers.seed \

@@ -7,15 +7,18 @@ zmieni), więc ręczne poprawki w nim działają do następnego uruchomienia gen
 dalej bierzemy z plików .ese.
 
     python -m backend.app.importers.sectors_geojson          # wygeneruj plik od nowa z plików .ese
-    python -m backend.app.importers.sectors_geojson --check  # czy plik pasuje do plików .ese (sha256)
+    python -m backend.app.importers.sectors_geojson --check  # czy plik pasuje do plików .ese i ustawień generatora
 
 Format: jeden sektor (Feature) na wiersz, żeby zmiany w gicie były czytelne; "sources" = pliki .ese z sha256 treści
-(po zamianie CRLF na LF, bo git może zmieniać końce wierszy), "_uwaga" = opis pliku."""
+(po zamianie CRLF na LF, bo git może zmieniać końce wierszy), "generator" = wersja i ustawienia generatora (FIR-y
+pakietów, rejon, wiatr do wyboru pasów, uproszczenie) oraz środki okręgów wokół lotnisk, "_uwaga" = opis pliku.
+--check (też w Dockerfile i w teście) porównuje oba nagłówki z bieżącymi plikami i kodem."""
 
 import csv
 import hashlib
 import json
 import logging
+import math
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -25,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from ..config import DATA_DIR, settings
 from ..models import NbSector, Sector
+from . import neighbours
 from .ese import parse_ese, sector_ring
 from .neighbours import select_sectors, simplify_line, source_key
 from .sct import read_text
@@ -35,12 +39,16 @@ FILENAME = "sectors.geojson"
 COMMAND = "python -m backend.app.importers.sectors_geojson"
 EPWW = "EPWW"  # source sektorów z pliku .ese EPWW (także kopii sektorów sąsiadów z tego pliku, np. UMMV)
 NO_SECTORS = f"Brak sektorów: wygeneruj data/seed/{FILENAME} ({COMMAND})."
+# Podnieś przy zmianie sposobu generowania, której nie widać w generator_settings (wybór sektorów w select_sectors,
+# składanie i upraszczanie granic, zaokrąglenie): --check, test i build obrazu przypomną o ponownym wygenerowaniu pliku.
+GENERATOR_VERSION = 1
 
 NOTE = ("Sektory EPWW i FIR-ów sąsiednich: z tego pliku aplikacja przy starcie buduje tabele sectors i nb_sectors "
         "(MAP, RADIO). Generuje go " + COMMAND + " z plików .ese z data/import (EPWW) i data/import/neighbours "
-        "(sąsiedzi); sources = pliki .ese i sha256 ich treści po zamianie CRLF na LF (test przypomni o ponownym "
-        "wygenerowaniu po podmianie pliku .ese). Ręczne poprawki są dozwolone: aplikacja wczytuje plik ponownie, gdy "
-        "się zmieni, a nadpisze je dopiero generator. Jeden sektor na wiersz. Właściwości: source (EPWW = plik EPWW, "
+        "(sąsiedzi); sources = pliki .ese i sha256 ich treści po zamianie CRLF na LF, generator = wersja i ustawienia "
+        "generatora oraz środki okręgów wokół lotnisk (test i --check przypomną o ponownym wygenerowaniu po podmianie "
+        "pliku .ese, zmianie ustawień albo współrzędnych lotniska). Ręczne poprawki są dozwolone: aplikacja wczytuje "
+        "plik ponownie, gdy się zmieni, a nadpisze je dopiero generator. Jeden sektor na wiersz. Właściwości: source (EPWW = plik EPWW, "
         "inaczej klucz pakietu sąsiada z NB_SOURCES w backend/app/importers/neighbours.py), fir, name, lower_ft, "
         "upper_ft, owners (kolejność przejmowania: w sektorach z pliku EPWW identyfikatory stanowisk z jego sekcji "
         "[POSITIONS], u sąsiadów znaki stanowisk), active (tylko sąsiedzi: warunki ACTIVE ICAO:pas). Geometria: "
@@ -147,27 +155,52 @@ def neighbour_features(path: Path, key: str, airport: Callable[[str], tuple | No
     return out
 
 
+def generator_settings() -> dict:
+    """Wersja i ustawienia generatora, od których zależą sektory sąsiadów (backend/app/importers/neighbours.py)."""
+    return {"version": GENERATOR_VERSION, "firs": {k: v["firs"] for k, v in neighbours.NB_SOURCES.items()},
+            "region": list(neighbours.REGION), "wind_from": neighbours.WIND_FROM,
+            "simplify_deg": neighbours.SIMPLIFY_DEG}
+
+
 def build(import_dir: Path = IMPORT_DIR, seed_dir: Path | None = None) -> dict:
     """Cała zawartość sectors.geojson z plików .ese."""
     files = source_files(import_dir)
-    airport = airport_lookup(import_dir, seed_dir)
+    look = airport_lookup(import_dir, seed_dir)
+    centres: dict[str, list[float] | None] = {}  # lotniska okręgów CIRCLE_SECTORLINE i ich współrzędne
+
+    def airport(icao: str) -> tuple | None:
+        c = look(icao)
+        centres[icao] = list(c) if c else None
+        return c
     feats: list[dict] = []
     for _name, (key, path) in files.items():
         feats += epww_features(path) if key == EPWW else neighbour_features(path, key, airport)
     return {"type": "FeatureCollection", "_uwaga": NOTE,
+            "generator": {**generator_settings(), "airports": dict(sorted(centres.items()))},
             "sources": {name: file_sha256(path) for name, (_key, path) in files.items()}, "features": feats}
 
 
 def dumps(fc: dict) -> str:
-    """Tekst pliku: nagłówek (type, _uwaga, sources po jednym pliku na wiersz), potem jeden sektor na wiersz."""
-    head = [f"{json.dumps(k)}: {json.dumps(v, ensure_ascii=False, indent=1 if isinstance(v, dict) else None)}"
-            for k, v in fc.items() if k != "features"]
+    """Tekst pliku: nagłówek (type, _uwaga, generator i sources po jednym kluczu na wiersz), potem jeden sektor
+    na wiersz."""
+    def value(v) -> str:
+        if not isinstance(v, dict):
+            return json.dumps(v, ensure_ascii=False)
+        return "{" + ",".join(f"\n {json.dumps(k)}: {json.dumps(x, ensure_ascii=False)}" for k, x in v.items()) + \
+            ("\n}" if v else "}")
+    head = [f"{json.dumps(k)}: {value(v)}" for k, v in fc.items() if k != "features"]
     feats = [json.dumps(f, ensure_ascii=False, separators=(",", ":")) for f in fc.get("features", [])]
     return "{\n" + ",\n".join(head) + ',\n"features": [\n' + ",\n".join(feats) + "\n]\n}\n"
 
 
-def check(fc: dict, import_dir: Path = IMPORT_DIR) -> list[str]:
-    """Rozbieżności między "sources" pliku a plikami .ese (pusta lista = plik aktualny)."""
+def _short(v) -> str:
+    text = json.dumps(v, ensure_ascii=False)
+    return text if len(text) <= 60 else text[:57] + "..."
+
+
+def check(fc: dict, import_dir: Path = IMPORT_DIR, seed_dir: Path | None = None) -> list[str]:
+    """Rozbieżności między nagłówkami pliku ("sources", "generator") a plikami .ese, ustawieniami generatora
+    i współrzędnymi lotnisk okręgów (pusta lista = plik aktualny)."""
     listed = fc.get("sources") or {}
     files = source_files(import_dir)
     out = []
@@ -177,6 +210,25 @@ def check(fc: dict, import_dir: Path = IMPORT_DIR) -> list[str]:
         elif file_sha256(files[name][1]) != sha:
             out.append(f"{name}: plik się zmienił (sha256)")
     out += [f"{name}: nowy plik, nie ma go w sources" for name in files if name not in listed]
+    gen = fc.get("generator")
+    if not isinstance(gen, dict):
+        return out + ["generator: brak wersji i ustawień generatora w pliku"]
+    for k, v in generator_settings().items():
+        was = gen.get(k)
+        if was == v:
+            continue
+        if isinstance(was, dict) and isinstance(v, dict):  # firs: tylko pakiety, które się różnią
+            diff = sorted(x for x in set(was) | set(v) if was.get(x) != v.get(x))
+            out.append(f"generator: inne {k} ({', '.join(diff)})")
+        else:
+            out.append(f"generator: inne {k} (w pliku {_short(was)}, w kodzie {_short(v)})")
+    centres = gen.get("airports")
+    look = airport_lookup(import_dir, seed_dir)
+    for icao, c in (centres if isinstance(centres, dict) else {}).items():
+        now = look(icao)
+        if (list(now) if now else None) != c:
+            out.append(f"{icao}: inne współrzędne lotniska do okręgu (w pliku {_short(c)}, teraz {_short(now)}; "
+                       "data/seed/airports.csv, data/import/icao.txt)")
     return out
 
 
@@ -184,13 +236,38 @@ def geojson_path() -> Path:
     return settings.seed_dir / FILENAME
 
 
+def stale(path: Path) -> list[str]:
+    """check() dla pliku na dysku; nieczytelny plik to też rozbieżność."""
+    try:
+        return check(json.loads(path.read_text("utf-8")))
+    except (OSError, ValueError, AttributeError) as exc:
+        return [f"{path.name}: {exc}"]
+
+
+def _ring_ok(ring) -> bool:
+    """Pierścień: lista co najmniej 4 punktów [lon, lat] z liczbami (MAP i RADIO rozpakowują pary)."""
+    return isinstance(ring, list) and len(ring) >= 4 and all(
+        isinstance(pt, list) and len(pt) == 2
+        and all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in pt)
+        for pt in ring)
+
+
+def _geometry_ok(geom: dict) -> bool:
+    """Polygon albo MultiPolygon, w którym każdy wielokąt ma pierścienie z poprawnymi punktami."""
+    coords = geom.get("coordinates")
+    polys = [coords] if geom.get("type") == "Polygon" else coords if geom.get("type") == "MultiPolygon" else None
+    return isinstance(polys, list) and bool(polys) and all(
+        isinstance(poly, list) and bool(poly) and all(_ring_ok(r) for r in poly) for poly in polys)
+
+
 def _rows(fc: dict) -> tuple[list[dict], list[dict], int]:
-    """Wiersze tabel sectors i nb_sectors z FeatureCollection; sektory z błędnymi polami pomijamy (liczba w wyniku)."""
+    """Wiersze tabel sectors i nb_sectors z FeatureCollection; sektory z błędnymi polami (np. literówka w ręcznej
+    poprawce: punkt bez szerokości, tekst zamiast liczby) pomijamy (liczba w wyniku), żeby nie psuły MAP i RADIO."""
     epww, nb, bad = [], [], 0
     for f in fc.get("features") or []:
         try:
             p, geom = f["properties"], f["geometry"]
-            if geom.get("type") not in ("Polygon", "MultiPolygon") or not geom.get("coordinates"):
+            if not _geometry_ok(geom):
                 raise ValueError("geometria")
             owners = p.get("owners") or []
             row = {"fir": str(p["fir"]), "name": str(p["name"]), "lower_ft": int(p["lower_ft"]),
@@ -199,6 +276,7 @@ def _rows(fc: dict) -> tuple[list[dict], list[dict], int]:
                    "geometry": json.dumps({"type": geom["type"], "coordinates": geom["coordinates"]})}
             source = str(p.get("source") or EPWW).upper()
             active = p.get("active") or []
+            active = active if isinstance(active, str) else " ".join(str(a) for a in active)
         except (KeyError, TypeError, ValueError, AttributeError):
             bad += 1
             continue
@@ -206,7 +284,7 @@ def _rows(fc: dict) -> tuple[list[dict], list[dict], int]:
             epww.append(row)
         else:
             nb.append({**row, "source": source[:8], "fir": row["fir"].upper(), "name": row["name"][:60],
-                       "active": active if isinstance(active, str) else " ".join(str(a) for a in active)})
+                       "active": active})
     return epww, nb, bad
 
 
@@ -227,10 +305,7 @@ def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     path = geojson_path()
     if "--check" in argv:
-        try:
-            problems = check(json.loads(path.read_text("utf-8")))
-        except (OSError, ValueError) as exc:
-            problems = [f"{path.name}: {exc}"]
+        problems = stale(path)
         for p in problems:
             print(p)
         print("OK" if not problems else f"Uruchom {COMMAND}, żeby odświeżyć {FILENAME}.")

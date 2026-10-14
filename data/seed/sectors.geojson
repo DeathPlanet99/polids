@@ -1,6 +1,14 @@
 {
 "type": "FeatureCollection",
-"_uwaga": "Sektory EPWW i FIR-ów sąsiednich: z tego pliku aplikacja przy starcie buduje tabele sectors i nb_sectors (MAP, RADIO). Generuje go python -m backend.app.importers.sectors_geojson z plików .ese z data/import (EPWW) i data/import/neighbours (sąsiedzi); sources = pliki .ese i sha256 ich treści po zamianie CRLF na LF (test przypomni o ponownym wygenerowaniu po podmianie pliku .ese). Ręczne poprawki są dozwolone: aplikacja wczytuje plik ponownie, gdy się zmieni, a nadpisze je dopiero generator. Jeden sektor na wiersz. Właściwości: source (EPWW = plik EPWW, inaczej klucz pakietu sąsiada z NB_SOURCES w backend/app/importers/neighbours.py), fir, name, lower_ft, upper_ft, owners (kolejność przejmowania: w sektorach z pliku EPWW identyfikatory stanowisk z jego sekcji [POSITIONS], u sąsiadów znaki stanowisk), active (tylko sąsiedzi: warunki ACTIVE ICAO:pas). Geometria: Polygon, lon/lat do 5 miejsc po przecinku. Granice sąsiadów są uproszczone o ok. 100 m, każda linia SECTORLINE raz, więc sąsiednie sektory mają na wspólnej granicy te same wierzchołki; okręgi wokół lotnisk (CIRCLE_SECTORLINE z kodem ICAO) mają środek z data/seed/airports.csv albo data/import/icao.txt.",
+"_uwaga": "Sektory EPWW i FIR-ów sąsiednich: z tego pliku aplikacja przy starcie buduje tabele sectors i nb_sectors (MAP, RADIO). Generuje go python -m backend.app.importers.sectors_geojson z plików .ese z data/import (EPWW) i data/import/neighbours (sąsiedzi); sources = pliki .ese i sha256 ich treści po zamianie CRLF na LF, generator = wersja i ustawienia generatora oraz środki okręgów wokół lotnisk (test i --check przypomną o ponownym wygenerowaniu po podmianie pliku .ese, zmianie ustawień albo współrzędnych lotniska). Ręczne poprawki są dozwolone: aplikacja wczytuje plik ponownie, gdy się zmieni, a nadpisze je dopiero generator. Jeden sektor na wiersz. Właściwości: source (EPWW = plik EPWW, inaczej klucz pakietu sąsiada z NB_SOURCES w backend/app/importers/neighbours.py), fir, name, lower_ft, upper_ft, owners (kolejność przejmowania: w sektorach z pliku EPWW identyfikatory stanowisk z jego sekcji [POSITIONS], u sąsiadów znaki stanowisk), active (tylko sąsiedzi: warunki ACTIVE ICAO:pas). Geometria: Polygon, lon/lat do 5 miejsc po przecinku. Granice sąsiadów są uproszczone o ok. 100 m, każda linia SECTORLINE raz, więc sąsiednie sektory mają na wspólnej granicy te same wierzchołki; okręgi wokół lotnisk (CIRCLE_SECTORLINE z kodem ICAO) mają środek z data/seed/airports.csv albo data/import/icao.txt.",
+"generator": {
+ "version": 1,
+ "firs": {"EDWW": ["EDWW"], "EDMM": ["EDMM"], "EDGG": ["EDGG"], "ESAA": ["ESAA"], "EKDK": ["EKDK"], "EYVL": ["EYVL"], "LKAA": ["LKAA"], "LZBB": ["LZBB"], "UKBV": ["UKLV"], "ULLL": ["UMKK"]},
+ "region": [46.5, 58.0, 10.0, 28.5],
+ "wind_from": 250,
+ "simplify_deg": 0.001,
+ "airports": {"LKBE": [49.740833, 14.644722], "LKMH": [50.539167, 15.003333], "LKPM": [49.72, 14.100278]}
+},
 "sources": {
  "EPWW-Sector.ese": "307d868fb9400310b35798b3db3749db84e56fac972e2d24960d8af5db3ed4b4",
  "neighbours/EDGG.ese": "ec7e8926e469c6e1a29fb040ac71e24b861736d6871c9e531d56bae224469936",
