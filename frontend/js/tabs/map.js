@@ -3,7 +3,7 @@ import { chartHtml, delayClass, listRow, loadRatio, stateChip, tvGroup, tvLabel 
 import { FACILITIES, PLANE_PATH, POSITION_COLORS, SymbolMarker, aircraftMarker, airportBadge, altLabel, atcPanes, atcRows, atcTooltip, colorFor, controllerRows,
   drawFirs, fl, loadFirs, loadVacs, sliceOwner, symbolFor, symbolSvg, vacsLayer } from "../airspace.js";
 import { airspaceChain } from "../chains.js";
-import { labelPoint } from "../coverage.js";
+import { labelPoint, nudge } from "../coverage.js";
 import { dissolve, mainParts, pointIn } from "../dissolve.js";
 import { displayName, loadDisplayNames } from "../posname.js";
 import { activeAtc, activeOnline, buildTree, countOf, firsOf, matchItem, toggle } from "../postree.js";
@@ -516,40 +516,70 @@ function mainMap(ctx) {
   const fillPane = map.createPane("asFill");
   fillPane.style.zIndex = 399;
   fillPane.style.pointerEvents = "none";
-  // shift: etykieta stanowiska (APP / TWR na TMA, CTA, sąsiad), rozsuwana przez declutter; prio: większy wycinek zostaje na środku.
+  // shift: kolejność rozsuwania w declutter (0: etykieta sektora ACC w podziale pełnym, najpierw; potem większy obszar);
+  // geom: obszar etykiety (suma wycinków stanowiska albo wycinek), w którym może się przesunąć.
   // c: kontroler online obsługujący przestrzeń: po najechaniu na etykietę jego dane zamiast listy przestrzeni (hoverAt)
   let lblCtl = [];
-  const lbl = (at, html, shift = 0, c = null) => L.marker(at, { interactive: false, pane: "asLbl", shift,
+  const lbl = (at, html, shift = 0, c = null, geom = null) => L.marker(at, { interactive: false, pane: "asLbl", shift, geom,
     icon: L.divIcon({ className: "maplabel", iconSize: null, html: `<div${c ? ` class="ctl" data-ctl="${lblCtl.push(c) - 1}"` : ""}>${html}</div>` }) })
     .addTo(layers.airLbl);
-  // Etykiety stanowisk nachodzące na wcześniejsze (np. WA APP i WA DIR na środku TMA Warszawa) przesuwamy w pionie
-  // (w dół, w górę, coraz dalej); etykiety sektorów ACC zostają na miejscu. W pikselach, więc od nowa po zoomie.
+  // Etykiety stanowisk z częstotliwością nie wpadają pod plakietki lotnisk i CTR (atcAd / atcFir), nazwy lotnisk
+  // (stałe dymki nad asLbl), przyciski i panele mapy ani na siebie nawzajem (np. WA APP i WA DIR na środku TMA Warszawa):
+  // przesuwamy je w pionie i w poziomie (nudge z coverage.js), ale tylko w obrębie własnego obszaru (geom). Samoloty
+  // (markerPane) zostają nad etykietami, więc ich nie omijamy.
+  // W pikselach, więc od nowa po przesunięciu i zoomie mapy.
   const declutter = () => {
-    const boxes = [], ms = [];
-    // plakietki lotnisk i CTR (atcAd / atcFir leżą nad asLbl) jako przeszkody: etykieta stanowiska nie wpada pod plakietkę
+    const boxes = [];
     const mb = map.getContainer().getBoundingClientRect();
-    [layers.atc, layers.firs].forEach((lg) => lg.eachLayer((m) => {
-      const r = m.getElement?.()?.querySelector(".atcb")?.getBoundingClientRect();
-      if (!r?.width) return;
+    const rect = (r, k) => {
+      if (!r?.width) return null;
       const c = map.containerPointToLayerPoint([(r.left + r.right) / 2 - mb.left, (r.top + r.bottom) / 2 - mb.top]);
-      boxes.push({ x: c.x, y: c.y, w: r.width, h: r.height });
-    }));
+      return boxes[boxes.push({ x: c.x, y: c.y, w: r.width, h: r.height, k }) - 1];
+    };
+    [layers.atc, layers.firs].forEach((lg) => lg.eachLayer((m) => rect(m.getElement?.()?.querySelector(".atcb")?.getBoundingClientRect(), 1)));
+    // nazwa lotniska (stały dymek nad asLbl) razem z symbolem lotniska z jej lewej strony (kanwa pod asLbl)
+    layers.ads.eachLayer((m) => {
+      const b = m instanceof L.Tooltip && rect(m.getElement()?.getBoundingClientRect(), 1), x0 = b && map.latLngToLayerPoint(m.getLatLng()).x - 12;
+      if (b && x0 < b.x - b.w / 2) { b.w = b.x + b.w / 2 - x0; b.x = x0 + b.w / 2; }
+    });
+    mapEl.querySelectorAll(".leaflet-control").forEach((el) => rect(el.getBoundingClientRect(), 3));
+    // poza widokiem mapy etykieta jest ucięta: brzegi jako przeszkody
+    const o = map.containerPointToLayerPoint([0, 0]), { x: W, y: H } = map.getSize(), F = 1e5;
+    [[-F, -F, 0, H + F], [W, -F, W + F, H + F], [0, -F, W, 0], [0, H, W, H + F]].forEach(([x0, y0, x1, y1]) =>
+      boxes.push({ x: o.x + (x0 + x1) / 2, y: o.y + (y0 + y1) / 2, w: x1 - x0, h: y1 - y0, k: 3 }));
+    const ms = [];
     layers.airLbl.eachLayer((m) => ms.push(m));
     ms.sort((a, b) => !!a.options.shift - !!b.options.shift || (b.options.shift || 0) - (a.options.shift || 0)).forEach((m) => {
       const el = m.getElement()?.firstElementChild;
       if (!el) return;
-      el.style.marginTop = "";
-      const p = map.latLngToLayerPoint(m.getLatLng()), w = el.offsetWidth, hh = el.offsetHeight;
+      el.style.marginTop = el.style.marginLeft = "";
+      const p = map.latLngToLayerPoint(m.getLatLng()), w = el.offsetWidth, hh = el.offsetHeight, g = m.options.geom;
       if (!w) return;  // mapa ukryta (inna zakładka): przeliczy activate
-      const hit = (dy) => boxes.some((b) => Math.abs(b.x - p.x) < (b.w + w) / 2 + 2 && Math.abs(b.y - p.y - dy) < (b.h + hh) / 2 + 2);
-      let dy = 0;
-      for (let i = 1; m.options.shift && hit(dy) && i <= 8; i++) dy = (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (hh + 2);
-      if (hit(dy)) dy = 0;
+      // ile etykiety leży we własnym obszarze: środek (waga 5) i narożniki jej środkowej połowy (brzeg etykiety może
+      // wystawać za granicę); przesunięta nie mniej niż na miejscu
+      const inside = (dx, dy) => [[0, 0, 5], [-w / 4, -hh / 4], [w / 4, -hh / 4], [-w / 4, hh / 4], [w / 4, hh / 4]].reduce((s, [ox, oy, k = 1]) => {
+        const ll = map.layerPointToLatLng([p.x + dx + ox, p.y + dy + oy]);
+        return s + (inGeom(ll.lng, ll.lat, g) ? k : 0);
+      }, 0);
+      const at0 = g ? inside(0, 0) : 0, box = { x: p.x, y: p.y, w, h: hh };
+      // bez wolnego miejsca: wystarczy środek etykiety w obszarze, a w obszarze mniejszym niż etykieta (np. CTR wieży
+      // przy małym zoomie) także tuż obok niego; etykieta całkiem poza widokiem mapy zostaje na miejscu
+      const away = p.x + w / 2 < o.x || p.x - w / 2 > o.x + W || p.y + hh / 2 < o.y || p.y - hh / 2 > o.y + H;
+      const tiers = !g || away ? [] : [[(x, y) => inside(x, y) >= at0, 6], [(x, y) => inside(x, y) >= Math.min(at0, 5), 6],
+        ...(at0 < 9 ? [[() => true, 3]] : [])];
+      let best = { dx: 0, dy: 0, c: 0 };
+      tiers.some(([ok, rings], i) => {
+        const r = nudge(box, boxes, ok, rings);
+        if (!i || r.c < best.c) best = r;
+        return !best.c;
+      });
+      const { dx, dy } = best;
+      if (dx) el.style.marginLeft = `${dx}px`;
       if (dy) el.style.marginTop = `${dy}px`;
-      boxes.push({ x: p.x, y: p.y + dy, w, h: hh });
+      boxes.push({ x: p.x + dx, y: p.y + dy, w, h: hh, k: 3 });
     });
   };
-  map.on("zoomend", declutter);
+  map.on("moveend", declutter);  // po zoomend (drawAds: nazwy lotnisk zależą od zoomu)
   const area = (bb) => (bb[2] - bb[0]) * (bb[3] - bb[1]);
   const center = (f) => L.latLngBounds([f.bb[1], f.bb[0]], [f.bb[3], f.bb[2]]).getCenter();
   // sąsiedzi: etykieta stanowiska na wycinku z największą częścią w pobliżu Polski (sektory ESMM sięgają daleko na północ)
@@ -609,11 +639,11 @@ function mainMap(ctx) {
       const pr = v.pr, c = v.own.c;
       if (pr.kind === "acc") {
         const fq = net.useOnline ? c?.frequency : pr.frequency;
-        lbl(center(v.f), `<small>${esc(pr.name)}</small>${fq ? `<br><span class="freq${c ? " on" : ""}">${esc(fq)}</span>` : ""}`, 0, c);
+        lbl(center(v.f), `<small>${esc(pr.name)}</small>${fq ? `<br><span class="freq${c ? " on" : ""}">${esc(fq)}</span>` : ""}`, 0, c, v.f.geometry);
       } else {
         // sąsiad: punkt wewnątrz wielokąta (środek ramki wypada poza wklęsłe sektory)
         const at = (pr.kind === "nb" && (labelPoint(v.f, NEAR) || labelPoint(v.f))?.at) || center(v.f);
-        lbl(at, `<small>${esc(displayName(c.callsign))}</small><br><span class="freq on">${esc(c.frequency)}</span>`, area(v.f.bb), c);
+        lbl(at, `<small>${esc(displayName(c.callsign))}</small><br><span class="freq on">${esc(c.frequency)}</span>`, area(v.f.bb), c, v.f.geometry);
       }
     });
   }
@@ -655,7 +685,8 @@ function mainMap(ctx) {
       let at = null;
       if (g.d) at = g.d.at ||= (g.nb && pointIn(mainParts(g.d.geometry), NEAR)) || pointIn(g.d.geometry);
       if (!at) at = center(g.vs.reduce((a, v) => (area(v.f.bb) > area(a.f.bb) ? v : a)).f);
-      lbl(at, `<small>${esc(displayName(g.c.callsign))}${g.c.sim ? ' <b class="pos-sim">SYM</b>' : ""}</small><br><span class="freq on">${esc(g.c.frequency)}</span>`, g.size || 1, g.c);
+      lbl(at, `<small>${esc(displayName(g.c.callsign))}${g.c.sim ? ' <b class="pos-sim">SYM</b>' : ""}</small><br><span class="freq on">${esc(g.c.frequency)}</span>`, g.size || 1, g.c,
+        g.d?.geometry || { type: "MultiPolygon", coordinates: g.vs.flatMap((v) => (v.f.geometry.type === "Polygon" ? [v.f.geometry.coordinates] : v.f.geometry.coordinates)) });
     });
   }
 
@@ -999,16 +1030,18 @@ function mainMap(ctx) {
       if (q && !groups.length) return "";
       const fOpen = !!q || posOpen.has(f.id);
       const head = `<div class="pt-f${fOpen ? " open" : ""}" data-open="${esc(f.id)}"><span class="pk-car">${fOpen ? "▾" : "▸"}</span><b>${esc(f.label)}</b><i>${esc(f.name)}</i>${cnt(countOf(fItems))}</div>`;
-      if (!fOpen) return head;
-      return head + groups.map(({ g, its }) => {
+      // FIR (nagłówek z grupami) i grupa (nagłówek ze stanowiskami) we własnym pojemniku: rozwinięty nagłówek przykleja
+      // się u góry listy tylko, dopóki widać jego wiersze (nie wisi nad stanowiskami następnych grup)
+      if (!fOpen) return `<div class="pt-fw">${head}</div>`;
+      return `<div class="pt-fw">${head}${groups.map(({ g, its }) => {
         const key = `${f.id}|${g.id}`, gOpen = !!q || posOpen.has(key);
         const gh = `<div class="pt-g${gOpen ? " open" : ""}" data-open="${esc(key)}"><span class="pk-car">${gOpen ? "▾" : "▸"}</span><b>${esc(g.label)}</b><i>${esc(g.name)}</i>${cnt(countOf(g.items))}</div>`;
-        if (!gOpen) return gh;
+        if (!gOpen) return `<div class="pt-gw">${gh}</div>`;
         const shown = its.slice(0, Math.max(0, left));
         left -= shown.length;
         more += its.length - shown.length;
-        return gh + shown.map(row).join("");
-      }).join("");
+        return `<div class="pt-gw">${gh}${shown.map(row).join("")}</div>`;
+      }).join("")}</div>`;
     }).join("");
     el.innerHTML = `<div class="pt-list">${html || `<div class="pk-none">${q ? "nic nie pasuje" : "brak stanowisk"}</div>`}${more
       ? `<div class="pk-none">… i jeszcze ${more}: zawęź wyszukiwanie</div>` : ""}</div>`;

@@ -65,6 +65,17 @@ def test_runway_preference_epmo_night_limits():
     assert _pick("EPMO", EPMO, "08004KT 9999", DAY) == {"arr": "08", "dep": "08", "reason": "Największa składowa czołowa"}
 
 
+def test_runway_reason_whole_knots():
+    # powód w całych węzłach jak tabela pasów w AERODROME ("TW 7 kt"), połówki w górę jak Math.round (round() z
+    # Pythona dałby 6 z 6.5); limit porównany z wartością przed zaokrągleniem
+    why = lambda metar: _pick("EPMO", EPMO, metar, NIGHT)["reason"]  # noqa: E731
+    assert why("09007KT 9999") == "ARR/DEP 08 wg AIP (2000-0400 UTC), bo 26: w plecy 7 kt > 5 kt"   # 6.9 kt
+    assert "26: w plecy 7 kt > 5 kt" in why("14113KT 9999")                                          # 6.5 kt
+    # 5.4 kt > 5 kt: w całych węzłach byłoby "5 kt > 5 kt", więc jedno miejsce po przecinku
+    assert "26: w plecy 5.4 kt > 5 kt" in why("10706KT 9999")
+    assert "boczny 20 kt > 15 kt" in why("35020KT 9999")
+
+
 def test_runway_preference_not_decisive_weather():
     eq = {"11": ["ILS"], "29": ["ILS"]}
     # podstawa 400 ft < 500 ft: lądowania bez pierwszeństwa AIP, starty dalej wg AIP (wiatr 110/8: 29 ma 8 kt w plecy)

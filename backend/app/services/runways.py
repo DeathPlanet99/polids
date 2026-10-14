@@ -148,6 +148,15 @@ def _limit(cfg: dict, key: str, phase: str) -> float | None:
     return v.get(phase) if isinstance(v, dict) else v
 
 
+def _kt_over(v: float, limit: float) -> str:
+    """'7 kt > 5 kt': składowa w całych węzłach jak w tabeli pasów AERODROME (kt w meteo.js: Math.round z wartości
+    bezwzględnej, połówki w górę, a nie round() z Pythona: 6.5 → 7, nie 6). Limit porównuje wywołujący na wartości
+    przed zaokrągleniem; gdy całe węzły nie przekraczają limitu (5.4 kt > 5 kt), zostaje jedno miejsce po przecinku."""
+    v = abs(v)
+    whole = math.floor(v + 0.5)
+    return f"{whole if whole > limit else f'{v:g}'} kt > {limit:g} kt"
+
+
 def _over_limits(r: dict, wind_dir: int | None, speed: int | None, tail_max, cross_max) -> str | None:
     """Powód odrzucenia pasa preferowanego: składowa w plecy albo boczna z porywami ponad limit AIP (None = w limicie).
     Wiatr zmienny (VRB) o prędkości ponad limit wiatru w plecy odrzuca pas, bo kierunku nie znamy."""
@@ -157,9 +166,9 @@ def _over_limits(r: dict, wind_dir: int | None, speed: int | None, tail_max, cro
         return f"wiatr zmienny {speed} kt > {tail_max:g} kt" if tail_max is not None and speed > tail_max else None
     head, cross = wind_components(wind_dir, speed, r["heading"])
     if tail_max is not None and -head > tail_max:
-        return f"w plecy {-head:g} kt > {tail_max:g} kt"
+        return f"w plecy {_kt_over(head, tail_max)}"
     if cross_max is not None and abs(cross) > cross_max:
-        return f"boczny {abs(cross):g} kt > {cross_max:g} kt"
+        return f"boczny {_kt_over(cross, cross_max)}"
     return None
 
 

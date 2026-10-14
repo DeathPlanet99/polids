@@ -47,3 +47,31 @@ export function labelPoint(f, within = null) {
   labelCache.set(key, out);
   return out;
 }
+
+// Przesunięcie etykiety (MAP: etykieta stanowiska z częstotliwością), żeby nie wpadała pod plakietki, nazwy lotnisk,
+// przyciski mapy i inne etykiety. box: {x, y, w, h} (środek i rozmiar w pikselach), obstacles: [{x, y, w, h, k}]
+// (k: waga zasłonięcia, domyślnie 1), ok(dx, dy): czy w tym miejscu etykieta zostaje we własnym obszarze.
+// Miejsca na siatce wokół (co 1/8 szerokości w poziomie i 1/4 wysokości w pionie, do `rings` ćwierci szerokości
+// i połówek wysokości w każdą stronę) od najbliższego; przy równej odległości najpierw w pionie i w dół.
+// Wynik {dx, dy, c}: pierwsze miejsce bez zasłonięcia, a bez takiego to z najmniejszym ważonym polem zasłonięcia c
+// (przy remisie bliższe). (0, 0) zawsze wchodzi w grę, inne miejsca tylko z ok.
+export function nudge(box, obstacles, ok = () => true, rings = 6, gap = 2) {
+  const sx = Math.ceil(box.w / 8) + 1, sy = Math.ceil(box.h / 4) + 1, n = 2 * rings;
+  const cand = [];
+  for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) cand.push([i * sx, j * sy]);
+  cand.sort((a, b) => Math.hypot(a[0], a[1]) - Math.hypot(b[0], b[1]) || Math.abs(a[0]) - Math.abs(b[0]) || b[1] - a[1]);
+  const cost = (dx, dy) => obstacles.reduce((s, o) => {
+    const ox = Math.min(box.x + dx + box.w / 2, o.x + o.w / 2 + gap) - Math.max(box.x + dx - box.w / 2, o.x - o.w / 2 - gap);
+    const oy = Math.min(box.y + dy + box.h / 2, o.y + o.h / 2 + gap) - Math.max(box.y + dy - box.h / 2, o.y - o.h / 2 - gap);
+    return ox > 0 && oy > 0 ? s + ox * oy * (o.k ?? 1) : s;
+  }, 0);
+  let best = null;
+  for (const [dx, dy] of cand) {
+    const c = cost(dx, dy);
+    if (best && c >= best.c) continue;
+    if ((dx || dy) && !ok(dx, dy)) continue;
+    best = { dx, dy, c };
+    if (!c) break;
+  }
+  return best;
+}
