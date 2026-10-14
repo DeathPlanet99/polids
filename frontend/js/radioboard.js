@@ -104,6 +104,11 @@ export function projection(bbox, rect, pad = 0.03, valign = "middle") {
 export function pathOf(g, P) {
   return ringsOf(g).map((r) => r.length > 2 ? "M" + r.map((c) => P(c).map((v) => v.toFixed(1)).join(",")).join("L") + "Z" : "").join("");
 }
+// wielokąt z dziurami (suma wycinków ACC jednego stanowiska): wszystkie pierścienie, wypełnienie evenodd (radio.css)
+export function pathAll(g, P) {
+  const polys = g?.type === "Polygon" ? [g.coordinates] : g?.type === "MultiPolygon" ? g.coordinates : [];
+  return polys.flatMap((poly) => poly || []).map((r) => r.length > 2 ? "M" + r.map((c) => P(c).map((v) => v.toFixed(1)).join(",")).join("L") + "Z" : "").join("");
+}
 
 // Siatka kształtów warstwy (CTR, TMA) w pikselach panelu do układu etykiet: komórki `cell` px, przez które biegnie
 // obrys (rings: [[x, y], …] już w pikselach) albo leży punkt (points: kropki lotnisk i TMA), z sumą prefiksową – coverOf

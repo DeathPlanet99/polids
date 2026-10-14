@@ -266,3 +266,24 @@ def test_radio_loa_errors(client, monkeypatch, tmp_path):
     ps = {p["callsign"]: p for p in client.get("/api/radio/positions").json()}
     assert ps["EDWW_FLG_CTR"]["nb_tab"] == "EDWW" and ps["EDWW_FLG_CTR"]["radio"] == "Bremen Radar"  # nazwa z .ese
     assert ps["EDWW_FLG_CTR"]["radio_src"] == "ese" and ps["EDWW_FLG_CTR"]["sector"] is None
+
+
+def test_positions_all_tree(client):
+    """MAP, sekcja Pozycje: wszystkie stanowiska z FIR-em i grupą drzewa, FIR-y w kolejności i położenie lotnisk."""
+    d = client.get("/api/nav/positions/all").json()
+    ps = {p["callsign"]: p for p in d["positions"]}
+    assert len(ps) > 500 and not any(p["facility"] in ("FMP", "TMU") for p in ps.values())
+    assert [f["id"] for f in d["firs"]][:5] == ["EPWW", "EDWW", "EDMM", "EDUU", "EDGG"]
+    assert {f["id"]: f["label"] for f in d["firs"]}["EDUU"] == "EDUU/EDYY"
+    # EPWW: ACC, FIS, lotniska; na lotnisku APP przed TWR przed GND
+    assert (ps["EPWW_DBF_CTR"]["fir"], ps["EPWW_DBF_CTR"]["group"]) == ("EPWW", "ACC")
+    assert (ps["EPGD_L_APP"]["fir"], ps["EPGD_L_APP"]["group"]) == ("EPWW", "EPGD")
+    assert ps["EPGD_APP"]["order"] < ps["EPGD_TWR"]["order"] < ps["EPGD_GND"]["order"] < ps["EPGD_ATIS"]["order"]
+    assert ps["EPWA_I_APP"]["group"] == "FIS" and ps["EPBC_I_TWR"]["group"] == "EPBC"  # FIS osobno, AFIS przy lotnisku
+    # sąsiedzi: tak jak zakładki RADIO, EDGG osobno
+    assert (ps["EDWW_FLG_CTR"]["fir"], ps["EDWW_FLG_CTR"]["group"]) == ("EDWW", "ACC")
+    assert ps["EDYY_CL_CTR"]["fir"] == "EDUU" and ps["EDGG_BAD_CTR"]["fir"] == "EDGG"
+    assert (ps["EDDB_N_TWR"]["fir"], ps["EDDB_N_TWR"]["group"]) == ("EDWW", "EDDB")
+    assert d["airports"]["EPGD"]["lat"] == pytest.approx(54.38, abs=0.05)
+    # symulacja EKDK_CTR (vacs-data) rysuje się też pod EKDK_UN_CTR, właścicielem sektorów z pliku Danii (alias_of)
+    assert ps["EKDK_CTR"]["twin"] == "EKDK_UN_CTR" and "twin" not in ps["EKDK_UN_CTR"] and "twin" not in ps["EPWW_N_CTR"]
