@@ -107,7 +107,8 @@ Jeśli na lotnisku nadaje ATIS, pas w użyciu bierzemy z jego tekstu. Bez ATIS-u
 1. pasy preferowane z AIP AD 2.21 (`data/seed/runway_config.json`: EPMO, EPWR, EPGD, EPPO) w swoich oknach czasowych
    (godziny UTC zimą, w nawiasie latem; czas letni UE liczony bez tzdata), osobno dla lądowań i startów, w kolejności
    z AIP („26, potem 08”); pas odpada, gdy składowa w plecy albo boczna z porywami przekracza limit z AIP albo gdy
-   zachodzi warunek, przy którym hałas nie decyduje (podstawa chmur, widzialność, podejście bez ILS, burza),
+   zachodzi warunek, przy którym hałas nie decyduje (podstawa chmur, widzialność, podejście bez ILS, burza); w LVP
+   pasów preferowanych z AIP nie stosujemy (lądowania i starty w jednym kierunku, z ILS),
 2. LVP / przygotowanie LVP / IMC: kierunek z ILS, o ile wiatr w plecy nie przekracza 5 kt,
 3. słaby wiatr (< 5 kt), tylko lotniska bez pasów preferowanych w AIP: konfiguracja z `runway_config.json` (EPWA
    ARR 33 / DEP 29, niezweryfikowana z AIP), bez niej kierunek z ILS,
@@ -120,7 +121,8 @@ nie oceniamy.
 
 Progi z AIP AD 2.22 i AIP MIL AD 4.20 w `data/seed/lvp.json`: przygotowanie, wprowadzenie i odwołanie (RVR, widzialność,
 podstawa chmur; lotniska wojskowe: widzialność z odpowiednikiem RVR, tylko odloty). LVP po wprowadzeniu trwa do spełnienia
-warunków odwołania (histereza w pamięci procesu, po restarcie od zera), potem przez 30 min „LVP ODWOŁANE”. Lotniska, dla
+warunków odwołania (histereza w pamięci procesu, po restarcie albo przerwie w METAR-ach ponad 90 min od zera; starszy
+METAR z innego zapytania dostaje stan z nowszego), potem przez 30 min od godziny odwołania „LVP ODWOŁANE”. Lotniska, dla
 których AIP nie przewiduje LVP (VFR, część wojskowych, EPRA, EPZG), mają „nie dotyczy”. EPWA i EPPO: wartości domyślne,
 niezweryfikowane z AIP (strona AIP nieczytelna).
 

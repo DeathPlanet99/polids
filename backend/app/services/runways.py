@@ -5,7 +5,8 @@ z czasem letnim UE, limity wiatru w plecy i bocznego z porywami oraz warunki pog
 Bez takiego pasa zasada jak w vatiris (minsulander/vatiris, stores/wind.ts): pas z największą składową czołową; przy
 słabym wietrze (poniżej progu, domyślnie 5 kt) pas preferowany z konfiguracji lotniska, ale tylko na lotniskach bez
 pasów preferowanych w AIP. Dodatkowo bierzemy pod uwagę wyposażenie pasów (ILS z pakietu sektorowego) i widzialność:
-przy LVP / przygotowaniu LVP / IMC wybieramy pas z ILS, o ile składowa w plecy nie przekracza limitu."""
+przy LVP / przygotowaniu LVP / IMC wybieramy pas z ILS, o ile składowa w plecy nie przekracza limitu. W LVP pasy
+preferowane z AIP nie obowiązują (lądowania i starty w jednym kierunku, z ILS)."""
 
 import json
 import math
@@ -223,8 +224,9 @@ def select_runways(runways: list[dict], wind_dir: int | None, wind_speed: int | 
     """Pas preferowany do lądowania (arr) i startu (dep) z uzasadnieniem.
 
     `runways`: słowniki z kluczami designator, heading (i opcjonalnie preferred). `low_vis`: "LVP", "PREP" albo
-    "IMC", gdy warunki wymagają podejścia precyzyjnego. `gust`, `metar` (podstawa chmur, widzialność, zjawiska) i `now`
-    (UTC) są potrzebne do pasów preferowanych z AIP (config["preferential"])."""
+    "IMC", gdy warunki wymagają podejścia precyzyjnego (przy "LVP" bez pasów preferowanych z AIP). `gust`, `metar`
+    (podstawa chmur, widzialność, zjawiska) i `now` (UTC) są potrzebne do pasów preferowanych z AIP
+    (config["preferential"])."""
     if not runways:
         return {"arr": None, "dep": None, "reason": "Brak danych o pasach"}
     cfg = config or {}
@@ -242,7 +244,9 @@ def select_runways(runways: list[dict], wind_dir: int | None, wind_speed: int | 
     rows = rows or [{**r, "headwind": None, "crosswind": None, "ils": False} for r in runways]
     by = {r["designator"]: r for r in rows}
     base = _wind_choice(rows, by, wind_dir, wind_speed, cfg, limit, low_vis, max_tailwind_kt)
-    if not aip:
+    # w LVP decyduje kierunek z ILS, wspólny dla lądowań i startów: pasy preferowane (hałas) z AIP nie obowiązują,
+    # inaczej np. EPGD przy płytkiej mgle (RVR < 550 m, widzialność 2000 m) miałby lądowania 11 i starty 29
+    if not aip or low_vis == "LVP":
         return base
     choice = _aip_choice(cfg, by, wind_dir, wind_speed, gust, metar, now or datetime.now(timezone.utc))
     (arr, arr_why), (dep, dep_why) = choice["arr"], choice["dep"]

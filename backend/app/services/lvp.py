@@ -3,8 +3,9 @@
 Fazy jak w AIP AD 2.22 / AIP MIL AD 4.20: przygotowanie (PREP), wprowadzenie (LVP) i odwołanie. LVP ma histerezę:
 po wprowadzeniu trwa, dopóki nie są spełnione warunki odwołania, więc wynik zależy od poprzedniego stanu. Ostatni stan
 każdego lotniska trzymamy w pamięci, kluczem jest czas obserwacji METAR (ten sam METAR liczony ponownie daje ten sam
-wynik). Po odwołaniu stan CANCELLED ("LVP ODWOŁANE") przez 30 min, chyba że wrócą warunki wprowadzenia. Po starcie
-aplikacji (bez historii) wartości między progiem wprowadzenia i odwołania LVP nie włączają."""
+wynik, starszy METAR z innego zapytania dostaje stan z nowszego). Po odwołaniu stan CANCELLED ("LVP ODWOŁANE") przez
+30 min od godziny odwołania, chyba że wrócą warunki wprowadzenia. Po starcie aplikacji albo po przerwie w historii
+dłuższej niż 90 min (nikt nie oglądał lotniska) wartości między progiem wprowadzenia i odwołania LVP nie włączają."""
 
 import json
 import operator
@@ -15,13 +16,14 @@ from ..config import settings
 from .metar import Metar
 
 CANCEL_HOLD = timedelta(minutes=30)
+MAX_GAP = timedelta(minutes=90)   # dłuższa przerwa między METAR w pamięci: liczymy od nowa, jak po starcie aplikacji
 OPS = {"<": operator.lt, "<=": operator.le, ">": operator.gt, ">=": operator.ge}
 SYM = {"<": "<", "<=": "≤", ">": ">", ">=": "≥"}
 LABEL = {"rvr_m": "RVR", "vis_m": "widzialność", "ceiling_ft": "podstawa"}
 UNIT = {"rvr_m": "m", "vis_m": "m", "ceiling_ft": "ft"}
 PHASES = (("prep", "Przygotowanie"), ("lvp", "LVP"), ("cancel", "Odwołanie"))
 
-# icao -> {"obs": czas METAR, "prev": (stan, od kiedy) przed tym METAR, "cur": (stan, od kiedy) po nim}
+# icao -> {"obs": czas METAR, "prev": (stan, od kiedy) przed tym METAR, "cur": (stan, od kiedy) po nim, "reasons": [...]}
 _memory: dict[str, dict] = {}
 
 
@@ -100,8 +102,9 @@ def _check(phase: dict, m: Metar) -> dict:
                 hits.append(f"{lbl} {v} {unit} {SYM[op]} {lim} {unit}")
             elif not worse and not good:
                 missing.append(f"{lbl} {SYM[op]} {lim} {unit} (jest {v} {unit})")
-        if not worse and met:
-            hits.append(f"{LABEL[key]} {SYM[op]} {phase[key][1]} {unit}")
+        if not worse and met:   # wartości faktycznie porównane (np. RVR zamiast widzialności, której brak w METAR)
+            hits += [f"{lbl} {v} {unit} {SYM[op]} {lim} {unit}" if v is not None else f"{lbl} {SYM[op]} {lim} {unit}"
+                     for lbl, v, lim in vals]
     met = all(results) if phase.get("logic") == "and" else any(results)
     return {"met": bool(results) and met, "hits": hits, "missing": missing}
 
@@ -168,19 +171,25 @@ def evaluate(m: Metar | None, icao: str, now: datetime | None = None) -> dict:
         return base
     obs = obs_time(m.time, now)
     mem = _memory.get(code)
-    store = obs is not None
-    if mem is None or obs is None:
-        prev = (None, None)
-    elif obs > mem["obs"]:
-        prev = mem["cur"]
-    elif obs == mem["obs"]:
-        prev = mem["prev"]
-    else:   # starszy METAR (inne źródło): liczymy od bieżącego stanu, nie zapisujemy
-        prev, store = mem["cur"], False
-    state, since, reasons = transition(cfg, m, prev, obs)
-    if store:
-        _memory[code] = {"obs": obs, "prev": prev, "cur": (state, since)}
-    if state == "LVP" and since is not None and obs is not None and since < obs:
+    if mem is not None and obs is not None and obs < mem["obs"]:
+        # starszy METAR (OVERVIEW i AERODROME pytają osobno, każde zapytanie ma własną pamięć podręczną): stan
+        # z nowszego METAR bez przejścia, inaczej LVP z nowszego dałoby tu fałszywe "LVP ODWOŁANE"
+        (state, since), reasons, ref = mem["cur"], mem["reasons"], mem["obs"]
+    else:
+        if mem is None or obs is None or obs - mem["obs"] > MAX_GAP:
+            prev = (None, None)
+        elif obs > mem["obs"]:
+            prev = mem["cur"]
+        else:   # ten sam METAR liczony ponownie
+            prev = mem["prev"]
+        state, since, reasons = transition(cfg, m, prev, obs)
+        if obs is not None:
+            _memory[code] = {"obs": obs, "prev": prev, "cur": (state, since), "reasons": reasons}
+        ref = obs
+    # 30 min odwołania liczone od teraz, nie tylko od następnego METAR (stary METAR, przerwa w danych)
+    if state == "CANCELLED" and since is not None and (now or datetime.now(timezone.utc)) >= since + CANCEL_HOLD:
+        state, since, reasons = transition(cfg, m, (None, None), obs)
+    if state == "LVP" and since is not None and ref is not None and since < ref:
         reasons = [f"w mocy od {_hhmm(since)}", *reasons]
     return {**base, "state": state, "reasons": reasons, "since": _hhmm(since) if state else None,
             "until": _hhmm(since + CANCEL_HOLD) if state == "CANCELLED" and since else None}

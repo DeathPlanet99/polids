@@ -78,6 +78,22 @@ def test_seed_from_aip(client):
     assert st["lvp"]["applies"] is False and st["lvp"]["state"] is None
 
 
+def test_status_cancelled_lvp_runway_choice_imc(client, monkeypatch):
+    """Po odwołaniu LVP (CANCELLED) pas wybierany jak przy IMC z kategorii METAR, nie jak w LVP."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    states = []
+    for ago, wx in ((20, "0400 R26/0450N FG VV001"), (5, "1200 BR BKN003")):
+        metar = f"EPKT {now - timedelta(minutes=ago):%d%H%MZ} 08004KT {wx} 08/08 Q1012"
+
+        async def fake_metars(icaos, metar=metar):
+            return {i: metar for i in icaos}
+        monkeypatch.setattr(aerodromes, "get_metars", fake_metars)
+        st = client.get("/api/aerodromes/EPKT/status").json()
+        states.append((st["lvp"]["state"], st["preferred"]["arr"], st["preferred"]["reason"].split(":")[0]))
+    assert states == [("LVP", "26", "LVP w mocy"), ("CANCELLED", "26", "Warunki IMC")]
+
+
 def test_meteo_and_qnh(client):
     m = client.get("/api/meteo/metar?ids=EPWA,EPKK").json()
     assert m[1]["parsed"]["station"] == "EPKK"

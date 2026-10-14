@@ -1,7 +1,7 @@
 # Dane z AIP: pasy preferowane (AD 2.21) z oknami czasowymi i limitami wiatru, progi LVP (AD 2.22, AIP MIL AD 4.20)
 # z histerezą i stanem "LVP odwołane"
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from backend.app.config import settings
 from backend.app.services import lvp
@@ -120,8 +120,12 @@ def test_lvp_thresholds_per_aerodrome():
     assert lvp.rules(lvp.thresholds("EPLL"))[0] == "Przygotowanie: AIP nie podaje"
 
 
-def _ev(icao, metar):
-    return lvp.evaluate(parse_metar(f"{icao} {metar}"), icao, now=datetime(2026, 10, 14, 23, 0, tzinfo=UTC))
+def _ev(icao, metar, now=None):
+    """Ocena METAR 'ddhhmmZ ...' z 14.10.2026; bez now: chwila 2 min po obserwacji (METAR świeży)."""
+    if now is None:
+        d, hh, mm = int(metar[:2]), int(metar[2:4]), int(metar[4:6])
+        now = datetime(2026, 10, d, hh, mm, tzinfo=UTC) + timedelta(minutes=2)
+    return lvp.evaluate(parse_metar(f"{icao} {metar}"), icao, now=now)
 
 
 def test_lvp_transitions_with_cancel():
@@ -174,3 +178,98 @@ def test_lvp_not_applicable():
         r = _ev(icao, "140600Z 29004KT 0100 FG VV001 08/08 Q1012")
         assert r["applies"] is False and r["state"] is None and r["reason"] and r["rules"] == []
     assert lvp.evaluate(None, "EPKT")["applies"] is True and lvp.evaluate(None, "EPKT")["state"] is None
+
+
+def test_thunderstorm_without_rain_blocks_aip_preference():
+    # burza bez opadu (TS) i w pobliżu (VCTS) też jest zjawiskiem; AIP: przy burzy hałas nie decyduje
+    for wx in ("TS", "VCTS"):
+        assert parse_metar(f"EPWR 141200Z 29004KT 9999 {wx} SCT030CB 10/05 Q1012").weather == [wx]
+        ts = _pick("EPWR", EPWR, f"29004KT 9999 {wx} SCT030CB", DAY, {"11": ["ILS"], "29": ["ILS"]})
+        assert ts["reason"].startswith("ARR/DEP bez pierwszeństwa AIP: burza (TS)"), wx
+    assert parse_metar("EPWR 141200Z 29004KT 9999 VCSH 10/05 Q1012").weather == ["VCSH"]
+
+
+def test_runway_preference_variable_wind_over_limit():
+    # VRB 7 kt: kierunku nie znamy, więc wiatr w plecy może przekroczyć 5 kt (EPMO w nocy bez pierwszeństwa AIP)
+    vrb = _pick("EPMO", EPMO, "VRB07KT 9999", NIGHT)
+    assert "bez pierwszeństwa AIP: wiatr zmienny 7 kt > 5 kt" in vrb["reason"]
+    assert _pick("EPMO", EPMO, "VRB03KT 9999", NIGHT)["arr"] == "26"
+
+
+def test_lvp_ignores_aip_noise_preference():
+    # EPGD, płytka mgła: RVR 450 m (LVP), widzialność 2000 m nad progiem AIP 1900 m; lądowania i starty razem
+    m = parse_metar("EPGD 140600Z 11004KT 2000 R11/0450N R29/0500N BCFG FEW002 08/08 Q1012")
+    rw = [{"designator": "11", "heading": 113}, {"designator": "29", "heading": 293}]
+    eq = {"11": ["ILS"], "29": ["ILS"]}
+    t = datetime(2026, 10, 14, 6, 5, tzinfo=UTC)
+    assert lvp.evaluate(m, "EPGD", now=t)["state"] == "LVP"
+    on = select_runways(rw, m.wind_dir, m.wind_speed, equipment=eq, low_vis="LVP", config=runway_config("EPGD"),
+                        metar=m, now=t)
+    assert (on["arr"], on["dep"]) == ("11", "11") and on["reason"].startswith("LVP w mocy")
+    # przygotowanie LVP: pas preferowany z AIP do startów zostaje
+    prep = select_runways(rw, m.wind_dir, m.wind_speed, equipment=eq, low_vis="PREP", config=runway_config("EPGD"),
+                          metar=m, now=t)
+    assert prep["dep"] == "29"
+
+
+def test_lvp_older_metar_keeps_newer_state():
+    # AERODROME ma już METAR 07:30 (LVP), OVERVIEW z własnej pamięci podręcznej jeszcze 07:00: bez fałszywego odwołania
+    t = datetime(2026, 10, 14, 7, 33, tzinfo=UTC)
+    assert _ev("EPKT", "140730Z 26004KT 0400 R26/0450N FG VV001 08/08 Q1012", t)["state"] == "LVP"
+    old = _ev("EPKT", "140700Z 26004KT 0700 R26/0700N BR BKN003 08/08 Q1012", t)
+    assert old["state"] == "LVP" and old["since"] == "07:30Z" and "RVR 26 450 m < 550 m" in old["reasons"]
+    # starszy METAR nie zmienia pamięci: następny METAR liczony od LVP
+    held = _ev("EPKT", "140800Z 26004KT 0600 R26/0575N BR BKN003 08/08 Q1012")
+    assert held["state"] == "LVP" and held["reasons"][0] == "w mocy od 07:30Z"
+    # i odwrotnie: starszy METAR z LVP nie włącza LVP, gdy nowszy go nie wymaga
+    lvp.reset_memory()
+    _ev("EPKT", "140730Z 26004KT 9999 FEW030 10/08 Q1012", t)
+    assert _ev("EPKT", "140700Z 26004KT 0400 R26/0450N FG VV001 08/08 Q1012", t)["state"] is None
+
+
+def test_lvp_stale_history_starts_fresh():
+    # LVP o 07:00, potem nikt nie oglądał lotniska do 11:00: RVR 575 m to tylko przygotowanie, nie "LVP od 07:00Z"
+    _ev("EPKT", "140700Z 26004KT 0400 R26/0450N FG VV001 08/08 Q1012")
+    late = _ev("EPKT", "141100Z 26004KT 0600 R26/0575N BR BKN004 08/08 Q1012")
+    assert late["state"] == "PREP" and late["since"] == "11:00Z"
+    # przerwa do 90 min (jeden METAR pominięty) nie przerywa histerezy
+    lvp.reset_memory()
+    _ev("EPKT", "140700Z 26004KT 0400 R26/0450N FG VV001 08/08 Q1012")
+    assert _ev("EPKT", "140830Z 26004KT 0600 R26/0575N BR BKN004 08/08 Q1012")["state"] == "LVP"
+
+
+def test_lvp_cancelled_expires_by_clock():
+    _ev("EPKT", "140700Z 26004KT 0400 R26/0450N FG VV001 08/08 Q1012")
+    off = _ev("EPKT", "140730Z 26004KT 9999 FEW030 10/08 Q1012")
+    assert off["state"] == "CANCELLED" and off["until"] == "08:00Z"
+    # ten sam (stary) METAR po 08:00: odwołanie już nie trwa
+    assert _ev("EPKT", "140730Z 26004KT 9999 FEW030 10/08 Q1012", datetime(2026, 10, 14, 13, 30, tzinfo=UTC))["state"] is None
+    # po 30 min zostaje przygotowanie, jeśli METAR je spełnia
+    lvp.reset_memory()
+    _ev("EPKT", "140700Z 26004KT 0400 R26/0450N FG VV001 08/08 Q1012")
+    _ev("EPKT", "140730Z 26004KT 1200 BR BKN003 08/08 Q1012")
+    late = _ev("EPKT", "140730Z 26004KT 1200 BR BKN003 08/08 Q1012", datetime(2026, 10, 14, 8, 5, tzinfo=UTC))
+    assert late["state"] == "PREP" and late["until"] is None
+
+
+def test_lvp_military_rvr_equivalent_without_visibility():
+    # EPKS: METAR bez widzialności, tylko RVR; próg widzialności 800 m liczony jako RVR 550 m
+    on = _ev("EPKS", "140630Z 29004KT R29/0500N FG BKN002 08/08 Q1012")
+    assert on["state"] == "LVP" and "RVR 29 500 m ≤ 550 m" in on["reasons"]
+    off = _ev("EPKS", "140700Z 29004KT R29/0600N BKN002 08/08 Q1012")
+    assert off["state"] == "CANCELLED" and off["reasons"][0] == "warunki odwołania: RVR 29 600 m > 550 m"
+    # odwołanie z widzialnością: powód z wartością z METAR
+    lvp.reset_memory()
+    _ev("EPKS", "140630Z 29004KT 0800 FG BKN002 08/08 Q1012")
+    assert _ev("EPKS", "140700Z 29004KT 0900 BR BKN002 08/08 Q1012")["reasons"][0] == \
+        "warunki odwołania: widzialność 900 m > 800 m"
+
+
+def test_runway_config_hours_all_parse():
+    # zły format godzin w runway_config.json dawałby błąd 500 w /status
+    cfg = json.loads((settings.seed_dir / "runway_config.json").read_text("utf-8"))
+    for icao, c in cfg.items():
+        for rule in (c.get("preferential") or []) if isinstance(c, dict) else []:
+            for t in (DAY, NIGHT, datetime(2026, 1, 15, 4, 30, tzinfo=UTC)):
+                window_active(rule.get("hours", "H24"), t)
+            assert rule.get("arr") or rule.get("dep"), icao
