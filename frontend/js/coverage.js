@@ -108,3 +108,16 @@ export function nudge(box, obstacles, tiers = [{}], gap = 2) {
   }
   return best || { dx: 0, dy: 0, c: cost[n * side + n] };
 }
+
+// Prostokąt przeszkody (MAP: plakietka, dymek) po dojechaniu na miejsce. Leaflet stawia element warstwy przez transform,
+// a po animowanym zoomie element jeszcze do ~250 ms po moveend dojeżdża (przejście CSS). r: getBoundingClientRect
+// w trakcie, now: bieżące przesunięcie elementu (z getComputedStyle), to: docelowe (L.DomUtil.getPosition). Wynik na
+// siatce 1/64 px jak po dojechaniu: w trakcie przejścia wymiary mają błędy rzędu 1e-4 px, a nudge rozstrzyga styki
+// dokładnie. Element na miejscu (różnica do 0,01 px): r bez zmian.
+export function settledRect(r, now, to) {
+  const dx = to.x - now.x, dy = to.y - now.y;
+  if (Math.abs(dx) + Math.abs(dy) <= 0.01) return r;
+  const q = (v) => Math.round(v * 64) / 64;
+  const left = q(r.left + dx), top = q(r.top + dy), width = q(r.width), height = q(r.height);
+  return { left, top, right: left + width, bottom: top + height, width, height };
+}

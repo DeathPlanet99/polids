@@ -1,6 +1,7 @@
 """MAP: etykieta stanowiska z częstotliwością nie wpada pod nazwę lotniska, plakietkę ani inną etykietę
 (nudge z frontend/js/coverage.js: najbliższe wolne miejsce w obrębie własnego obszaru, inaczej najmniej zasłonięte,
-a ostatecznie tuż obok obszaru, gdy tam wyraźnie mniej zasłonięta)."""
+a ostatecznie tuż obok obszaru, gdy tam wyraźnie mniej zasłonięta); przeszkody po animowanym zoomie tam, dokąd
+dojeżdżają (settledRect)."""
 import json
 import shutil
 import subprocess
@@ -11,7 +12,7 @@ import pytest
 JS = Path(__file__).resolve().parents[2] / "frontend" / "js"
 
 NODE_SCRIPT = r"""
-const { nudge } = await import(process.argv[2]);
+const { nudge, settledRect } = await import(process.argv[2]);
 const LBL = { x: 0, y: 0, w: 68, h: 30 };  // "EPWW DTC / 125.340" w pikselach, środek w (0, 0)
 const over = (r, o) => Math.min(r.dx + 34, o.x + o.w / 2) > Math.max(r.dx - 34, o.x - o.w / 2)
   && Math.min(r.dy + 15, o.y + o.h / 2) > Math.max(r.dy - 15, o.y - o.h / 2);
@@ -47,6 +48,22 @@ out.touch = nudge(LBL, [touch], lastTier((dx, dy) => !dx && !dy));
 // kara przebita tylko wyraźnie: obok obszaru też zasłonięta prawie tak samo, więc zostaje na miejscu
 const wide = { x: 0, y: 0, w: 400, h: 400, k: 1 };
 out.same = nudge(LBL, [wide], lastTier((dx, dy) => !dx && !dy));
+// plakietka po animowanym zoomie jeszcze dojeżdża (przejście CSS): prostokąt z ekranu w trakcie, z błędami float rzędu
+// 1e-4 px, przesunięty o resztę drogi. Po dojechaniu styka się z etykietą dokładnie w pasie marginesu (lewa krawędź 34 + 2)
+const box = (r) => ({ x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2, w: r.width, h: r.height });
+const end = { left: 36, top: -7, right: 76.40625, bottom: 7, width: 40.40625, height: 14 };
+const to = { x: 120, y: 80 }, now = { x: 107.6543211, y: 84.321 }, e = 3e-4;  // jeszcze 12,35 px w prawo, 4,32 px w górę
+const mid = { left: end.left - 12.3456789 - e, top: end.top + 4.321 + e, width: end.width + e, height: end.height - e };
+mid.right = mid.left + mid.width;
+mid.bottom = mid.top + mid.height;
+out.still = settledRect(end, to, to) === end;
+out.settled = settledRect(mid, now, to);
+out.settledLbl = nudge(LBL, [box(out.settled)]);
+// bez siatki 1/64 px: ułamek piksela błędu robi ze styku zasłonięcie i etykieta ucieka (inaczej niż po dojechaniu)
+const raw = { left: mid.left + 12.3456789, top: mid.top - 4.321, width: mid.width, height: mid.height };
+raw.right = raw.left + raw.width;
+raw.bottom = raw.top + raw.height;
+out.rawLbl = nudge(LBL, [box(raw)]);
 console.log(JSON.stringify(out));
 """
 
@@ -98,3 +115,12 @@ def test_label_touching_stays_in_area(js):
     # styk z inną etykietą (margines 2 px) to mniej niż kara za wyjście z obszaru
     assert (js["touch"]["dx"], js["touch"]["dy"]) == (0, 0) and 0 < js["touch"]["c"] < 68 * 30 / 8
     assert (js["same"]["dx"], js["same"]["dy"]) == (0, 0)
+
+
+def test_obstacle_where_it_settles_after_zoom(js):
+    # plakietka w trakcie przejścia po animowanym zoomie: dokładnie tam, gdzie stanie; na miejscu prostokąt bez zmian
+    assert js["still"]
+    assert js["settled"] == {"left": 36, "top": -7, "right": 76.40625, "bottom": 7, "width": 40.40625, "height": 14}
+    # styk w pasie marginesu zostaje stykiem: etykieta na miejscu, jak przy plakietce, która już dojechała
+    assert js["settledLbl"] == {"dx": 0, "dy": 0, "c": 0}
+    assert (js["rawLbl"]["dx"], js["rawLbl"]["dy"]) != (0, 0)

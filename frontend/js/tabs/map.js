@@ -3,7 +3,7 @@ import { chartHtml, delayClass, listRow, loadRatio, stateChip, tvGroup, tvLabel 
 import { FACILITIES, PLANE_PATH, POSITION_COLORS, SymbolMarker, aircraftMarker, airportBadge, altLabel, atcPanes, atcRows, atcTooltip, colorFor, controllerRows,
   drawFirs, fl, loadFirs, loadVacs, sliceOwner, symbolFor, symbolSvg, vacsLayer } from "../airspace.js";
 import { airspaceChain } from "../chains.js";
-import { labelPoint, nudge } from "../coverage.js";
+import { labelPoint, nudge, settledRect } from "../coverage.js";
 import { dissolve, mainParts, pointIn } from "../dissolve.js";
 import { displayName, loadDisplayNames } from "../posname.js";
 import { activeAtc, activeOnline, buildTree, countOf, firsOf, matchItem, toggle } from "../postree.js";
@@ -543,22 +543,30 @@ function mainMap(ctx) {
   // (markerPane) zostają nad etykietami, więc ich nie omijamy.
   // W pikselach, więc od nowa po przesunięciu i zoomie mapy.
   const declutter = () => {
+    // mapa ukryta (inna zakładka, np. zmiana rozmiaru okna wtedy): przesunięcia zostają, przeliczy activate
+    if (!mapEl.offsetWidth) return;
     const boxes = [];
     const mb = map.getContainer().getBoundingClientRect();
-    const rect = (r, k) => {
+    // el: przeszkoda w elemencie warstwy `host` (plakietka, dymek), który Leaflet stawia przez transform; po animowanym
+    // zoomie liczy się miejsce, do którego host jeszcze dojeżdża (settledRect z coverage.js)
+    const rect = (el, k, host = el) => {
+      let r = el?.getBoundingClientRect();
       if (!r?.width) return null;
+      const t = getComputedStyle(host).transform, now = t !== "none" && new DOMMatrixReadOnly(t);
+      if (now) r = settledRect(r, { x: now.m41, y: now.m42 }, L.DomUtil.getPosition(host));
       const c = map.containerPointToLayerPoint([(r.left + r.right) / 2 - mb.left, (r.top + r.bottom) / 2 - mb.top]);
       return boxes[boxes.push({ x: c.x, y: c.y, w: r.width, h: r.height, k }) - 1];
     };
-    [layers.atc, layers.firs].forEach((lg) => lg.eachLayer((m) => rect(m.getElement?.()?.querySelector(".atcb")?.getBoundingClientRect(), 1)));
+    [layers.atc, layers.firs].forEach((lg) => lg.eachLayer((m) => { const h = m.getElement?.(); rect(h?.querySelector(".atcb"), 1, h); }));
     // nazwy punktów trasy (wybrany lot i trasa wpisana ręcznie: stałe dymki nad asLbl)
-    [layers.flight, layers.route].forEach((lg) => lg.eachLayer((m) => rect(m.getTooltip?.()?.getElement()?.getBoundingClientRect(), 1)));
-    // nazwa lotniska (stały dymek nad asLbl) razem z symbolem lotniska z jej lewej strony (kanwa pod asLbl)
-    layers.ads.eachLayer((m) => {
-      const b = m instanceof L.Tooltip && rect(m.getElement()?.getBoundingClientRect(), 1), x0 = b && map.latLngToLayerPoint(m.getLatLng()).x - 12;
+    [layers.flight, layers.route].forEach((lg) => lg.eachLayer((m) => rect(m.getTooltip?.()?.getElement(), 1)));
+    // nazwa lotniska (stały dymek nad asLbl) razem z symbolem lotniska z jej lewej strony (kanwa pod asLbl); wyłączone
+    // nazwy jeszcze ~200 ms gasną w DOM, ale już nie zasłaniają
+    if (map.hasLayer(layers.ads)) layers.ads.eachLayer((m) => {
+      const b = m instanceof L.Tooltip && rect(m.getElement(), 1), x0 = b && map.latLngToLayerPoint(m.getLatLng()).x - 12;
       if (b && x0 < b.x - b.w / 2) { b.w = b.x + b.w / 2 - x0; b.x = x0 + b.w / 2; }
     });
-    mapEl.querySelectorAll(".leaflet-control").forEach((el) => rect(el.getBoundingClientRect(), 3));
+    mapEl.querySelectorAll(".leaflet-control").forEach((el) => rect(el, 3));
     // poza widokiem mapy etykieta jest ucięta: brzegi jako przeszkody
     const o = map.containerPointToLayerPoint([0, 0]), { x: W, y: H } = map.getSize(), F = 1e5;
     [[-F, -F, 0, H + F], [W, -F, W + F, H + F], [0, -F, W, 0], [0, H, W, H + F]].forEach(([x0, y0, x1, y1]) =>
@@ -578,7 +586,7 @@ function mainMap(ctx) {
     ms.forEach((x) => { x.w = x.el.offsetWidth; x.hh = x.el.offsetHeight; });
     const prio = (m) => m.options.shift || 0;
     ms.sort((a, b) => !!prio(a.m) - !!prio(b.m) || prio(b.m) - prio(a.m)).forEach(({ m, el, w, hh }) => {
-      if (!w) return;  // mapa ukryta (inna zakładka): przeliczy activate
+      if (!w) return;
       const p = map.latLngToLayerPoint(m.getLatLng()), g = m.options.geom;
       // ile etykiety leży we własnym obszarze: środek (waga 5) i narożniki jej środkowej połowy (brzeg etykiety może
       // wystawać za granicę); przesunięta nie mniej niż na miejscu. Zapamiętane: to samo miejsce sprawdza kilka poziomów
