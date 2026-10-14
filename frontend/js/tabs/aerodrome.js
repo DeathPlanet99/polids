@@ -148,7 +148,8 @@ function runwayBox(st) {
   // kolory jak na paskach: ARR żółty, DEP niebieski (także gdy oba na tym samym pasie)
   const body = !u.arr ? "–"
     : `<span>ARR</span><b class="arr" style="color:${USE_COLOR.arr}">${esc(u.arr)}</b><span>DEP</span><b class="dep" style="color:${USE_COLOR.dep}">${esc(u.dep || u.arr)}</b>`;
-  let note = fromAtis ? `${esc(st.atis.callsign)}` : esc(u.reason || "");
+  // liczba i „kt” w jednej linii (np. „w plecy 7 kt > 5 kt”)
+  let note = fromAtis ? `${esc(st.atis.callsign)}` : esc(u.reason || "").replace(/(\d) kt\b/g, "$1&nbsp;kt");
   if (!fromAtis && st.atis) note += `<br>ATIS ${esc(st.atis.letter || "")} online, nie udało się odczytać pasa`;
   else if (!fromAtis && atc.length) note += `<br>Kontrola online (${atc.map((c) => esc(c.callsign)).join(", ")}), brak ATIS`;
   if (fromAtis && st.preferred?.arr && st.preferred.arr !== u.arr) note += `<br><span class="hint">wg wiatru: ${esc(st.preferred.arr)}</span>`;
