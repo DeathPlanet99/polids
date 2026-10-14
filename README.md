@@ -115,10 +115,17 @@ Jeśli na lotnisku nadaje ATIS, pas w użyciu bierzemy z jego tekstu. Bez ATIS-u
 1. pasy preferowane z AIP AD 2.21 (`data/seed/runway_config.json`: EPWA, EPMO, EPWR, EPGD, EPPO) w swoich oknach czasowych
    (godziny UTC zimą, w nawiasie latem; czas letni UE liczony bez tzdata), osobno dla lądowań i startów, w kolejności
    z AIP („26, potem 08”); pas odpada, gdy składowa w plecy albo boczna z porywami przekracza limit z AIP albo gdy
-   zachodzi warunek, przy którym hałas nie decyduje (podstawa chmur, widzialność, podejście bez ILS, burza); w LVP
+   zachodzi warunek, przy którym hałas nie decyduje (podstawa chmur, widzialność, podejście bez ILS, burza); wtedy
+   do startu pierwszy pas z listy AIP w limicie wiatru (ILS liczy się tylko przy lądowaniu: EPWA w mgle ARR 33, DEP 29);
+   start pod prąd lądowań (ten sam pas, przeciwny kierunek) tylko na lotnisku z jednym pasem, gdzie AIP to dopuszcza
+   (EPPO przy 100/08: ARR 10, DEP 28), na EPWA następny pas z listy (przy 190/10: ARR 11, DEP 15, nie 29); w LVP
    pasów preferowanych z AD 2.21 nie stosujemy: obowiązują pasy dopuszczone w LVP przez AD 2.22 (klucz `lvp`, EPWA:
-   lądowania 33 albo 11, starty 29 albo 15; EPPO: lądowania 28, starty 28 albo 10), a bez nich kierunek z ILS,
-2. LVP / przygotowanie LVP / IMC: kierunek z ILS, o ile wiatr w plecy nie przekracza 5 kt,
+   lądowania 33 albo 11, starty 29 albo 15; EPPO: lądowania 28, starty 28 albo 10), pierwszy z wiatrem w plecy
+   z porywami w limicie lotniska, starty nigdy pod prąd lądowań (EPWA 33/29 albo 11/15, EPPO 28/28), lądowania na
+   RWY 11 (ILS CAT II) tylko przy RVR ≥ 300 m, a przy RVR < 125 m ostrzeżenie „starty niedozwolone”; bez list
+   z AD 2.22 kierunek z ILS,
+2. LVP / przygotowanie LVP / IMC: kierunek z ILS, o ile wiatr w plecy nie przekracza 5 kt (przy ciszy i wietrze
+   zmiennym pierwszy w kolejności lądowań z AIP),
 3. słaby wiatr (< 5 kt), tylko lotniska bez pasów preferowanych w AIP: konfiguracja preferowana lotniska (arr/dep
    w `runway_config.json`, obecnie żadne lotnisko jej nie ma), bez niej kierunek z ILS,
 4. w pozostałych przypadkach największa składowa czołowa.

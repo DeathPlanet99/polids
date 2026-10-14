@@ -2,13 +2,13 @@
   "_uwaga": "Progi LVP (Low Visibility Procedures) z AIP (AIRAC AMDT 10-26, 01.10.2026): AD 2.22 lotnisk IFR, AIP MIL AD 4.20. Fazy: prep = przygotowanie (gdy AIP je podaje), lvp = wprowadzenie, cancel = odwołanie. Warunek [op, wartość]: op jak w AIP (<, <=, >, >=). rvr_m = RVR z METAR (najniższy z pasów), bez grupy RVR widzialność; ceiling_ft = podstawa chmur BKN/OVC/VV ('chmury pokrywające więcej niż połowę nieba'); vis_m = widzialność z METAR (lotniska wojskowe), rvr_eq_m = odpowiednik RVR z AIP, używany tylko, gdy METAR nie podaje widzialności. logic: or = wystarczy jeden warunek, and = wszystkie (AIP pisze przy odwołaniu czasem 'i/lub', liczymy wtedy 'i', jak wprost w AD 2.22 EPKT, EPRZ i EPLB). Histereza: LVP trwa, dopóki nie są spełnione warunki odwołania; po odwołaniu stan 'LVP ODWOŁANE' przez 30 min. Tendencji (poprawa / pogorszenie) z METAR nie oceniamy. scope DEP = LVP tylko dla odlotów (lotniska wojskowe). applies false = AIP nie przewiduje LVP (reason). verified false = progi niesprawdzone z AIP. DEFAULT dotyczy lotnisk bez wpisu (lotniska VFR i nieopublikowane w AIP).",
   "DEFAULT": {"applies": false, "reason": "AIP nie przewiduje LVP (lotnisko VFR albo bez danych w AIP)"},
   "EPWA": {
-    "source": "AIP AD 2.22 pkt 7.1.2.1-7.1.2.2 (tekst AIP od Marka, 14.10.2026)",
-    "note": "AIP nie podaje progów fazy przygotowania; odwołanie 'i/lub' liczone jak 'i', przy tendencji do dalszej poprawy; ILS CAT IIIA RWY 33, CAT II RWY 11, starty z RWY 29 albo 15; starty niedozwolone przy RVR < 125 m",
+    "source": "AIP AD 2.22 pkt 7.1.2.1-7.1.2.2",
+    "note": "odwołanie 'i/lub' liczone jak 'i', przy tendencji do dalszej poprawy; ILS CAT IIIA RWY 33, CAT II RWY 11, starty z RWY 29 albo 15; starty niedozwolone przy RVR < 125 m",
     "lvp": {"rvr_m": ["<", 550], "ceiling_ft": ["<", 200], "logic": "or"},
     "cancel": {"rvr_m": [">", 550], "ceiling_ft": [">=", 200], "logic": "and"}
   },
   "EPPO": {
-    "source": "AIP AD 2.22 pkt 6.2.1-6.2.3 (tekst AIP od Marka, 14.10.2026)",
+    "source": "AIP AD 2.22 pkt 6.2.1-6.2.3",
     "note": "przygotowanie AIP wiąże z tendencją spadkową RVR, prognozą TAF albo ostrzeżeniem lotniskowym (nie oceniamy ich, liczą się same progi); odwołanie przy utrzymującej się tendencji do poprawy; ILS CAT II tylko RWY 28, starty z RWY 10 albo 28; starty niedozwolone przy RVR < 125 m",
     "prep": {"rvr_m": ["<=", 800], "ceiling_ft": ["<=", 300], "logic": "or"},
     "lvp": {"rvr_m": ["<", 550], "ceiling_ft": ["<", 200], "logic": "or"},
