@@ -10,8 +10,10 @@ RVR_RE = re.compile(r"^R(?P<rwy>\d{2}[LCR]?)/(?P<val>[PM]?\d{4}(?:V[PM]?\d{4})?)
 CLOUD_RE = re.compile(r"^(?P<cov>FEW|SCT|BKN|OVC|VV)(?P<hgt>\d{3}|///)(?P<type>CB|TCU|///)?$")
 TEMP_RE = re.compile(r"^(?P<t>M?\d{2})/(?P<d>M?\d{2})?$")
 QNH_RE = re.compile(r"^(?P<u>[QA])(?P<v>\d{4})$")
+# zjawisko z opadem albo samo TS / SH (burza bez opadu "TS", w pobliżu "VCTS", "VCSH")
 WX_RE = re.compile(
-    r"^(?:[+-]|VC)?(?:MI|PR|BC|DR|BL|SH|TS|FZ)?(?:DZ|RA|SN|SG|IC|PL|GR|GS|UP|BR|FG|FU|VA|DU|SA|HZ|PO|SQ|FC|SS|DS)+$"
+    r"^(?:[+-]|VC)?(?:(?:MI|PR|BC|DR|BL|SH|TS|FZ)?(?:DZ|RA|SN|SG|IC|PL|GR|GS|UP|BR|FG|FU|VA|DU|SA|HZ|PO|SQ|FC|SS|DS)+"
+    r"|TS|SH)$"
 )
 
 

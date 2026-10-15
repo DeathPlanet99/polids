@@ -177,6 +177,10 @@ table.data td.num { text-align: right; font-family: var(--mono); }
 /* imię i nazwisko dłuższe niż cały panel zawija się w sobie, nie wychodzi za krawędź */
 .radio-row .who { color: var(--green-hi); font-size: 12px; overflow-wrap: anywhere; }
 .radio-row .booked-txt { color: #ffb020; font-size: 12px; white-space: nowrap; }
+/* częstotliwości z AIP bez stanowiska w .ese: uwaga i godziny pracy za nazwą; długie godziny (np. EPOK)
+   zawijają się w panelu zamiast wychodzić za krawędź */
+.radio-row .hrs, .radio-row .fq-note { color: var(--muted); font: 11px var(--mono); min-width: 0; overflow-wrap: anywhere; }
+.radio-row .fq-note { color: var(--text); }
 
 /* dymek po najechaniu (data-tip): kto jest zalogowany / zarezerwował */
 [data-tip] { cursor: help; }
@@ -253,6 +257,8 @@ table.data td.num { text-align: right; font-family: var(--mono); }
 .lvp-off span { display: inline; margin-left: 6px; }
 .lvp-prep { color: var(--warn); border-color: var(--warn); }
 .lvp-lvp { color: #fff; background: #b0201a; border-color: #ff5a4a; }
+.lvp-cancel { color: var(--ok); border-color: var(--ok); }
+.lvp-na { opacity: .6; }
 .lvp[data-tip]:hover::after { left: auto; right: 0; }
 .values { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
 .values .card { --cy: 8px; --cx: 8px; }

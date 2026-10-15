@@ -1,8 +1,10 @@
 // RADIO: jedna strona jak w PANDORZE (runda 10, Marek): u góry pasek ATIS, po lewej duży podgląd LOW z sektoryzacją
 // FIR EPWW i stosami sąsiadów (ESAA, EDWW, EDUU, EDMM, LKAA), w środku przyciski warstw i mały podgląd MID, po prawej
-// duży podgląd HIGH ze stosami UMKK, EYVL, UMMV, UKLV, LZBB. Na podglądach: ID sektora (litera warstwy + litera sektora,
-// np. LB) i częstotliwość stanowiska, które teraz go obsługuje wg kolejności przejmowania (ownership.json); bez nikogo
-// samo ID (runda 11, Marek: częstotliwość dopiero, gdy ktoś obsługuje – też APP, TWR, ATIS i FIS). Stosy sąsiadów
+// duży podgląd HIGH ze stosami UMKK, EYVL, UMMV, UKLV, LZBB. Sektory ACC na podglądach (runda 12, Marek): wycinki
+// obsługiwane przez to samo stanowisko (kolejność przejmowania, ownership.json) jako jeden obszar z jedną etykietą
+// (stanowisko i częstotliwość), granica tylko tam, gdzie zmienia się obsługujący; sektorów bez nikogo nie rysujemy
+// (ramą zostaje granica FIR EPWW). APP, TWR, ATIS i FIS bez nikogo: samo ID (runda 11, Marek: częstotliwość dopiero,
+// gdy ktoś obsługuje). Stosy sąsiadów
 // (runda 11): sektory graniczące z EPWW jak w VACS (bez FMP), częstotliwość tylko, gdy ktoś je obsługuje; nikt w całym
 // stosie → jedna linia ADVISORY 122.800.
 // Runda 11 (Marek): warstwa APP w częściach TMA wg stanowiska APP (WA APP, WA N APP, WA S APP) i z TMA proceduralnymi
@@ -12,9 +14,10 @@
 // (GET /api/radio/loa) i odnośnikiem do PDF-u w OTHER › DOCS (kategoria LOA).
 import { api, esc, h, lsGet, lsSet, navigate, remember } from "../api.js";
 import { labelPoint } from "../coverage.js";
+import { dissolve, pointIn } from "../dissolve.js";
 import { displayName, loadDisplayNames, posName } from "../posname.js";
 import { ADVISORY_FQ, DEFAULT_CUT, DEFAULT_LAYERS, EPWW_BBOX, LAYERS, LAYER_IDS, TOP_FT, argOf, bboxOf, bboxOrDefault, byShort,
-  controllersOn, coverGrid, cutAt, cutBand, cutBounds, cutRange, flNum, flText, labelOpts, parseArg, pathOf, placeLabels, projection,
+  controllersOn, coverGrid, cutAt, cutBand, cutBounds, cutRange, flNum, flText, labelOpts, parseArg, pathAll, pathOf, placeLabels, projection,
   ringsOf, sliceAt, stackBands, utcHhmm } from "../radioboard.js";
 
 const LS_LAYERS = "radio.layers", LS_CUT = "radio.cut";
@@ -49,6 +52,33 @@ const areaOf = (g) => ringsOf(g).reduce((a, r) => a + Math.abs(r.reduce((s, [x1,
   const [x2, y2] = r[(i + 1) % r.length];
   return s + x1 * y2 - x2 * y1;
 }, 0)) / 2, 0);
+
+// Sektory ACC podglądu wg obsługującego (runda 12, Marek): wycinki na wysokości podglądu (accs, sliceAt) z tym samym
+// stanowiskiem z kolejności przejmowania warstwy (sectors z /api/radio/board: owner) → jeden obszar (dissolve.js,
+// w pamięci wg klucza: wersja danych, stanowisko, wycinki) i jeden punkt etykiety poza dziurami; wycinki bez nikogo
+// pomijamy. Błąd sumy: geom null, rysujemy same wypełnienia wycinków. Wynik od największego obszaru:
+// [{owner, sectors (wg ID), slices, geom, area, at: [lat, lon]}]
+export function accGroups(accs, sectors, layer, ver = "") {
+  const own = new Map((sectors || []).filter((s) => s.layer === layer && s.owner).map((s) => [s.letter, s]));
+  const by = new Map();
+  (accs || []).forEach((sl) => {
+    const s = own.get(sl.letter);
+    if (!s) return;
+    let g = by.get(s.owner);
+    if (!g) by.set(s.owner, (g = { owner: s.owner, sectors: [], slices: [] }));
+    if (!g.sectors.includes(s)) g.sectors.push(s);
+    g.slices.push(sl);
+  });
+  return [...by.values()].map((g) => {
+    const u = dissolve(`rb|${ver}|${g.owner}|${g.slices.map((sl) => `${sl.name}:${sl.lo}`).sort().join(",")}`, g.slices.map((sl) => sl.geometry));
+    const big = g.slices.reduce((a, sl) => (areaOf(sl.geometry) > areaOf(a.geometry) ? sl : a));
+    const at = (u && (u.at ||= pointIn(u.geometry))) || labelPoint({ type: "Feature", geometry: big.geometry, properties: { fir: "EPWW", name: big.name } })?.at || null;
+    return { ...g, sectors: g.sectors.sort((a, b) => a.id.localeCompare(b.id)), geom: u?.geometry || null,
+      area: u ? u.area : g.slices.reduce((a, sl) => a + areaOf(sl.geometry), 0), at };
+  }).sort((a, b) => b.area - a.area);
+}
+// etykieta sektorów ACC jednego stanowiska: nazwa stanowiska (id) i częstotliwość; x.freq jak w lblLines
+export const accLabel = (g, id, x) => ({ cls: "acc", state: "on", id, k: g.owner, ls: [{ fq: x.freq(g.owner), by: "" }] });
 
 // --- LOA EPWW z sąsiadem (data/seed/loa.json, jak do 0.11 w RADIO): tytuł, wersja, liczba przekazań i PDF, pod spodem
 // gęste tabele przekazań OUT/IN, zasady (przekazanie kontroli, VFR, inne) i stanowiska wg LOA, z filtrem.
@@ -218,7 +248,7 @@ export default {
         ${MAPS.map((m) => m.key === "MID" ? `<div class="rb-mid">
             <div class="rb-btns">${LAYERS.map((l) => `<button type="button" data-ly="${l.id}" title="${esc(l.tip)}" aria-pressed="false">${esc(l.label)}</button>`).join("")}</div>
             <div class="rb-status"></div>
-            <div class="rb-legend"><span><i class="rb-sw on"></i>obsadzony</span><span title="Sektory, TMA, CTR i FIS EPWW bez nikogo online: samo ID, bez częstotliwości (stanowisko i jego częstotliwość w dymku); sąsiedzi: pole bez częstotliwości, nikt w całym stosie – ADVISORY ${ADVISORY_FQ}"><i class="rb-sw off"></i>nikt (samo ID)</span><span><i class="rb-sw cov"></i>↑ przejmuje inne (TWR)</span></div>
+            <div class="rb-legend"><span title="Sektory ACC: jeden obszar i jedna etykieta (stanowisko, częstotliwość) na stanowisko; granica tylko tam, gdzie zmienia się obsługujący. Sektorów bez nikogo nie rysujemy (zostaje granica FIR EPWW)."><i class="rb-sw on"></i>obsadzony</span><span title="TMA, CTR i FIS EPWW bez nikogo online: samo ID, bez częstotliwości (stanowisko i jego częstotliwość w dymku); sektory ACC bez nikogo: nie rysujemy; sąsiedzi: pole bez częstotliwości, nikt w całym stosie – ADVISORY ${ADVISORY_FQ}"><i class="rb-sw off"></i>nikt (TMA, CTR, FIS: samo ID)</span><span><i class="rb-sw cov"></i>↑ przejmuje inne (TWR)</span></div>
             ${panelHtml(m)}
           </div>` : panelHtml(m)).join("")}
         <div class="rb-loa" role="dialog" aria-label="LOA" hidden></div>
@@ -285,29 +315,23 @@ export default {
     }
 
     // --- podglądy
-    const accTip = (s) => {
-      const ly = d.layers?.[s.layer];
-      return [`Sektor ${s.letter} · ${s.layer}${ly?.label ? ` ${ly.label}` : ""}`, `Stanowisko sektora: ${posLine(s.nominal)}`,
-        nowText(s.owner ? [s.owner] : []), `Kolejność: ${chainText(s.chain)}`].join("\n");
+    // dymek obszaru stanowiska: kto, które sektory warstwy i ich kolejność przejmowania
+    const accTip = (g, layer) => {
+      const ly = d.layers?.[layer];
+      return [`${displayName(g.owner)} · ${layer}${ly?.label ? ` ${ly.label}` : ""}`, nowText([g.owner]),
+        `Sektory: ${g.sectors.map((s) => s.id).join(", ")}`,
+        ...g.sectors.map((s) => `${s.id}: ${s.nominal !== g.owner ? `stanowisko sektora ${nm(s.nominal)}, ` : ""}kolejność ${chainText(s.chain)}`)].join("\n");
     };
     const groupTip = (g, title, extra = [], now = null) => [title, `Stanowisko: ${posLine(g.nominal)}`,
       now || (g.owners.length || !g.topdown ? nowText(g.owners) : `Teraz top-down: ${who(g.topdown) || g.topdown}`), ...extra,
       `Kolejność: ${chainText(g.chains[0] || [])}`].join("\n");
 
     // etykiety podglądu: {lb (model etykiety), at: [lat, lon], kind, box?, dot?}; APP, TWR i FIS tylko na LOW;
-    // kolejność układania: lblPrio
-    function labelsFor(m, accs) {
+    // kolejność układania: lblPrio. Sektory ACC: jedna etykieta na stanowisko (accGroups)
+    function labelsFor(m, groups) {
       const out = [], x = lx();
       if (layers.has(m.layer)) {
-        const byLetter = new Map();
-        accs.forEach((s) => { const b = byLetter.get(s.letter); if (!b || areaOf(s.geometry) > areaOf(b.geometry)) byLetter.set(s.letter, s); });
-        d.sectors.filter((s) => s.layer === m.key && byLetter.has(s.letter)).forEach((s) => {
-          const sl = byLetter.get(s.letter);
-          const at = labelPoint({ type: "Feature", geometry: sl.geometry, properties: { fir: "EPWW", name: sl.name } })?.at;
-          const owners = s.owner ? [s.owner] : [];
-          if (at) out.push({ at, kind: "acc", lb: { cls: "acc", state: owners.length ? "on" : "off", id: s.id, k: s.letter,
-            ls: lblLines(s.nominal, owners, x), rt: accTip(s) } });
-        });
+        groups.forEach((g) => { if (g.at) out.push({ at: g.at, kind: "acc", lb: { ...accLabel(g, displayName(g.owner), x), rt: accTip(g, m.key) } }); });
       }
       if (m.key !== "LOW") return out;  // APP, TWR i FIS to przestrzeń dolna: na podglądzie LOW
       if (layers.has("app")) {
@@ -357,8 +381,7 @@ export default {
       const { P } = projection(border, { x: fr.left - pr.left, y: fr.top - pr.top, w: fr.width, h: fr.height }, 0.03,
         m.key === "MID" ? "bottom" : "middle");
       const ft = m.key === "LOW" ? lowCut() * 100 : LEVEL_FT[m.key];
-      const accs = sliceAt(geo.acc, ft);
-      const staffed = new Set(d.sectors.filter((s) => s.layer === m.key && s.owner).map((s) => s.letter));
+      const groups = accGroups(sliceAt(geo.acc, ft), d.sectors, m.key, geoVer);
       const low = m.key === "LOW";
       const g = (cls, list) => `<g class="${cls}">${list.map((x) => `<path d="${pathOf(x.geometry, P)}"/>`).join("")}</g>`;
       m.svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
@@ -369,11 +392,13 @@ export default {
         + (low && layers.has("fis") ? g("rb-fisg", geo.fis) : "")
         + (low && layers.has("app") ? g("rb-tmag", geo.tma) : "")
         + (low && (layers.has("twr") || layers.has("twra")) ? g("rb-ctrg", geo.ctr) : "")
-        + `<g class="rb-accg">${accs.map((s) => `<path data-k="${esc(s.letter)}" class="${staffed.has(s.letter) ? "st" : ""}" d="${pathOf(s.geometry, P)}"/>`).join("")}</g>`
+        // obszar stanowiska (bez granic między jego sektorami); po błędzie sumy same wypełnienia wycinków
+        + `<g class="rb-accg">${groups.map((x) => (x.geom ? `<path data-k="${esc(x.owner)}" class="st" d="${pathAll(x.geom, P)}"/>`
+          : x.slices.map((sl) => `<path data-k="${esc(x.owner)}" class="st fb" d="${pathOf(sl.geometry, P)}"/>`).join(""))).join("")}</g>`
         + `<path class="rb-border" d="${pathOf(geo.border, P)}"/>`;
       renderTitle(m, { top: fr.top - pr.top, left: fr.left - pr.left, right: pr.right - fr.right });
       // etykiety: wstawiamy wszystkie odmiany, mierzymy, układamy (ważniejsze pierwsze), zostawiamy wybraną odmianę
-      const items = labelsFor(m, accs).map((it) => ({ ...it, prio: lblPrio(it.kind, it.lb) })).sort((a, b) => a.prio - b.prio);
+      const items = labelsFor(m, groups).map((it) => ({ ...it, prio: lblPrio(it.kind, it.lb) })).sort((a, b) => a.prio - b.prio);
       const vs = items.map((it) => lblVariants(it.lb, it.kind !== "acc"));
       m.lbls.innerHTML = items.map((it, i) => vs[i].map((v) => lblHtml(it.lb, v)).join("")).join("");
       const els = [...m.lbls.children];

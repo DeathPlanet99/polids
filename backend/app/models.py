@@ -41,13 +41,19 @@ class Runway(Base):
 
 
 class Frequency(Base):
+    """Częstotliwość lotniska z AIP (AD 2.18, AIP MIL AD 4.18, AIP VFR AD 4.8-4.9) albo, dla lądowisk spoza AIP,
+    z lotniska.dlapilota.pl (data/seed/frequencies.csv)."""
+
     __tablename__ = "frequencies"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     aerodrome_icao: Mapped[str] = mapped_column(ForeignKey("aerodromes.icao"), index=True)
-    kind: Mapped[str] = mapped_column(String(40))
-    description: Mapped[str | None] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(40))  # służba: TWR, APP, ATIS, AFIS, RADIO, PAR…
+    description: Mapped[str | None] = mapped_column(String(120))  # znak wywoławczy
     mhz: Mapped[str] = mapped_column(String(10))
+    hours: Mapped[str | None] = mapped_column(Text)  # godziny pracy jak w AIP: zima UTC, w nawiasie lato
+    note: Mapped[str | None] = mapped_column(Text)  # uwaga z AIP, np. EPRA: TWR cywilna i wojskowa na tej samej
+    source: Mapped[str | None] = mapped_column(String(80))
 
     aerodrome: Mapped[Aerodrome] = relationship(back_populates="frequencies")
 
@@ -157,7 +163,8 @@ class ImportLog(Base):
 
 
 class Sector(Base):
-    """Sektor przestrzeni z sekcji [AIRSPACE] pliku .ese (geometria jako GeoJSON)."""
+    """Sektor przestrzeni z pliku .ese EPWW, wczytany z data/seed/sectors.geojson (source EPWW; geometria
+    jako GeoJSON)."""
 
     __tablename__ = "sectors"
 
@@ -171,7 +178,8 @@ class Sector(Base):
 
 
 class NbSector(Base):
-    """Sektor FIR-u sąsiedniego z jego własnego pliku .ese (data/import/neighbours), tylko w rejonie Polski.
+    """Sektor FIR-u sąsiedniego z jego własnego pliku .ese (data/import/neighbours), tylko w rejonie Polski;
+    wczytany z data/seed/sectors.geojson.
 
     owners to już znaki stanowisk (identyfikatory z [POSITIONS] są ważne tylko w obrębie jednego pliku)."""
 
@@ -189,7 +197,8 @@ class NbSector(Base):
 
 
 class NbPosition(Base):
-    """Stanowisko z pliku .ese sąsiada, występujące w kolejności przejmowania jego sektorów (bez stanowisk EP**)."""
+    """Stanowisko z pliku .ese sąsiada (bez stanowisk EP**): z kolejności przejmowania sektorów FIR-ów pakietu albo
+    lotniska i FIR-u pakietu (prefiksy NB_SOURCES[…]["airports"], np. EDDF_TWR do karty lotniska w AERODROME)."""
 
     __tablename__ = "nb_positions"
 

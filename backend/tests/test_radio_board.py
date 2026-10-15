@@ -598,13 +598,15 @@ LAYOUT_SCRIPT = r"""
 // podgląd LOW (FL300) jak na ekranie 1366×768 i 1600×900: etykiety ACC, APP, TWR, TWR/ATIS i FIS z /api/radio/board
 // zbudowane funkcjami strony (lblLines, tmaLines, twrLines, lblVariants, lblPrio) i ułożone przez placeLabels
 // z labelOpts. Rozmiary odmian z tekstu jak w radio.css (znak mono 0,6 em), panel, stosy sąsiadów i tytuł zmierzone
-// w przeglądarce. Zestawy online: board (FEED), alt (WA S APP, WA TWR, GD APP, FIS WA) i all (każde stanowisko i ATIS)
+// w przeglądarce. Zestawy online: board (FEED), alt (WA S APP, WA TWR, GD APP, FIS WA) i all (każde stanowisko i ATIS).
+// Sektory ACC (runda 12): jedna etykieta na stanowisko (accGroups, suma wycinków polygon-clipping z vendor/)
 import fs from "fs";
+import { createRequire } from "module";
+globalThis.polygonClipping = createRequire(import.meta.url)(process.argv[6]);
 const rb = await import(process.argv[2]);
-const { labelPoint } = await import(process.argv[3]);
-const { boards, geo } = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
-const radio = await import(process.argv[5]);
-const { posName } = await import(process.argv[6]);
+const { boards, geo } = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const radio = await import(process.argv[4]);
+const { posName } = await import(process.argv[5]);
 // panel LOW: W, H, wolne pole (projekcja) i przeszkody [x, y, w, h]; f, fa = --rb-f etykiet APP/TWR/FIS i sektorów ACC
 const SCREENS = {
   1366: { W: 485, H: 729, free: [140, 124, 341, 470], f: 10, fa: 11,
@@ -632,9 +634,6 @@ function sizeOf(lb, v, scr) {
   if (at) { ws.push(tw("ATIS", byF) + 4 + tw(at[1], f) + (at[2] ? 13 + tw(at[2], Math.max(8, f - 4)) : 0)); hs.push(f * 1.12); }
   return { w: Math.ceil(side + 8 + Math.max(tw(lb.id, idF, 0.2), ...ws)), h: Math.ceil(3 + idF * 1.15 + hs.reduce((a, b) => a + b, 0) + (lb.more ? 10 : 0)) };
 }
-const area = (g) => rb.ringsOf(g).reduce((a, r) => a + Math.abs(r.reduce((s, [x1, y1], i) => s + x1 * r[(i + 1) % r.length][1] - r[(i + 1) % r.length][0] * y1, 0)) / 2, 0);
-const byLetter = new Map();
-rb.sliceAt(geo.acc, 30000).forEach((s) => { const b = byLetter.get(s.letter); if (!b || area(s.geometry) > area(b.geometry)) byLetter.set(s.letter, s); });
 // "all": każde stanowisko (sektor, część TMA, wieża, FIS) i każdy ATIS online – najwięcej częstotliwości
 const b0 = boards.board, own = (g) => ({ ...g, owners: [g.nominal] });
 boards.all = { ...b0, sectors: b0.sectors.map((s) => ({ ...s, owner: s.nominal })), tma: b0.tma.map(own), twr: b0.twr.map(own), fis: b0.fis.map(own),
@@ -645,10 +644,8 @@ function layout(bd, set, scr) {
   const ly = new Set(SETS[set]), twra = ly.has("twra"), twrOn = twra || ly.has("twr");
   const x = { freq: (cs) => bd.online?.[cs]?.frequency || bd.pos[cs]?.frequency || "", nm: posName, pos: bd.pos, on: (cs) => bd.online?.[cs] || null };
   const items = [];
-  bd.sectors.filter((s) => s.layer === "LOW" && byLetter.has(s.letter)).forEach((s) => {
-    const sl = byLetter.get(s.letter), at = labelPoint({ type: "Feature", geometry: sl.geometry, properties: { fir: "EPWW", name: sl.name } })?.at;
-    const owners = s.owner ? [s.owner] : [];
-    if (at) items.push({ name: s.id, kind: "acc", at, lb: { cls: "acc", state: owners.length ? "on" : "off", id: s.id, ls: radio.lblLines(s.nominal, owners, x) } });
+  radio.accGroups(rb.sliceAt(geo.acc, 30000), bd.sectors, "LOW", "layout").forEach((g) => {
+    if (g.at) items.push({ name: g.owner, kind: "acc", at: g.at, lb: radio.accLabel(g, posName(g.owner), x) });
   });
   if (ly.has("app")) {
     const tma = bd.tma.filter((g) => g.at), parts = radio.tmaLines(tma, x);
@@ -735,7 +732,8 @@ def test_js_twr_layout(client, board, tmp_path, monkeypatch):
     """Runda 11 (przegląd): etykiety podglądu LOW na 1366×768 i 1600×900 z warstwami TWR, APP+TWR i APP+TWR/ATIS+FIS
     – geometria z /api/radio/board, etykiety i układ funkcjami strony (zrzuty w przeglądarce sprawdzają resztę).
     Bez nakładania się, bez etykiet na kropkach lotnisk i TMA, CTR nie schowane; obsadzona zawsze z częstotliwością
-    (także przejmowana ↑APP i w tłoku), bez nikogo samo ID (runda 11, Marek)."""
+    (także przejmowana ↑APP i w tłoku), bez nikogo samo ID (runda 11, Marek). Sektory ACC: etykieta na stanowisko
+    (runda 12), sektorów bez nikogo bez etykiety."""
     node = shutil.which("node")
     if not node:
         pytest.skip("brak Node.js")
@@ -754,8 +752,10 @@ def test_js_twr_layout(client, board, tmp_path, monkeypatch):
     data.write_text(json.dumps({"boards": {"board": board, "alt": alt_board}, "geo": geo}), "utf-8")
     script = tmp_path / "layout.mjs"
     script.write_text(LAYOUT_SCRIPT, "utf-8")
-    r = subprocess.run([node, str(script), (d / "radioboard.js").as_uri(), (d / "coverage.js").as_uri(), str(data),
-                        (d / "tabs" / "radio.js").as_uri(), (d / "posname.js").as_uri()], capture_output=True, text=True, timeout=300)
+    pc = tmp_path / "pc.cjs"
+    pc.write_text((FRONTEND / "vendor" / "polygon-clipping" / "polygon-clipping.umd.min.js").read_text("utf-8"), "utf-8")
+    r = subprocess.run([node, str(script), (d / "radioboard.js").as_uri(), str(data), (d / "tabs" / "radio.js").as_uri(),
+                        (d / "posname.js").as_uri(), str(pc)], capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, r.stderr
     res = json.loads(r.stdout)
     assert len(res) == 18
@@ -780,6 +780,75 @@ def test_js_twr_layout(client, board, tmp_path, monkeypatch):
         else:
             # w tłoku etykieta bez miejsca w zasięgu odchodzi dalej (STRETCH 1,5), zanim cokolwiek zasłoni
             assert far["twr"] <= 135 and far["app"] <= 160 and max(far.values()) <= 160, (key, far)
+
+
+ACC_SCRIPT = r"""
+// sektory ACC podglądów wg stanowiska (runda 12): accGroups na geometrii i tablicy z /api/radio/board
+import fs from "fs";
+import { createRequire } from "module";
+globalThis.polygonClipping = createRequire(import.meta.url)(process.argv[4]);
+const radio = await import(process.argv[2]);
+const rb = await import(process.argv[3]);
+const { board, geo } = JSON.parse(fs.readFileSync(process.argv[5], "utf8"));
+console.warn = () => {};
+const inRing = (r, x, y) => { let c = false; for (let a = 0, b = r.length - 1; a < r.length; b = a++) {
+  if ((r[a][1] > y) !== (r[b][1] > y) && x < ((r[b][0] - r[a][0]) * (y - r[a][1])) / (r[b][1] - r[a][1]) + r[a][0]) c = !c; } return c; };
+const inside = (g, [lat, lon]) => (g.type === "Polygon" ? [g.coordinates] : g.coordinates)
+  .some(([outer, ...holes]) => inRing(outer, lon, lat) && !holes.some((h) => inRing(h, lon, lat)));
+const sum = (gs) => gs.map((g) => ({ owner: g.owner, ids: g.sectors.map((s) => s.id), slices: g.slices.length,
+  parts: g.geom ? g.geom.coordinates.length : null, holes: g.geom ? g.geom.coordinates.reduce((a, p) => a + p.length - 1, 0) : null,
+  inside: !!g.at && (g.geom ? inside(g.geom, g.at) : g.slices.some((sl) => inside(sl.geometry, g.at))) }));
+const out = {};
+for (const [layer, ft] of [["LOW", 30000], ["MID", 35000], ["HIGH", 40000]]) out[layer] = sum(radio.accGroups(rb.sliceAt(geo.acc, ft), board.sectors, layer, "t"));
+out.letters = [...new Set(rb.sliceAt(geo.acc, 30000).map((s) => s.letter))].sort();
+// każdy sektor obsadzony przez własne stanowisko; nikt online; bez biblioteki (same wycinki, etykieta w największym)
+out.all = sum(radio.accGroups(rb.sliceAt(geo.acc, 30000), board.sectors.map((s) => ({ ...s, owner: s.nominal })), "LOW", "t"));
+out.none = radio.accGroups(rb.sliceAt(geo.acc, 30000), board.sectors.map((s) => ({ ...s, owner: null })), "LOW", "t").length;
+const lib = globalThis.polygonClipping;
+globalThis.polygonClipping = undefined;
+out.nolib = sum(radio.accGroups(rb.sliceAt(geo.acc, 30000), board.sectors, "LOW", "nolib"));
+globalThis.polygonClipping = lib;
+out.path = rb.pathAll({ type: "Polygon", coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]], [[2, 2], [4, 2], [4, 4], [2, 4], [2, 2]]] }, (c) => c);
+console.log(JSON.stringify(out));
+"""
+
+
+def test_js_acc_groups(client, board, tmp_path):
+    """Runda 12 (Marek): na podglądach LOW/MID/HIGH sektory ACC jednego stanowiska to jeden obszar z jedną etykietą
+    (accGroups), sektorów bez nikogo nie rysujemy; po błędzie sumy same wycinki."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("brak Node.js")
+    d = tmp_path / "js"
+    shutil.copytree(FRONTEND / "js", d)
+    (d / "package.json").write_text('{"type": "module"}', "utf-8")
+    pc = tmp_path / "pc.cjs"
+    pc.write_text((FRONTEND / "vendor" / "polygon-clipping" / "polygon-clipping.umd.min.js").read_text("utf-8"), "utf-8")
+    data = tmp_path / "board.json"
+    data.write_text(json.dumps({"board": board, "geo": client.get("/api/radio/board?geo=1").json()["geo"]}), "utf-8")
+    script = tmp_path / "acc.mjs"
+    script.write_text(ACC_SCRIPT, "utf-8")
+    r = subprocess.run([node, str(script), (d / "tabs" / "radio.js").as_uri(), (d / "radioboard.js").as_uri(), str(pc), str(data)],
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    for layer in ("LOW", "MID", "HIGH"):
+        # FEED: z ACC tylko EPWW N – jeden obszar z sektorami, w których kolejności jest N; J, R i T bez nikogo
+        owner = {s["letter"]: s["owner"] for s in board["sectors"] if s["layer"] == layer}
+        (g,) = out[layer]
+        assert g["owner"] == "EPWW_N_CTR" and g["inside"], layer
+        ids = {i[1] for i in g["ids"]}
+        assert ids == {k for k, v in owner.items() if v} & set(out["letters"]) and not ids & {"J", "R", "T"}, (layer, ids)
+        assert g["parts"] is not None and g["parts"] <= g["slices"], layer
+    # każdy sektor ze swoim stanowiskiem: tyle obszarów, ile stanowisk, etykieta zawsze w obszarze
+    nominal = {s["letter"]: s["nominal"] for s in board["sectors"] if s["layer"] == "LOW"}
+    assert sorted(g["owner"] for g in out["all"]) == sorted({nominal[x] for x in out["letters"]})
+    assert all(g["inside"] for g in out["all"]) and out["none"] == 0
+    # bez polygon-clipping: wycinki osobno (rysowane bez konturów), etykieta w jednym z nich
+    (n,) = out["nolib"]
+    assert n["parts"] is None and n["inside"] and n["ids"] == out["LOW"][0]["ids"]
+    # ścieżka SVG z dziurą (wypełnienie evenodd w radio.css)
+    assert out["path"].count("M") == 2 and out["path"].endswith("ZM2.0,2.0L4.0,2.0L4.0,4.0L2.0,4.0L2.0,2.0Z")
 
 
 LOA_SCRIPT = r"""
@@ -927,8 +996,8 @@ const tma = (owners, online) => Object.fromEntries(radio.tmaLines(parts(owners),
 const twr = (owners, online, twra = true) => radio.twrLines({ nominal: "EPWA_TWR", atis: "EPWA_ATIS", owners }, ctx(online), twra);
 console.log(JSON.stringify({
   off: html(lb({})),
-  acc: html({ cls: "acc", state: "off", id: "LB", ls: [], rt: "Sektor B", k: "B" }, false),
-  accOn: html({ cls: "acc", state: "on", id: "LB", ls: [{ fq: "130.675", by: "N" }], rt: "Sektor B", k: "B" }, false),
+  accOn: html({ ...radio.accLabel({ owner: "EPWW_N_CTR" }, "EPWW N", ctx({ EPWW_N_CTR: { callsign: "EPWW_N_CTR", frequency: "130.675" } })),
+    rt: "EPWW N" }, false),
   on: html(lb({ state: "on", id: "WA TWR", ls: [{ fq: "118.305", by: "" }] })),
   cov: html(lb({ state: "cov", id: "WA TWR", ls: [{ fq: "118.305", by: "↑APP" }] })),
   atis: html(lb({ id: "WA TWR", extra: atl })),
@@ -967,15 +1036,17 @@ def test_js_label_variants(tmp_path):
     def shown(h):  # bez dymku: to, co widać na etykiecie
         return re.sub(r'data-rt="[^"]*"', "", h)
     # bez nikogo: samo pełne ID, bez częstotliwości i bez "—" (sektor ACC, wieża, część TMA, FIS)
-    for key, x in (("off", out["off"]), ("acc", out["acc"]), ("appOff", out["appOff"]), ("fisOff", out["fis"][1])):
+    for key, x in (("off", out["off"]), ("appOff", out["appOff"]), ("fisOff", out["fis"][1])):
         assert x["v"] == [2], key
         (h,) = x["html"]
         assert not freqs.search(shown(h)) and "rb-fq" not in h and "—" not in h, key
     assert out["off"]["html"][0].endswith('<b class="rb-id">SY TWR</b></div>') and 'class="rb-lbl twr off cmp"' in out["off"]["html"][0]
-    assert '<b class="rb-id">LB</b></div>' in out["acc"]["html"][0] and 'data-k="B"' in out["acc"]["html"][0]
     assert '<b class="rb-id">KK RZ APP</b></div>' in out["appOff"]["html"][0]
-    # obsadzone: częstotliwość w pełnej i skróconej, nigdy samo ID; sektor ACC tylko pełna
-    assert out["accOn"]["v"] == [0] and '<span class="rb-fq">130.675</span>' in out["accOn"]["html"][0]
+    # obsadzone: częstotliwość w pełnej i skróconej, nigdy samo ID; sektory ACC stanowiska (runda 12): nazwa stanowiska
+    # i częstotliwość, tylko pełna, data-k = znak (podświetlenie obszaru stanowiska)
+    acc = out["accOn"]["html"][0]
+    assert out["accOn"]["v"] == [0] and '<b class="rb-id">EPWW N</b>' in acc and '<span class="rb-fq">130.675</span>' in acc
+    assert 'data-k="EPWW_N_CTR"' in acc and 'class="rb-lbl acc on"' in acc
     for key in ("on", "cov"):
         v, h = out[key]["v"], out[key]["html"]
         assert v == [0, 1] and all('<span class="rb-fq">118.305</span>' in x for x in h), key
@@ -989,7 +1060,7 @@ def test_js_label_variants(tmp_path):
     assert out["keep"]["v"] == [0, 1] and "WA APP" in out["keep"]["html"][0] and "↑WA APP" in out["keep"]["html"][1]
     assert not any(freqs.search(shown(x)) for x in out["keep"]["html"])
     # kolejność układania: ACC, potem z częstotliwością (APP, TWR – też sam ATIS, FIS), na końcu samo ID
-    assert out["acc"]["prio"] == out["accOn"]["prio"] == 0
+    assert out["accOn"]["prio"] == 0
     with_fq = [out[k]["prio"] for k in ("keep", "on", "cov", "atis")] + [out["fis"][0]["prio"]]
     bare = [out[k]["prio"] for k in ("appOff", "off")] + [out["fis"][1]["prio"]]
     assert max(with_fq) < min(bare), (with_fq, bare)

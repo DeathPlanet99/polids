@@ -117,7 +117,8 @@ export function drawFirs(layer, firs, onlineFirs = {}, { skip = ["EPWW"], labels
         .addTo(layer);
       return;
     }
-    const html = `<div class="atcb fir">${tag("CTR", "CTR")}<b class="ab-icao">${esc(id)}</b></div>`;
+    // same symulacje (sekcja Pozycje w MAP): przerywana ramka jak plakietka lotniska
+    const html = `<div class="atcb fir${on.every((c) => c.sim) ? " sim" : ""}">${tag("CTR", "CTR")}<b class="ab-icao">${esc(id)}</b></div>`;
     L.marker(at, { icon: L.divIcon({ className: "atcicon center", html, iconSize: null }), pane: panes.fir || "markerPane" })
       .bindTooltip(atcTooltip(id, f.properties.name || "", atcRows(on, "CTR", "CTR")),
         { direction: "top", offset: [0, -12], className: "atc-tip", opacity: 1, pane: panes.tip || "tooltipPane" })

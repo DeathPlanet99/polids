@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..config import settings
 from ..database import get_db
+from ..importers.sectors_geojson import NO_SECTORS
 from ..models import Aerodrome, AtcPosition, ImportLog, NavPoint, NbSector, Sector
 from ..services import radioboard
 from ..services.http_cache import UpstreamError
@@ -130,8 +131,8 @@ async def bookings(db: Session = Depends(get_db)):
 
 @router.get("/sectors")
 def sectors(db: Session = Depends(get_db)):
-    """Wszystkie wycinki sektorów z pliku .ese (EPWW i sąsiedzi) do mapy zasięgu: rodzaj (acc/tma/ctr/fis/nb),
-    nazwa zbiorcza i lista OWNER przełożona na znaki stanowisk (kolejność przejmowania)."""
+    """Wszystkie wycinki sektorów (EPWW i sąsiedzi, data/seed/sectors.geojson) do mapy zasięgu: rodzaj
+    (acc/tma/ctr/fis/nb), nazwa zbiorcza i lista OWNER przełożona na znaki stanowisk (kolejność przejmowania)."""
     by_id = {p.position_id: p.callsign for p in db.scalars(select(AtcPosition))}
     covered = covered_firs(db)
     feats = []
@@ -152,7 +153,7 @@ def sectors(db: Session = Depends(get_db)):
             "lower_ft": s.lower_ft, "upper_ft": s.upper_ft, "owners": owners_of(s), "owner_ids": [],
             "source": s.source}})
     return {"type": "FeatureCollection", "features": feats,
-            "note": None if feats else "Brak sektorów: zaimportuj plik .ese (data/import)."}
+            "note": None if feats else NO_SECTORS}
 
 
 # --- RADIO jako jedna strona (PANDORA): GET /api/radio/board
@@ -259,8 +260,8 @@ async def board(geo: bool = False, have: str = "", db: Session = Depends(get_db)
     EDMM, LKAA po lewej; UMKK, EYVL, UMMV, UKLV, LZBB po prawej): kafelki sektorów graniczących z EPWW jak w VACS
     (bez FMP) z wysokością VACS (alt, lo/hi w stopach) i właścicielem (owner); TMA w częściach wg stanowiska APP
     (WA APP, WA N APP, WA S APP), TMA proceduralne z wieżą lotniska.
-    owner/owners = pierwsze stanowisko online z kolejności (null/[] = nikt: na stronie samo ID sektora, TMA, CTR i FIS
-    EPWW, kafelek sąsiada bez częstotliwości).
+    owner/owners = pierwsze stanowisko online z kolejności (null/[] = nikt: na stronie sektora ACC nie ma, sektory
+    jednego stanowiska to jeden obszar; TMA, CTR i FIS EPWW samo ID, kafelek sąsiada bez częstotliwości).
     `ver`: wersja danych z importu. `geo=1` albo `have=<ver>` inne niż bieżąca: także geometria podglądów (granica
     EPWW, FIR-y w tle, wycinki ACC, TMA, CTR, FIS) – strona trzyma ją, dopóki `ver` się nie zmieni (np. po imporcie).
     Błąd VATSIM nie psuje tablicy: `net.ok=false` i komunikat, nikt online (EPWW: same ID; stosy sąsiadów bez

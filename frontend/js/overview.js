@@ -7,7 +7,7 @@
 //   5. Airport Monitor vIFF (przepustowość, ruch, loty z CTOT) + liczby lotów z sieci VATSIM.
 // Filtr stanowiska u góry: ACC / APP / TWR. APP i ACC zawężają panele do swoich lotnisk i pokazują checklistę
 // otwarcia stanowiska, TWR przeskakuje od razu do PRZEGLĄDU danego lotniska (onGoto).
-import { api, esc, h, lsGet, lsSet, ONLINE_EVENT } from "./api.js";
+import { api, esc, h, lsGet, lsSet, lvpState, lvpTip, ONLINE_EVENT } from "./api.js";
 import { colorize, wxLines } from "./tabs/meteo.js";
 import { renderChecklist } from "./checklist.js";
 
@@ -44,15 +44,14 @@ function tlPanel(d) {
 }
 
 // --- 2. METAR / TAF / LVP --------------------------------------------------------------------------------------
+// stan LVP z progami z AIP; dymek: progi trzech faz i źródło (lvpTip), przy stanie też powody
 function lvpChip(lvp) {
   if (!lvp) return "";
-  const th = lvp.thresholds;
-  // dymek w dwóch linijkach: w jednej nie mieścił się w panelu i był ucięty z prawej
-  const tip = th ? `LVP: RVR/widzialność < ${th.lvp.rvr_m} m lub podstawa ≤ ${th.lvp.ceiling_ft} ft\nprzygotowanie: < ${th.prep.rvr_m} m lub ≤ ${th.prep.ceiling_ft} ft` : "";
-  if (!lvp.state) return `<span class="ov-chip" data-tip="${esc(tip)}">LVP nie</span>`;
-  const cls = lvp.state === "LVP" ? "bad" : "warn";
-  const label = lvp.state === "LVP" ? "LVP W MOCY" : "PRZYGOT. LVP";
-  return `<span class="ov-chip ${cls}" data-tip="${esc([tip, ...(lvp.reasons || [])].join("\n"))}">${label}</span>`;
+  const s = lvpState(lvp), tip = lvpTip(lvp);
+  const short = { lvp: "LVP W MOCY", prep: "PRZYGOT. LVP", cancel: `LVP ODWOŁ. ${lvp.since || ""}`.trim(), na: "LVP n/d", off: "LVP nie" };
+  const cls = { lvp: "bad", prep: "warn", cancel: "ok", na: "na", off: "" }[s.cls];
+  const scope = lvp.scope === "DEP" && lvp.state ? " DEP" : "";
+  return `<span class="ov-chip ${cls}" data-tip="${esc([s.label, ...(lvp.reasons || []), tip].filter(Boolean).join("\n"))}">${esc(short[s.cls] + scope)}</span>`;
 }
 
 function wxRow(a, open) {
@@ -72,7 +71,7 @@ function wxRow(a, open) {
     </div>
     <div class="wx ov-metar">${colorize(a.metar)}</div>
     ${open ? `<div class="wx ov-taf">${a.taf ? wxLines("taf", a.taf) : colorize(null)}</div>` : ""}
-    ${a.lvp && a.lvp.state ? `<div class="ov-lvp-why">${(a.lvp.reasons || []).map(esc).join(" · ")}</div>` : ""}
+    ${a.lvp && a.lvp.state ? `<div class="ov-lvp-why${a.lvp.state === "CANCELLED" ? " ok" : ""}">${(a.lvp.reasons || []).map(esc).join(" · ")}</div>` : ""}
   </div>`;
 }
 

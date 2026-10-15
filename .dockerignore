@@ -16,5 +16,7 @@ Dockerfile
 docker-compose*.yml
 deploy
 scripts
+# skrypt sprawdzany przez test_aip_data (target test w Dockerfile)
+!scripts/fetch_ourairports.py
 *.md
 !data/**/README.md

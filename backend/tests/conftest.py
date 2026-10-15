@@ -20,3 +20,12 @@ def state(tmp_path, monkeypatch):
     access.reset()
     yield access
     access.reset()
+
+
+@pytest.fixture(autouse=True)
+def lvp_memory():
+    """Stan LVP ma histerezę (pamięć poprzedniego METAR); każdy test zaczyna bez historii."""
+    from backend.app.services import lvp
+    lvp.reset_memory()
+    yield
+    lvp.reset_memory()

@@ -9,10 +9,12 @@ from sqlalchemy.orm import Session
 from ..config import DATA_DIR, settings
 from ..database import get_db
 from ..importers.ese import parse_vfr_points
+from ..importers.sectors_geojson import NO_SECTORS
 from ..importers.sct import parse_line_groups, read_text, sections
 from ..models import AirwaySegment, AtcPosition, NavPoint, Sector
 from ..services.http_cache import UpstreamError
 from ..services.neighbours import covered_firs, nb_positions, nb_sectors, owners_of
+from ..services.positions import position_tree
 from ..services.route import RouteResolver
 from ..services.vatsim import get_feed, match_positions
 
@@ -130,15 +132,22 @@ def positions(db: Session = Depends(get_db)):
              "prefix": p.prefix} for p in db.scalars(select(AtcPosition).order_by(AtcPosition.callsign))]
 
 
+@router.get("/positions/all")
+def positions_all(db: Session = Depends(get_db)):
+    """Wszystkie stanowiska (plik .ese EPWW, vacs-data, pliki .ese sąsiadów) do drzewa "Pozycje" w MAP:
+    fir (EPWW albo FIR sąsiada), group (ACC, FIS albo ICAO lotniska), order (APP, TWR, GND, DEL, ATIS);
+    firs: FIR-y w kolejności drzewa; airports: nazwa i położenie lotnisk z grup."""
+    return position_tree(db)
+
+
 @router.get("/sectors")
 def sectors(fir: str = "EPWW", level_ft: int | None = Query(None, ge=-2000, le=100000), db: Session = Depends(get_db)):
-    """Sektory z pliku .ese jako GeoJSON. Bez zaimportowanego .ese zwraca plik data/seed/sectors.geojson."""
+    """Sektory jednego FIR-u z pliku EPWW (data/seed/sectors.geojson, source EPWW) jako GeoJSON. Bez sektorów
+    (brak pliku) pusta lista z `note`."""
     stmt = select(Sector).where(Sector.fir == fir.upper())
     if level_ft is not None:
         stmt = stmt.where(Sector.lower_ft <= level_ft, Sector.upper_ft > level_ft)
     rows = db.scalars(stmt).all()
-    if not rows:
-        return json.loads((settings.seed_dir / "sectors.geojson").read_text("utf-8"))
     pos = _positions(db)
     feats = []
     for s in rows:
@@ -148,7 +157,11 @@ def sectors(fir: str = "EPWW", level_ft: int | None = Query(None, ge=-2000, le=1
             "name": s.name, "lower_ft": s.lower_ft, "upper_ft": s.upper_ft, "owners": owners,
             "callsign": first.callsign if first else None, "frequency": first.frequency if first else None,
         }})
-    return {"type": "FeatureCollection", "features": feats}
+    out = {"type": "FeatureCollection", "features": feats}
+    # note tylko przy pustej tabeli (brak pliku), nie dla FIR-u bez sektorów z pliku EPWW (np. EDGG)
+    if not feats and level_ft is None and db.scalar(select(Sector.id).limit(1)) is None:
+        out["note"] = NO_SECTORS
+    return out
 
 
 @lru_cache(maxsize=1)
@@ -222,8 +235,9 @@ EP_CITY = {
     "EPPT": "Piotrków Trybunalski", "EPZR": "Żar",
 }
 FIS_REGION = {"WAW": "Warszawa", "GDN": "Gdańsk", "KRK": "Kraków", "POZ": "Poznań"}
-NB_FIR = {"EDMM": "München", "EDWW": "Bremen", "EKDK": "København", "ESAA": "Sverige", "EYVL": "Vilnius",
-          "LKAA": "Praha", "LZBB": "Bratislava", "UKLV": "Lviv", "UMKK": "Kaliningrad", "UMMV": "Minsk"}
+NB_FIR = {"EDGG": "Langen", "EDMM": "München", "EDWW": "Bremen", "EKDK": "København", "ESAA": "Sverige",
+          "EYVL": "Vilnius", "LKAA": "Praha", "LZBB": "Bratislava", "UKLV": "Lviv", "UMKK": "Kaliningrad",
+          "UMMV": "Minsk"}
 
 
 def slice_kind(fir: str, name: str) -> tuple[str, str] | None:
@@ -280,12 +294,13 @@ def slice_label(fir: str, name: str) -> str:
 
 @router.get("/slices")
 def slices(level_ft: int | None = None, db: Session = Depends(get_db)):
-    """Wszystkie wycinki sektorów z pliku .ese (EPWW i sąsiedzi) z rodzajem przestrzeni do warstw MAP.
+    """Wszystkie wycinki sektorów (EPWW i sąsiedzi, data/seed/sectors.geojson z plików .ese) z rodzajem przestrzeni
+    do warstw MAP.
 
     kind: acc | tma | ctr | fis | cta | atz | nb (FIR sąsiedni) | oth; group: litera sektora ACC, ICAO lotniska,
     rejon FIS, numer CTA albo FIR; group_label: nazwa przestrzeni (TMA Poznań N i S osobno, jak w tabeli om).
     Z level_ft tylko wycinki, których granice obejmują ten poziom (dolna <= poziom < górna).
-    Bez zaimportowanego pliku .ese pusta lista z `note`."""
+    Bez sektorów (brak pliku sectors.geojson) pusta lista z `note`."""
     stmt = select(Sector).order_by(Sector.id)
     if level_ft is not None:
         stmt = stmt.where(Sector.lower_ft <= level_ft, Sector.upper_ft > level_ft)
@@ -322,5 +337,5 @@ def slices(level_ft: int | None = None, db: Session = Depends(get_db)):
             "callsign": first, "frequency": freq.get(first) if first else None,
             "source": s.source, "active": (s.active or "").split(),
         }})
-    note = None if feats or level_ft is not None else "Brak sektorów: zaimportuj plik .ese (data/import)."
+    note = None if feats or level_ft is not None else NO_SECTORS
     return {"type": "FeatureCollection", "features": feats, "limits_source": "ese", "note": note}

@@ -23,8 +23,8 @@ const pick = (s) => { const a = m.autoRunways(s); return { mode: m.autoMode(s.ru
   ...Object.fromEntries(Object.entries(a).map(([k, v]) => [k, [v.des, v.src]])), why: a.dep.why }; };
 const cases = {
   atisSplit: st({ arr: "33", dep: "29", source: "ATIS" }, epwa(310, 14), { arr: "33", dep: "33" }),
-  atisOneLvp: st({ arr: "29", dep: "29", source: "ATIS" }, epwa(310, 14), { arr: "33", dep: "33", reason: "LVP" }),
-  atisOneCalm: st({ arr: "29", dep: "29", source: "ATIS" }, epwa(300, 3), { arr: "33", dep: "29", reason: "Wiatr < 5 kt" }),
+  atisOneLvp: st({ arr: "29", dep: "29", source: "ATIS" }, epwa(310, 14), { arr: "33", dep: "33", reason: "Warunki IMC: kierunek z ILS" }),
+  atisOneCalm: st({ arr: "29", dep: "29", source: "ATIS" }, epwa(300, 3), { arr: "33", dep: "29", reason: "ARR 33 wg AIP (H24); DEP 29 wg AIP (H24)" }),
   atisEast: st({ arr: "11", dep: "11", source: "ATIS" }, epwa(130, 15), { arr: "11", dep: "11" }),
   cfgTail: st({ arr: "29", dep: "29", source: "ATIS" }, epwa(150, 15), { arr: "15", dep: "15" }),
   noCfg: st({ arr: "29", dep: "29", source: "ATIS" }, epwa(300, 12), {}, { arr: null, dep: null }),
@@ -90,10 +90,10 @@ def test_split_from_atis(awos):
 
 def test_second_runway_when_atis_has_one(awos):
     """ATIS z jednym pasem (2 PASY wybrane ręcznie): pas z ATIS zostaje, drugi z rozdziału, który go zawiera."""
-    # sugestia systemu przy słabym wietrze: ARR 33 / DEP 29
+    # sugestia systemu (pasy preferowane z AIP AD 2.21): ARR 33 / DEP 29
     c = awos["atisOneCalm"]
     assert (c["arr"], c["dep"], c["rwy"]) == (["33", "sugestia"], ["29", "ATIS"], ["29", "ATIS"])
-    # sugestia bez rozdziału (LVP): typowa konfiguracja EPWA z runway_config.json
+    # sugestia bez rozdziału (jeden pas do lądowania i startu): konfiguracja preferowana EPWA z runway_config.json
     lvp = awos["atisOneLvp"]
     assert (lvp["arr"], lvp["dep"]) == (["33", "auto"], ["29", "ATIS"])
     # pas spoza konfiguracji: do lądowania pas z ATIS, do startu inny pas z największą składową czołową

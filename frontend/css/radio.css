@@ -38,7 +38,7 @@
 .rb-high .rb-top { justify-content: flex-end; padding-right: 8%; }
 .rb-high .rb-bot { justify-content: center; }
 
-/* --- podgląd: tło FIR-ów, FIR EPWW, sektory ACC warstwy, warstwy APP/TWR/FIS (tylko LOW) */
+/* --- podgląd: tło FIR-ów, FIR EPWW, obszary stanowisk ACC warstwy, warstwy APP/TWR/FIS (tylko LOW) */
 .rb-svg path { fill: none; stroke-linejoin: round; }
 .rb-firs path { stroke: #1d261d; stroke-width: 1; }
 .rb-land { fill: #060906; }
@@ -46,9 +46,12 @@
 .rb-midmap .rb-accg path { stroke: #8d968f; }
 .rb-midmap .rb-accg path.st { fill: rgba(95, 210, 58, .1); }
 .rb-midmap .rb-border { stroke: #c9d0c9; }
-.rb-accg path { stroke: #435243; stroke-width: 1; }
+/* sektory ACC (runda 12): jeden obszar na stanowisko (suma wycinków z dziurami: evenodd), sektorów bez nikogo nie ma;
+   fb = po błędzie sumy same wypełnienia wycinków, bez konturów między nimi */
+.rb-accg path { stroke: #5a7d5a; stroke-width: 1; fill-rule: evenodd; }
 .rb-accg path.st { fill: rgba(95, 210, 58, .07); }
-/* sektor pod etykietą: jaśniejszy (obsadzony zostaje zielony, tylko mocniej) */
+.rb-accg path.fb { stroke: none; }
+/* obszar pod etykietą: jaśniejszy (zostaje zielony, tylko mocniej) */
 .rb-accg path.hl { stroke: #fff; stroke-width: 2; fill: rgba(255, 255, 255, .13); }
 .rb-accg path.st.hl { fill: rgba(95, 210, 58, .24); }
 .rb-border { stroke: #a9b3a9; stroke-width: 1.4; }

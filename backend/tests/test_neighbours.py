@@ -11,10 +11,12 @@ from sqlalchemy.pool import StaticPool
 from backend.app.config import DATA_DIR
 from backend.app.database import Base
 from backend.app.importers.ese import parse_ese, split_sector_name
-from backend.app.importers.neighbours import NB_SOURCES, pick_runways, rwy_active, select_sectors, simplify_ring, source_key
+from backend.app.importers.neighbours import (NB_SOURCES, pack_positions, pick_runways, rwy_active, select_sectors,
+                                              simplify_line, source_key)
 from backend.app.importers.sct import read_text
 from backend.app.models import AtcPosition, NbPosition, NbSector, Sector
 from backend.app.routers.nav import slices
+from backend.app.services.neighbours import nb_positions
 from backend.app.services.vatsim import controller_info, match_positions
 
 NB_DIR = DATA_DIR / "import" / "neighbours"
@@ -26,6 +28,9 @@ LKAA_N_CTR:Praha Radar:127.825:C:N:LKAA:CTR:::1460:1467
 LKAA_CTR:Praha Radar:132.890:L::LKAA:CTR:::1460:1467
 LKPR_APP:Praha Approach:120.530:PRA::LKPR:APP:::1460:1467
 EPWW_C_CTR:Warszawa Radar:133.475:WC:C:EPWW:CTR:::0000:0000
+LKPR_TWR:Praha Tower:118.105:PRT::LKPR:TWR:::1460:1467
+LZIB_TWR:Bratislava Tower:118.300:IBT::LZIB:TWR:::0000:0000
+EUC-ME_FSS:Eurocontrol Central:135.125:ECM::EUC-ME:FSS:::0000:0000
 [AIRSPACE]
 SECTORLINE:1
 COORD:N050.00.00.000:E015.00.00.000
@@ -72,6 +77,7 @@ ALTOWNER:Praha:PRA
 BORDER:1:2
 
 SECTOR:LKAA TECH LOW 000 095:00000:09500
+OWNER:ECM
 BORDER:1:2
 
 SECTOR:LKAA LKBE_ATZ 000 040:00000:04000
@@ -127,6 +133,17 @@ def test_select_sectors_takes_only_home_fir_and_resolves_owners_per_file():
     assert {p["callsign"] for p in positions} == {"LKAA_N_CTR", "LKAA_CTR", "LKPR_APP"}  # bez EP**
 
 
+def test_pack_positions_airports_and_owners():
+    """Do tabeli nb_positions: stanowiska lotnisk i FIR-u pakietu (LKPR_TWR bez żadnego sektora – karta lotniska LKPR)
+    i stanowiska z list OWNER sektorów FIR-u pakietu (EUC-ME_FSS z wycinka technicznego); bez EP** i bez cudzych
+    lotnisk (LZIB_TWR, kopia z pakietu słowackiego)."""
+    data = parse_ese(NB_TEXT, airport=lambda icao: (49.94, 14.03))
+    got = {p["callsign"]: p for p in pack_positions(data, "LKAA")}
+    assert set(got) == {"LKAA_N_CTR", "LKAA_CTR", "LKPR_APP", "LKPR_TWR", "EUC-ME_FSS"}
+    assert got["LKPR_TWR"]["frequency"] == "118.105" and got["LKPR_TWR"]["prefix"] == "LKPR"
+    assert all(src.get("airports") for src in NB_SOURCES.values())
+
+
 def test_select_sectors_outside_region_and_above_fl660():
     text = NB_TEXT.replace("N050.00.00.000:E015", "N040.00.00.000:E005").replace("N051.00.00.000:E015", "N041.00.00.000:E005")
     text = text.replace("N050.00.00.000:E016", "N040.00.00.000:E006").replace("N051.00.00.000:E016", "N041.00.00.000:E006")
@@ -153,10 +170,13 @@ def test_source_key():
     assert source_key(Path("EPWW-Sector.ese")) is None
 
 
-def test_simplify_ring_keeps_closed_valid_ring():
-    ring = [[20 + i / 100, 52 + (0.00001 if i % 2 else 0)] for i in range(101)] + [[21, 53], [20, 53], [20, 52]]
-    out = simplify_ring(ring)
-    assert out[0] == out[-1] and 4 <= len(out) < 10 and [21, 53] in out
+def test_simplify_line_keeps_ends_and_closed_circles():
+    line = [(52 + (0.00001 if i % 2 else 0), 20 + i / 100) for i in range(101)] + [(53, 21), (53, 20)]
+    out = simplify_line(line)
+    assert out[0] == line[0] and out[-1] == line[-1] and 3 <= len(out) < 8 and (53, 21) in out
+    from backend.app.importers.ese import _circle
+    ring = simplify_line(_circle(52.0, 20.0, 5))
+    assert ring[0] == ring[-1] and 8 <= len(ring) < 40
 
 
 def test_match_positions_index_same_as_full_scan():
@@ -219,13 +239,34 @@ def test_slices_replace_epww_copies_of_covered_firs(db):
     assert [p["source"] for p in feats if p["fir"] == "UMMV"] == ["EPWW"]
 
 
+def test_nb_positions_only_sector_owners_unless_airports(db):
+    """RADIO, MAP i dopasowanie zalogowanych: tylko stanowiska z list OWNER sektorów sąsiada z tego samego pliku
+    (jak przed zapisywaniem stanowisk lotnisk); karta lotniska (airports=True): wszystkie, po jednym na znak."""
+    db.execute(insert(NbSector), [{"source": "EDWW", "fir": "EDWW", "name": "EDWWFLG1", "lower_ft": 16500,
+                                   "upper_ft": 28500, "owners": "EDWW_FLG_CTR", "active": "", "geometry": SQUARE},
+                                  {"source": "EDGG", "fir": "EDGG", "name": "HEF1", "lower_ft": 0, "upper_ft": 24500,
+                                   "owners": "EDGG_HEF_CTR:EDDF_APP", "active": "", "geometry": SQUARE}])
+    db.execute(insert(NbPosition), [{"source": src, "callsign": cs, "name": cs, "frequency": f, "prefix": cs[:4]}
+                                    for src, cs, f in [("EDWW", "EDWW_FLG_CTR", "136.450"), ("EDWW", "EDDH_TWR", "118.505"),
+                                                       ("EDWW", "EDDF_APP", "120.800"), ("EDGG", "EDGG_HEF_CTR", "123.250"),
+                                                       ("EDGG", "EDDF_APP", "120.805"), ("EDGG", "EDDF_TWR", "119.900")]])
+    db.commit()
+    by = {p["callsign"]: p for p in nb_positions(db)}
+    # EDDF_APP z pliku EDGG (tam jest w kolejności przejmowania), choć pakiet EDWW jest wcześniej w NB_SOURCES
+    assert set(by) == {"EDWW_FLG_CTR", "EDGG_HEF_CTR", "EDDF_APP"} and by["EDDF_APP"]["source"] == "EDGG"
+    assert by["EDDF_APP"]["frequency"] == "120.805" and by["EDGG_HEF_CTR"]["fir"] == "EDGG"
+    allp = {p["callsign"]: p for p in nb_positions(db, airports=True)}
+    assert set(allp) == {"EDWW_FLG_CTR", "EDDH_TWR", "EDDF_APP", "EDGG_HEF_CTR", "EDDF_TWR"}
+    assert allp["EDDF_APP"]["source"] == "EDWW"  # bez filtra: pierwszy plik w kolejności NB_SOURCES
+
+
 @pytest.mark.skipif(not NB_DIR.is_dir(), reason="brak plików sąsiadów")
 def test_real_neighbour_files():
     """Pliki sąsiadów z repozytorium: każdy pakiet daje sektory swojego FIR-u w rejonie Polski, z właścicielami
     rozwiązanymi w obrębie pliku, bez sektorów EPWW (pakiet ukraiński ma nieaktualne polskie sektory)."""
     files = {source_key(p): p for p in NB_DIR.glob("*.ese")}
     assert set(files) == set(NB_SOURCES)
-    known = {"EDWW": "EDWW_FLG_CTR", "EDMM": "EDMM_MEI_CTR", "ESAA": "ESMM_7_CTR", "EYVL": "EYVL_CTR",
+    known = {"EDWW": "EDWW_FLG_CTR", "EDMM": "EDMM_MEI_CTR", "EDGG": "EDGG_HEF_CTR", "ESAA": "ESMM_7_CTR", "EYVL": "EYVL_CTR",
              "EKDK": "EKDK_C_CTR", "LKAA": "LKAA_N_CTR", "LZBB": "LZBB_CTR", "UKBV": "UKLV_CTR", "ULLL": "UMKK_CTR"}
     for key, path in files.items():
         sectors, positions = select_sectors(parse_ese(read_text(path)), key)
@@ -240,7 +281,8 @@ def test_real_neighbour_files():
 
 
 def test_neighbour_file_removed_and_restored(db, tmp_path, monkeypatch):
-    """Usunięty plik sąsiada znika z bazy, a przywrócony (z tą samą datą modyfikacji) wczytuje się ponownie."""
+    """Stanowiska usuniętego pliku sąsiada znikają z bazy, a przywrócony (z tą samą datą modyfikacji) wczytuje się
+    ponownie (sektory sąsiadów są w sectors.geojson)."""
     import shutil
 
     from sqlalchemy import func, select
@@ -249,7 +291,7 @@ def test_neighbour_file_removed_and_restored(db, tmp_path, monkeypatch):
     monkeypatch.setattr(seed, "NB_DIR", tmp_path)
     f = tmp_path / "SF_-_LKAA.ESE"
     f.write_text(NB_TEXT, encoding="utf-8")
-    count = lambda: db.scalar(select(func.count()).select_from(NbSector))  # noqa: E731
+    count = lambda: db.scalar(select(func.count()).select_from(NbPosition))  # noqa: E731
     seed.import_neighbours(db)
     n, st = count(), f.stat().st_mtime
     assert n > 0

@@ -50,6 +50,45 @@
 .pk-on { flex: none; color: #9dff6e; letter-spacing: 0; }
 .pk-i .pk-who { color: #9dff6e; }
 
+/* --- Pozycje (runda 12): drzewo FIR → ACC / FIS / lotniska → stanowiska; zaznaczone = zestaw aktywny.
+   Zalogowany: zielona nazwa; symulowany: żółty "SYM"; zalogowany ukryty: przekreślony; offline: szary */
+.pos-sum { margin-left: auto; color: var(--muted); font-weight: 400; letter-spacing: 0; text-transform: none; font-size: 11px; }
+.pos-bar { display: flex; gap: 3px; margin: 0 0 4px; }
+.pos-bar .pos-q { flex: 1; min-width: 0; padding: 1px 5px; font: 11px var(--mono); }
+.pos-bar button { flex: none; padding: 1px 6px; background: #0d110d; border: 1px solid #2f3a2f; border-radius: 2px; color: #c3cdc3;
+  font: 11px var(--mono); cursor: pointer; }
+.pos-bar button:hover:not(:disabled) { border-color: var(--green-hi); color: #fff; }
+.pos-bar button:disabled { color: #535b53; cursor: default; }
+.pos-state { margin: 0 0 4px; }
+.pos-tree { border: 1px solid var(--line); background: #070907; }
+.pt-list { max-height: 360px; overflow: auto; }
+.pt-f, .pt-g, .pt-i { display: flex; align-items: center; gap: 6px; padding: 2px 6px; cursor: pointer; font: 11px/1.35 var(--mono); }
+.pt-f { background: var(--head); border-bottom: 1px solid #1b241b; color: var(--green-text); letter-spacing: .5px; }
+/* rozwinięty nagłówek FIR-u (.pt-fw) i grupy (.pt-gw) przyklejony tylko w obrębie swojego pojemnika */
+.pt-f.open { position: sticky; top: 0; z-index: 2; border-bottom-color: var(--head-line); }
+.pt-g { padding-left: 16px; border-bottom: 1px solid #141b14; color: #c3cdc3; }
+.pt-g.open { position: sticky; top: 19px; z-index: 1; background: #0b100b; }
+.pt-f:hover, .pt-g:hover { background: var(--row-hover); }
+.pt-f:hover b, .pt-g:hover b { color: #fff; }
+.pt-f i, .pt-g i { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: normal; color: var(--muted);
+  letter-spacing: 0; }
+.pt-f small, .pt-g small { flex: none; min-width: 16px; text-align: right; color: var(--muted); letter-spacing: 0; }
+.pt-on { flex: none; color: #9dff6e; letter-spacing: 0; }
+.pt-sim { flex: none; color: var(--yellow); letter-spacing: 0; }
+.pt-i { padding-left: 30px; border-bottom: 1px solid #111611; color: #8d978d; }
+.pt-i:hover { background: var(--row-hover); }
+.pt-i span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-i small { flex: none; color: var(--muted); }
+.pt-i b { flex: none; padding: 0 3px; border: 1px dashed var(--yellow); color: var(--yellow); font-size: 10px; line-height: 12px; }
+.pt-i.on span { color: #9dff6e; }
+.pt-i.sim span { color: #fff; }
+.pt-i.hid span { color: #9dff6e; text-decoration: line-through; opacity: .65; }
+.pt-i input[type=checkbox] { flex: none; width: 12px; height: 12px; margin: 0; accent-color: var(--green-hi); cursor: pointer; }
+.pos-tree .pk-none { padding: 6px; }
+/* stanowisko symulowane na mapie: "SYM" w etykiecie, plakietka lotniska z przerywaną ramką */
+.pos-sim { padding: 0 2px; border: 1px dashed var(--yellow); color: var(--yellow); font-weight: 400; }
+.atcb.sim { border-style: dashed; border-color: var(--yellow); }
+
 /* --- próbki kolorów warstw (panel i legenda); TMA / CTA / CTR bez APP / TWR to sam kontur,
    obsadzone: kontur i wypełnienie w kolorze stanowiska (próbka "own") */
 .swatch.idle { border: 1px solid #5c665c; }
@@ -129,3 +168,4 @@
 .ac-key .sym { width: 14px; height: 14px; }
 .acsym.dep, .acsym.arr, .acsym.trn, .acsym.sel { stroke: #000; }
 .as-card .flbox input { width: 58px; }
+.map.light .pos-sim, .map.light .atcb.sim { color: #7a6100; border-color: #7a6100; }

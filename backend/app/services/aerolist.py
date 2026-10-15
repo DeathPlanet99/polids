@@ -2,8 +2,9 @@
 i stanowiska lotniska do karty lotniska zagranicznego.
 
 Lotniska: navdata (data/import/icao.txt, tabela nav_points, source "icao") uzupełnione o data/seed/airports.csv
-(tabela aerodromes, tylko EP) i o kilka lądowisk z listy PANDORY (EP_EXTRA). Nazwy WIELKIMI LITERAMI bez polskich
-znaków, jak w PANDORZE (np. "GDANSK LECH WALESA"). Lądowiska śmigłowców przy szpitalach i platformy morskie są pomijane.
+(tabela aerodromes, tylko EP) i o kilka lądowisk z listy PANDORY (EP_EXTRA) i z niemieckich plików .ese (ED_EXTRA).
+Nazwy WIELKIMI LITERAMI bez polskich znaków, jak w PANDORZE (np. "GDANSK LECH WALESA"). Lądowiska śmigłowców przy
+szpitalach i platformy morskie są pomijane.
 Każde lotnisko ma rank (0 główne lotnisko miasta, 1 ze stanowiskami ATC, 2 pozostałe): przy kilku trafieniach
 wyszukiwarki Enter otwiera to ważniejsze ("warszawa" → EPWA, nie EPBC), oraz alias (inne nazwy do wyszukiwania).
 
@@ -21,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Aerodrome, NavPoint
 from .positions import all_positions
+from .radio import INFO_MID
 from .vatsim import FACILITY_TYPES, controller_info, fir_boundaries, match_positions
 
 # kolejność podzakładek AERODROME (po "0" = OVERVIEW)
@@ -85,6 +87,9 @@ HELI = frozenset(("ESHG", "ESEG"))   # STOCKHOLM/GAMLA STAN, GALLIVARE/VASSARA
 
 # Lądowiska z listy PANDORY (zdjęcie od Marka, 12.10.2026), których nie ma w navdata ani w airports.csv
 EP_EXTRA = {"EPGB": "GOLUBIE", "EPGN": "GLINIANY LAS", "EPGO": "GORASZKA", "EPGW": "ULIM"}
+# Lądowiska ze stanowiskami w niemieckich plikach .ese, których nie ma w navdata (bez współrzędnych): nazwa ze
+# stanowiska (EDBW_I_TWR "Werneuchen Radio", EDHP_I_TWR "Pellworm Radio" w pakiecie EDWW), żeby lista ED miała wszystkie
+ED_EXTRA = {"EDBW": "WERNEUCHEN", "EDHP": "PELLWORM"}
 
 # lotniska z samego airports.csv: bez słów ogólnych ("Airfield", "Military Air Base")
 _GENERIC = re.compile(r"\b(INTERNATIONAL|AIRPORT|AIRFIELD|AIRSTRIP|GLIDER FIELD|FIELD|MILITARY|NAVAL|AIR BASE|PRIVATE)\b")
@@ -203,7 +208,7 @@ def build_lists(nav: list[tuple[str, str | None, float, float]], csv: list[Aerod
     for icao, a in by_csv.items():   # lotniska tylko z airports.csv (EPGM, EPKB, EPNA…)
         if icao not in seen and fir_key(icao, a.lat, a.lon, rings):
             seen[icao] = entry(icao, display_name(icao, None, a.name), kind_of(icao, None, a), a.lat, a.lon, atc)
-    for icao, name in EP_EXTRA.items():
+    for icao, name in (EP_EXTRA | ED_EXTRA).items():
         seen.setdefault(icao, entry(icao, name, None, None, None, atc))
     out: dict[str, list[dict]] = {k: [] for k in FIR_KEYS}
     for icao in sorted(seen):
@@ -224,7 +229,8 @@ def fir_lists(db: Session) -> dict[str, list[dict]]:
         nav = db.execute(select(NavPoint.ident, NavPoint.name, NavPoint.lat, NavPoint.lon)
                          .where(NavPoint.kind == "AD", NavPoint.source == "icao")).all()
         _cache.update(sig=sig, t=time.monotonic(),
-                      lists=build_lists(nav, list(db.scalars(select(Aerodrome))), atc=atc_airports(all_positions(db))))
+                      lists=build_lists(nav, list(db.scalars(select(Aerodrome))),
+                                        atc=atc_airports(all_positions(db, airports=True))))
     return _cache["lists"]
 
 
@@ -246,12 +252,14 @@ def airport_entry(db: Session, icao: str) -> dict | None:
 
 
 def atc_airports(positions: list[dict]) -> set[str]:
-    """Lotniska, które mają w danych stanowisko APP, TWR, GND, DEL albo ATIS (np. EDDB_N_TWR → EDDB)."""
+    """Lotniska, które mają w danych stanowisko APP, TWR, GND, DEL albo ATIS (np. EDDB_N_TWR → EDDB). Stanowiska
+    informacji ("Radio", "Information": EDHF_I_TWR, EPBC_I_TWR) to nie ATC: w plikach niemieckich ma je ponad 400
+    lądowisk i przy wyszukiwaniu wypierałyby lotniska z wieżą ("wolf" → EDVE, nie EDHF). Karty lotnisk je pokazują."""
     out = set()
     for p in positions:
-        cs = (p.get("callsign") or "").upper()
-        if _type(cs, cs.split("_")[0]):
-            out.add(cs.split("_")[0])
+        parts = (p.get("callsign") or "").upper().split("_")
+        if _type("_".join(parts), parts[0]) and not INFO_MID & set(parts[1:-1]):
+            out.add(parts[0])
     return out
 
 
